@@ -24,7 +24,7 @@
  * Dependencies:
  * - nuheat_quote_suitelet.js (imported as module for generateAndSaveHTML)
  * - Custom field: custbody_test_new_quote (on Estimate record)
- * - File Cabinet folder: Quote HTML Files (ID: 21719365)
+ * - File Cabinet folder: Quote HTML Files (ID: 26895192)
  * 
  * Deployment:
  * - Script ID: customscript_nuheat_quote_gen_ss

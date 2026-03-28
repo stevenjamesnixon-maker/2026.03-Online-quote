@@ -148,13 +148,20 @@ A multi-component SuiteScript 2.1 solution:
 | Setting | Value |
 |---------|-------|
 | Environment | Sandbox (472052_SB1) |
-| File Cabinet Folder | 21719365 |
+| File Cabinet Folder | 26895192 |
 | URL Field | `custbody_test_new_quote` |
 | URL Strategy | Proxy (default) |
 | `USE_PROXY_URL` | `true` |
 | Max File Versions | 5 |
 | Viewer Script ID | 3286 |
 | Viewer Deploy ID | 1 |
+
+> **Environment note — File Cabinet Folder IDs**
+> | Environment | Folder ID |
+> |-------------|-----------|
+> | Sandbox (472052_SB1) | 21719365 |
+> | Production | 26895192 |
+> If switching between environments, update `QUOTE_HTML_FOLDER_ID` in `src/nuheat_quote_viewer_sl.js` and the equivalent constant in `src/nuheat_quote_suitelet.js` accordingly.
 
 ### What Works
 
@@ -267,7 +274,7 @@ src/
 
 ```javascript
 var SCRIPT_VERSION = '4.3.53';
-var QUOTE_HTML_FOLDER_ID = 21719365;
+var QUOTE_HTML_FOLDER_ID = 26895192;
 var MAX_FILE_VERSIONS = 5;
 var THERMOSTAT_OPTION_ITEM_IDS = ['DSSB5-C', 'neoHub+-C', 'Neostatwv2-C', 'NeoAirwv3-C'];
 var RECOMMENDED_ITEM_ID = 'neoHub+-C';

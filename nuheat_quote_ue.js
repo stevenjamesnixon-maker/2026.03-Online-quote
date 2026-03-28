@@ -68,7 +68,7 @@
  *   IMPORTANT: The Suitelet MUST be v4.3.50 or later to avoid SSS_INVALID_SRCH_COL error.
  * - nuheat_quote_cs.js (client script for button handlers)
  * - Custom field: custbody_test_new_quote (on Estimate record)
- * - File Cabinet folder: Quote HTML Files (ID: 21719365)
+ * - File Cabinet folder: Quote HTML Files (ID: 26895192)
  * 
  * Architecture Note:
  * -----------------

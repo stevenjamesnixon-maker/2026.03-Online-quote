@@ -47,7 +47,7 @@
  * Dependencies:
  * - HTML files stored in File Cabinet folder: SuiteScripts > NuHeat > Quote HTML Files
  * - Filename pattern: quote_{quoteId}_{opportunityId}_{timestamp}.html
- * - Folder ID: 21719365
+ * - Folder ID: 26895192
  */
 
 define(['N/search', 'N/file', 'N/log', 'N/error', 'N/runtime'],
@@ -57,7 +57,7 @@ define(['N/search', 'N/file', 'N/log', 'N/error', 'N/runtime'],
         // CONFIGURATION
         // =====================================================================
         var SCRIPT_VERSION = '1.1.0';
-        var QUOTE_HTML_FOLDER_ID = 21719365;
+        var QUOTE_HTML_FOLDER_ID = 26895192;
 
         // =====================================================================
         // MAIN ENTRY POINT

@@ -45,7 +45,7 @@ Opportunity ──▶ Send Quote SL ──▶ Master Proposal ──▶ HTML Fil
 1. **Trigger** — Estimate saved or "Regen quote" clicked
 2. **Load** — Quote data extracted from Estimate record
 3. **Render** — Self-contained HTML generated with embedded CSS and base64 logo
-4. **Save** — HTML file stored in File Cabinet (folder 21719365)
+4. **Save** — HTML file stored in File Cabinet (folder 26895192)
 5. **URL** — Stable proxy URL stored on Estimate record
 
 ---
@@ -163,7 +163,7 @@ See [Configuration Checklist](docs/CONFIGURATION_CHECKLIST.md) for the full list
 
 | Setting | Value |
 |---------|-------|
-| File Cabinet Folder ID | `21719365` |
+| File Cabinet Folder ID | `26895192` |
 | Folder Path | `SuiteScripts > NuHeat > Quote HTML Files` |
 | Quote URL Field | `custbody_test_new_quote` |
 | Viewer Script ID | `3286` / `customscript_nuheat_quote_viewer` |

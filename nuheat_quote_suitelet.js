@@ -38,9 +38,9 @@ define(['N/record', 'N/search', 'N/log', 'N/format', 'N/error', 'N/runtime', 'N/
         // CONFIGURATION FOR HTML GENERATION (v4.0.0)
         // =====================================================================
         // Folder: SuiteScripts > NuHeat > Quote HTML Files
-        // Folder ID: 21719365
+        // Folder ID: 26895192
         // Make sure the folder has "Available Without Login" permission
-        var QUOTE_HTML_FOLDER_ID = 21719365;
+        var QUOTE_HTML_FOLDER_ID = 26895192;
 
         // =====================================================================
         // PRODUCT IMAGE SPECIFICATIONS (v3.7.0)
