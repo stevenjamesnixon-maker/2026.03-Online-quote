@@ -138,7 +138,7 @@ A multi-component SuiteScript 2.1 solution:
 | Quote CS | v4.0.6 | `src/nuheat_quote_cs.js` | ✅ Production ready |
 | Quote Viewer | v1.1.0 | `src/nuheat_quote_viewer_sl.js` | ✅ Production ready |
 | Scheduled Script | v1.0.0 | `src/nuheat_quote_generator_ss.js` | ✅ Production ready |
-| Master Proposal | v1.6.2 | `src/nuheat_master_proposal.js` | ✅ Production ready |
+| Master Proposal | v1.6.3 | `src/nuheat_master_proposal.js` | ✅ Production ready |
 | Send Quote SL | v1.4.9 | `src/nuheat_send_quote_sl.js` | ✅ Production ready |
 | Send Quote CS | v1.1.1 | `src/nuheat_send_quote_cs.js` | ✅ Production ready |
 | Opportunity UE | v1.0.0 | `src/nuheat_opportunity_ue.js` | ✅ Production ready |
@@ -162,7 +162,10 @@ A multi-component SuiteScript 2.1 solution:
 > |-------------|-----------|
 > | Sandbox (472052_SB1) | 21719365 |
 > | Production | 26895192 |
-> If switching between environments, update `QUOTE_HTML_FOLDER_ID` in `src/nuheat_quote_viewer_sl.js` and the equivalent constant in `src/nuheat_quote_suitelet.js` accordingly.
+> If switching between environments, update the folder ID constant in all three files:
+> - `QUOTE_HTML_FOLDER_ID` in `src/nuheat_quote_viewer_sl.js`
+> - `QUOTE_HTML_FOLDER_ID` in `src/nuheat_quote_suitelet.js`
+> - `FOLDER_ID` in `src/nuheat_master_proposal.js`
 
 ### What Works
 

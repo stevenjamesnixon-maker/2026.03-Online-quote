@@ -6,7 +6,7 @@
  * @description Module that generates a master proposal HTML page aggregating
  *              multiple quotes under a single Opportunity. Called by the
  *              Send Quote Suitelet after the user selects which quotes to include.
- * @version     1.6.2
+ * @version     1.6.3
  * @author      Nu-Heat Development
  *
  * CHANGELOG v1.6.0 (Quote Card Redesign — Phase 7.14):
@@ -184,9 +184,9 @@ define([
 
     /**
      * File Cabinet folder ID for storing generated proposal HTML files.
-     * Same folder as individual quotes: "Quote HTML Files" (ID: 21719365)
+     * Same folder as individual quotes: "Quote HTML Files" (ID: 26895192)
      */
-    var FOLDER_ID = 21719365;
+    var FOLDER_ID = 26895192;
 
     /**
      * Nu-Heat brand colours — identical to nuheat_quote_suitelet.js v4.3.36

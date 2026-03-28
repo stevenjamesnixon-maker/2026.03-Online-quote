@@ -1,3 +1,12 @@
+## [1.6.3] Master Proposal — 28 March 2026
+
+### Fixed
+- Updated File Cabinet folder ID from `21719365` (Sandbox) to `26895192` (Production)
+- Resolves "Invalid folder reference key 21719365" error when generating Master Proposals
+  in the Production account
+
+---
+
 ## [4.3.54] Quote Suitelet — 28 March 2026
 
 ### Added

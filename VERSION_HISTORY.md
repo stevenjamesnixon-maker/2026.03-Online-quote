@@ -1,5 +1,16 @@
 # Version History
 
+## Master Proposal (`nuheat_master_proposal.js`)
+
+### v1.6.3 — 28 March 2026
+
+#### Fixed
+- Updated File Cabinet folder ID from `21719365` (Sandbox) to `26895192` (Production)
+- Resolves "Invalid folder reference key 21719365" error when generating Master Proposals
+  in the Production account
+
+---
+
 ## Quote Suitelet (`nuheat_quote_suitelet.js`)
 
 ### v4.3.54 — 28 March 2026
