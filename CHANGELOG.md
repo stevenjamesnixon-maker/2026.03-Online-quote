@@ -11,6 +11,10 @@
   - `hasDesignPackageUpgrade` — true if MPDPCD-C is present
 - Audit log entry in `loadQuoteData()` confirming design package detection result per quote
 
+### Fixed
+- Removed duplicate `DESIGN_PACKAGE_ITEMS` declaration that caused SyntaxError on script load
+  (constant already existed in the file prior to v4.3.54)
+
 ### Notes
 - No changes to rendered quote page output — this is detection/data only
 - Flags are available to all render functions via the `quoteData` object, ready for a future

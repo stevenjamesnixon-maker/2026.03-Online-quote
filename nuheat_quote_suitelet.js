@@ -15,7 +15,8 @@
  * Updated: 28 March 2026 - v4.3.50: Removed invalid search.lookupFields() for pricing, simplified data priority
  * Updated: 28 March 2026 - v4.3.53: Enabled proxy URLs by default - Quote Viewer permissions fixed (All External Roles)
  *          (matching UE script behaviour) instead of proxy URLs that caused permissions errors in popup
- * 
+ * Updated: 28 March 2026 - v4.3.54 hotfix: Removed duplicate DESIGN_PACKAGE_ITEMS declaration
+ *
  * For detailed version history, see CHANGELOG.md
  */
 
@@ -279,22 +280,6 @@ define(['N/record', 'N/search', 'N/log', 'N/format', 'N/error', 'N/runtime', 'N/
             ELECTRICAL: [47, 48, 23, 24, 22],  // Commercial Thermostat, Thermostat, Neo, Wireless Controls, Controls
             // Design Package / Manual sub-category
             MANUAL: [25]  // Manual
-        };
-
-        // =====================================================================
-        // DESIGN PACKAGE ITEM DETECTION (v4.3.54)
-        // =====================================================================
-        // Detects whether a quote includes a Design Package item by matching
-        // against NetSuite item internal IDs (NOT product type IDs).
-        //
-        // MPDP-C   = Standard UFH Design Package  (internal ID: 480)
-        // MPDPCD-C = UFH Design+ Upgrade Package  (internal ID: 5488)
-        //
-        // These IDs are from the production NetSuite account.
-        // If they differ in Sandbox, update accordingly.
-        var DESIGN_PACKAGE_ITEMS = {
-            STANDARD_UFH: '480',   // MPDP-C — Standard UFH Design Package
-            UPGRADE_UFH:  '5488'   // MPDPCD-C — UFH Design+ Upgrade Package
         };
 
         // =====================================================================
