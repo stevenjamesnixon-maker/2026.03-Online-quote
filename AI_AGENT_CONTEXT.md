@@ -103,7 +103,8 @@ A multi-component SuiteScript 2.1 solution:
 2. **v4.3.50**: Enhanced Viewer with `?diag=1` mode and better logging.
 3. **v4.3.51**: Made proxy/direct URL configurable via `options.useProxyUrl`.
 4. **v4.3.52**: Fixed popup URL mismatch — default was proxy but UE used direct. Aligned defaults.
-5. **v4.3.53**: **Current version** — Proxy URLs enabled by default (Viewer permissions confirmed fixed).
+5. **v4.3.53**: Proxy URLs enabled by default (Viewer permissions confirmed fixed).
+6. **v4.3.54**: **Current version** — Added design package item detection constants and helper function. No rendering changes — data foundation only.
 
 **Permissions saga:** The Quote Viewer Suitelet initially gave "You do not have privileges" errors even with "Available Without Login" checked. Required: setting Execute As Role = Administrator, and ensuring Audience includes All External Roles. Once configured correctly, proxy URLs work perfectly.
 
@@ -132,7 +133,7 @@ A multi-component SuiteScript 2.1 solution:
 
 | Component | Version | File | Status |
 |-----------|---------|------|--------|
-| Quote Suitelet | v4.3.53 | `src/nuheat_quote_suitelet.js` | ✅ Production ready |
+| Quote Suitelet | v4.3.54 | `src/nuheat_quote_suitelet.js` | ✅ Production ready |
 | Quote UE | v4.0.9 | `src/nuheat_quote_ue.js` | ✅ Production ready |
 | Quote CS | v4.0.6 | `src/nuheat_quote_cs.js` | ✅ Production ready |
 | Quote Viewer | v1.1.0 | `src/nuheat_quote_viewer_sl.js` | ✅ Production ready |

@@ -9,7 +9,7 @@
  * accessible via public URL with print-to-PDF functionality.
  * 
  * Author: Nu-Heat Development Team
- * Version: 4.3.53
+ * Version: 4.3.54
  * Created: February 2026
  * Updated: 28 March 2026 - v4.3.49: Suitelet Proxy for stable URLs, timestamped filenames, file cleanup
  * Updated: 28 March 2026 - v4.3.50: Removed invalid search.lookupFields() for pricing, simplified data priority
@@ -25,7 +25,7 @@ define(['N/record', 'N/search', 'N/log', 'N/format', 'N/error', 'N/runtime', 'N/
         // =====================================================================
         // SCRIPT VERSION
         // =====================================================================
-        var SCRIPT_VERSION = '4.3.53';
+        var SCRIPT_VERSION = '4.3.54';
         
         // =====================================================================
         // THERMOSTAT OPTIONS CONFIGURATION (v4.3.9)
@@ -282,6 +282,22 @@ define(['N/record', 'N/search', 'N/log', 'N/format', 'N/error', 'N/runtime', 'N/
         };
 
         // =====================================================================
+        // DESIGN PACKAGE ITEM DETECTION (v4.3.54)
+        // =====================================================================
+        // Detects whether a quote includes a Design Package item by matching
+        // against NetSuite item internal IDs (NOT product type IDs).
+        //
+        // MPDP-C   = Standard UFH Design Package  (internal ID: 480)
+        // MPDPCD-C = UFH Design+ Upgrade Package  (internal ID: 5488)
+        //
+        // These IDs are from the production NetSuite account.
+        // If they differ in Sandbox, update accordingly.
+        var DESIGN_PACKAGE_ITEMS = {
+            STANDARD_UFH: '480',   // MPDP-C — Standard UFH Design Package
+            UPGRADE_UFH:  '5488'   // MPDPCD-C — UFH Design+ Upgrade Package
+        };
+
+        // =====================================================================
         // EXCLUDED PRODUCT CATEGORIES (v4.3.33, fixed v4.3.34)
         // =====================================================================
         // Items whose custitem_prod_type getText() value matches any of these
@@ -419,6 +435,22 @@ define(['N/record', 'N/search', 'N/log', 'N/format', 'N/error', 'N/runtime', 'N/
          */
         function splitField(value) {
             return value ? value.split('*').map(function(v) { return v.trim(); }) : [];
+        }
+
+        /**
+         * Check whether a specific design package item is present in the line items.
+         * Matches by item internal ID (item.itemId), not by product type.
+         *
+         * v4.3.54: Added for design package detection
+         *
+         * @param {Array}  lineItems    - Array of all line items from the estimate
+         * @param {string} targetItemId - Internal ID to look for (e.g. '480')
+         * @returns {boolean}
+         */
+        function hasDesignPackageItem(lineItems, targetItemId) {
+            return lineItems.some(function(item) {
+                return String(item.itemId) === String(targetItemId);
+            });
         }
 
         // Reusable SVG icon strings (v4.3.42: extracted from inline usage for DRY)
@@ -1569,10 +1601,16 @@ function loadQuoteData(quoteId, debugLog, pricingOverrides) {
                 hasPerformance: (performanceHtml && performanceHtml.trim().length > 0) || hasHeatPumpPerformanceData,
                 hasHeatPumpPerformance: hasHeatPumpPerformanceData,
                 hasEstimatorNotes: estimatorNotes && estimatorNotes.trim().length > 0,
-                hasHeatPump: groupedItems['Heat Pump'].length > 0,
-                hasSolar: groupedItems['Solar thermal'].length > 0
+                hasHeatPump:                 groupedItems['Heat Pump'].length > 0,
+                hasSolar:                    groupedItems['Solar thermal'].length > 0,
+                hasDesignPackageStandard:    hasDesignPackageItem(lineItems, DESIGN_PACKAGE_ITEMS.STANDARD_UFH),
+                hasDesignPackageUpgrade:     hasDesignPackageItem(lineItems, DESIGN_PACKAGE_ITEMS.UPGRADE_UFH),
+                hasDesignPackage:            hasDesignPackageItem(lineItems, DESIGN_PACKAGE_ITEMS.STANDARD_UFH) ||
+                                             hasDesignPackageItem(lineItems, DESIGN_PACKAGE_ITEMS.UPGRADE_UFH)
             };
-            
+
+            log.audit('loadQuoteData', 'Design package detection — standard: ' + quoteData.hasDesignPackageStandard + ', upgrade: ' + quoteData.hasDesignPackageUpgrade);
+
             // Log complete section visibility summary
             debugLog('SectionVisibility', 'Section display summary', {
                 Header: 'ALWAYS SHOW',
