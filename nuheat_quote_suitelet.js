@@ -26,7 +26,7 @@ define(['N/record', 'N/search', 'N/log', 'N/format', 'N/error', 'N/runtime', 'N/
         // =====================================================================
         // SCRIPT VERSION
         // =====================================================================
-        var SCRIPT_VERSION = '4.3.54';
+        var SCRIPT_VERSION = '4.3.55';
         
         // =====================================================================
         // THERMOSTAT OPTIONS CONFIGURATION (v4.3.9)
@@ -2165,7 +2165,7 @@ function loadQuoteData(quoteId, debugLog, pricingOverrides) {
                     // Get features (fab_1 through fab_6)
                     for (var f = 1; f <= 6; f++) {
                         try {
-                            var fab = itemRecord.getValue({ fieldId: 'custitem_quote_fab_' + f });
+                            var fab = itemRecord.getValue({ fieldId: 'custitemcustitem_quote_fab_' + f });
                             if (fab) features.push(fab);
                         } catch (e) {}
                     }

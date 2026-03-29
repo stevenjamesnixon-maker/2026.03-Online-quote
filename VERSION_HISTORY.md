@@ -20,6 +20,13 @@
 
 ## Quote Suitelet (`nuheat_quote_suitelet.js`)
 
+### v4.3.55 — 29 March 2026
+
+- FIXED: Main product card feature bullets empty across all sections (UFH, Heat Pump,
+  Solar, Commissioning) — `loadItemCustomFields()` was using incorrect field IDs
+  (`custitem_quote_fab_1`–`6`) instead of correct double-prefixed internal IDs
+  (`custitemcustitem_quote_fab_1`–`6`). Same root cause as v4.3.54 thermostat fix.
+
 ### v4.3.54 — 29 March 2026 (thermostat options fix)
 
 - FIXED: Thermostat options always showing static fallback — `custitem_*` fields invalid as `search.Type.ITEM` columns, causing `SSS_INVALID_SRCH_COL`. Refactored to two-step search + `record.load()` pattern.

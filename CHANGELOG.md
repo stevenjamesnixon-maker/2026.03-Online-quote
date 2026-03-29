@@ -1,3 +1,36 @@
+## v4.3.55 — Fix double-prefixed fab field IDs in main product cards
+**Date:** 29 March 2026
+**Component:** Quote Suitelet (`src/nuheat_quote_suitelet.js`)
+
+### Bug Fixed
+Feature/benefit bullet points were empty on all main product cards (UFH, Heat Pump,
+Solar, Commissioning sections). Root cause is identical to the thermostat section fix
+in v4.3.54: the six fab fields have double-prefixed internal IDs
+(`custitemcustitem_quote_fab_1` through `custitemcustitem_quote_fab_6`), but
+`loadItemCustomFields()` was calling `getValue()` with the shorter name-based ID
+(`custitem_quote_fab_1`), which silently returns empty in NetSuite without throwing
+an error.
+
+### Fix
+Updated all `custitem_quote_fab_` field ID references in `loadItemCustomFields()`
+(and any other non-thermostat, non-comment occurrences in the file) to use the
+correct double-prefixed internal IDs (`custitemcustitem_quote_fab_`).
+
+Note: Comments and log strings intentionally retain the shorter form for readability.
+
+### Files Changed
+- `src/nuheat_quote_suitelet.js` — v4.3.54 → v4.3.55
+
+### Testing
+- [ ] Regen a UFH quote — feature bullet points should be populated on all product cards
+- [ ] Regen a Heat Pump quote — feature bullets populated on Heat Pump product cards
+- [ ] Regen a Solar quote — feature bullets populated on Solar product cards
+- [ ] Regen a Commissioning-only quote — feature bullets populated where configured
+- [ ] Verify no regressions on thermostat cards (should still work from v4.3.54)
+- [ ] Check Script Execution Log — no new errors
+
+---
+
 ## v4.3.54 — Fix thermostat options section (search columns + field ID double-prefix)
 **Date:** 29 March 2026
 **Component:** Quote Suitelet (`src/nuheat_quote_suitelet.js`)
