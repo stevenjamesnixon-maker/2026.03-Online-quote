@@ -880,7 +880,6 @@ define(['N/record', 'N/search', 'N/log', 'N/format', 'N/error', 'N/runtime', 'N/
                                 break;
                             }
                         }
-                        log.audit('THERMOSTAT_EXCLUSION_DEBUG', 'Checking card: ' + itemId + ' | exclusionPrefix: ' + exclusionPrefix + ' | displayedItemCodes: ' + JSON.stringify(displayedItemCodes));
                         if (excluded) {
                             debugLog('ThermostatOptions', 'Skipping card — family prefix found in main quote', {
                                 itemId:          itemId,
@@ -4155,8 +4154,6 @@ function loadQuoteData(quoteId, debugLog, pricingOverrides) {
                     }
                 });
             }
-            log.audit('THERMOSTAT_DEBUG', 'displayedItemCodes: ' + JSON.stringify(displayedItemCodes) + ' | lineItems count: ' + (quoteData.lineItems ? quoteData.lineItems.length : 'null'));
-
             // Simple debug logger for this function
             var debugLog = function(category, message, data) {
                 log.debug(category, message + (data ? ': ' + JSON.stringify(data) : ''));
