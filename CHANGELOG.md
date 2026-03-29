@@ -1,3 +1,33 @@
+## v1.6.3 — Master Proposal: Fix broken email button URL
+**Date:** 29 March 2026
+**Component:** Master Proposal (`src/nuheat_master_proposal.js`)
+
+### Bug Fixed
+The "VIEW YOUR QUOTES HERE" button in the customer proposal email was broken for all recipients:
+- **Desktop:** Google "Redirect Notice — The page you were on is trying to send you to an invalid URL (`http:///core/media/media.nl?id=...`)"
+- **Mobile:** Button tap did nothing (mail clients silently drop malformed hrefs)
+
+### Root Cause
+`file.load().url` in NetSuite returns a **relative path** (e.g. `/core/media/media.nl?id=43237660&c=472052&h=...`). This was being stored directly as `proposalUrl` and injected into the email `href` attribute. Email clients have no NetSuite base URL to resolve it against, producing `http:///` (protocol with no hostname).
+
+### Fix
+- Added `getAccountHostname()` helper using `N/runtime.accountId` to dynamically derive the fully-qualified account URL (e.g. `https://472052-sb1.app.netsuite.com`). Handles both Sandbox (`_SB1` → `-sb1`) and Production automatically.
+- `saveProposalToFileCabinet()` now prepends the hostname to produce an absolute `https://` URL.
+- Added `N/runtime` to module imports.
+
+### Files Changed
+- `src/nuheat_master_proposal.js` — v1.6.2 → v1.6.3
+
+### Testing
+- [ ] Generate and send a proposal from the Send Quote UI
+- [ ] Click "VIEW YOUR QUOTES HERE" in the received email on desktop — should open proposal page
+- [ ] Click the button on mobile — should open proposal page
+- [ ] Check Script Execution Log — verify "Absolute URL" log entry shows a valid `https://` URL
+- [ ] Confirm "View Master Proposal" link on the NetSuite success page also works
+- [ ] Repeat test from Sandbox to verify subdomain format is correct (`472052-sb1.app.netsuite.com`)
+
+---
+
 ## [1.6.3] Master Proposal — 28 March 2026
 
 ### Fixed

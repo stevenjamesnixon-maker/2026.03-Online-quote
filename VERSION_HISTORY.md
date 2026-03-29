@@ -2,7 +2,14 @@
 
 ## Master Proposal (`nuheat_master_proposal.js`)
 
-### v1.6.3 — 28 March 2026
+### v1.6.3 — 29 March 2026 (email URL fix)
+
+- FIXED: Email "VIEW YOUR QUOTES HERE" button broken on all clients (desktop: invalid URL redirect error, mobile: silent no-op)
+- FIXED: `file.url` relative path now converted to absolute `https://` URL before storage and email injection
+- ADDED: `getAccountHostname()` helper using `N/runtime.accountId` — dynamically derives correct subdomain for both Sandbox and Production
+- ADDED: `N/runtime` module import
+
+### v1.6.3 — 28 March 2026 (folder ID fix)
 
 #### Fixed
 - Updated File Cabinet folder ID from `21719365` (Sandbox) to `26895192` (Production)

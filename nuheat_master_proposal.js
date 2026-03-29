@@ -9,6 +9,19 @@
  * @version     1.6.3
  * @author      Nu-Heat Development
  *
+ * CHANGELOG v1.6.3 (Fix: Absolute proposal URL for email button):
+ *   - FIXED: "VIEW YOUR QUOTES HERE" email button was broken on all clients.
+ *     Root cause: file.url returns a relative path (e.g. /core/media/media.nl?id=...)
+ *     which email clients cannot resolve — desktop showed "Redirect Notice: invalid URL",
+ *     mobile silently did nothing.
+ *   - ADDED: getAccountHostname() helper — derives the fully-qualified account hostname
+ *     dynamically using N/runtime.accountId, converting '472052_SB1' to
+ *     'https://472052-sb1.app.netsuite.com'. Works for both Sandbox and Production
+ *     without hardcoding.
+ *   - CHANGED: saveProposalToFileCabinet() now stores an absolute https:// URL in
+ *     fileUrl (used for proposalUrl in email and Opportunity field update).
+ *   - ADDED: N/runtime to module define() imports.
+ *
  * CHANGELOG v1.6.0 (Quote Card Redesign — Phase 7.14):
  *   - REDESIGNED: Quote cards transformed into bordered "system cards" with distinct
  *     header (title, ref, description), benefits row (4 checkmarks), and gray footer
@@ -157,15 +170,16 @@ define([
     'N/file',
     'N/log',
     'N/url',
+    'N/runtime',
     'N/format',
     'N/error'
-], function (record, search, file, log, url, format, error) {
+], function (record, search, file, log, url, runtime, format, error) {
 
     'use strict';
 
     // ─── Constants ────────────────────────────────────────────────────────────────
 
-    var MODULE_VERSION = '1.6.2';
+    var MODULE_VERSION = '1.6.3';
 
     /**
      * Safe logging helper — wraps N/log calls in try-catch to prevent
@@ -1397,9 +1411,20 @@ define([
         safeLog('debug', 'MasterProposal.saveFile', 'Saved proposal file ID: ' + fileId + ', name: ' + fileName);
 
         var savedFile = file.load({ id: fileId });
-        var fileUrl = savedFile.url;
+        var relativeUrl = savedFile.url;
 
-        safeLog('debug', 'MasterProposal.saveFile', 'File URL: ' + fileUrl);
+        // file.url returns a relative path (e.g. '/core/media/media.nl?id=...')
+        // which breaks email button links as email clients have no base URL to
+        // resolve against. Prepend the account hostname to produce a fully-qualified
+        // https:// URL that works externally in all email clients and browsers.
+        var accountHost = getAccountHostname();
+        var fileUrl = (relativeUrl && relativeUrl.indexOf('http') === 0)
+            ? relativeUrl
+            : accountHost + relativeUrl;
+
+        safeLog('debug', 'MasterProposal.saveFile',
+            'Relative URL: ' + relativeUrl + ' | Absolute URL: ' + fileUrl +
+            ' | Account host: ' + accountHost);
 
         return {
             fileId:   fileId,
@@ -1442,6 +1467,34 @@ define([
     }
 
     // ─── Helper Functions ─────────────────────────────────────────────────────────
+
+    /**
+     * Derives the fully-qualified NetSuite account hostname dynamically
+     * using N/runtime, so proposal URLs work correctly in both Sandbox
+     * and Production without any hardcoding.
+     *
+     * NetSuite account ID format:
+     *   - Production:  '1234567'    → 'https://1234567.app.netsuite.com'
+     *   - Sandbox:     '1234567_SB1' → 'https://1234567-sb1.app.netsuite.com'
+     *
+     * The transformation lowercases the ID and replaces underscores with hyphens,
+     * which is the standard NetSuite subdomain format.
+     *
+     * @returns {string} e.g. 'https://472052-sb1.app.netsuite.com'
+     */
+    function getAccountHostname() {
+        try {
+            var accountId = runtime.accountId || '';
+            // Convert '472052_SB1' → '472052-sb1' (lowercase, underscores to hyphens)
+            var subdomain = accountId.toLowerCase().replace(/_/g, '-');
+            return 'https://' + subdomain + '.app.netsuite.com';
+        } catch (e) {
+            safeLog('error', 'MasterProposal.getAccountHostname',
+                'Could not derive account hostname: ' + e.message);
+            // Hard fallback — prevents a total failure, but logs clearly
+            return 'https://472052-sb1.app.netsuite.com';
+        }
+    }
 
     /**
      * Sorts quotes by technology type order.

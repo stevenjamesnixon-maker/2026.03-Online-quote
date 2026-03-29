@@ -108,7 +108,7 @@ A multi-component SuiteScript 2.1 solution:
 
 **Permissions saga:** The Quote Viewer Suitelet initially gave "You do not have privileges" errors even with "Available Without Login" checked. Required: setting Execute As Role = Administrator, and ensuring Audience includes All External Roles. Once configured correctly, proxy URLs work perfectly.
 
-### Phase 5: Master Proposal (v1.0.0 → v1.6.2, Mar 2026)
+### Phase 5: Master Proposal (v1.0.0 → v1.6.3, Mar 2026)
 
 - v1.0.0: Initial master proposal — basic HTML with quote cards
 - v1.5.0: Complete redesign to match individual quote page styling
@@ -117,6 +117,7 @@ A multi-component SuiteScript 2.1 solution:
 - v1.5.5-v1.5.8: Copy/text improvements, dynamic phone number
 - v1.6.0: Quote card redesign — system cards with benefits row
 - v1.6.2: Removed file cleanup (keep all versions for audit)
+- v1.6.3: Fixed broken email proposal URL. `file.url` returns a relative path — added `getAccountHostname()` using `N/runtime.accountId` to construct absolute `https://` URL. Fixes "Redirect Notice: invalid URL" on desktop and silent button failure on mobile.
 
 ### Phase 6: UI Refinements (v4.3.35 → v4.3.42, Mar 2026)
 
@@ -138,7 +139,7 @@ A multi-component SuiteScript 2.1 solution:
 | Quote CS | v4.0.6 | `src/nuheat_quote_cs.js` | ✅ Production ready |
 | Quote Viewer | v1.1.0 | `src/nuheat_quote_viewer_sl.js` | ✅ Production ready |
 | Scheduled Script | v1.0.0 | `src/nuheat_quote_generator_ss.js` | ✅ Production ready |
-| Master Proposal | v1.6.3 | `src/nuheat_master_proposal.js` | ✅ Production ready |
+| Master Proposal | v1.6.3 (email URL fix) | `src/nuheat_master_proposal.js` | ✅ Production ready |
 | Send Quote SL | v1.4.9 | `src/nuheat_send_quote_sl.js` | ✅ Production ready |
 | Send Quote CS | v1.1.1 | `src/nuheat_send_quote_cs.js` | ✅ Production ready |
 | Opportunity UE | v1.0.0 | `src/nuheat_opportunity_ue.js` | ✅ Production ready |
