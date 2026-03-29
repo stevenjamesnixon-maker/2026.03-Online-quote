@@ -36,7 +36,15 @@ define(['N/record', 'N/search', 'N/log', 'N/format', 'N/error', 'N/runtime', 'N/
          * These are always loaded via record.load() — maximum four loads, predictable performance.
          * To change which cards are shown, update this array and THERMOSTAT_EXCLUSION_PREFIXES.
          */
-        var THERMOSTAT_OPTION_ITEM_IDS = ['DSSB5-C', 'neoHub+-C', 'neoStatWv2-C', 'neoAirWv3-C'];
+        /**
+         * Display order is defined by the array order below — cards render left to right
+         * in this exact sequence:
+         *   1. DSSB5-C
+         *   2. neoHub+-C  (Recommended)
+         *   3. neoStatWv3-C
+         *   4. neoAirWv3-C
+         */
+        var THERMOSTAT_OPTION_ITEM_IDS = ['DSSB5-C', 'neoHub+-C', 'neoStatWv3-C', 'neoAirWv3-C'];
 
         /**
          * Prefix exclusion map — controls which card is hidden when the main quote already
@@ -45,7 +53,7 @@ define(['N/record', 'N/search', 'N/log', 'N/format', 'N/error', 'N/runtime', 'N/
          * Logic: if ANY item in the main quote's materials list has an itemId that begins
          * with the prefix (case-insensitive), the corresponding card is hidden.
          *
-         * Example: if the quote contains 'NeoStatwv3-C', the 'neoStatWv2-C' upgrade card
+         * Example: if the quote contains 'NeoStatwv3-C', the 'neoStatWv3-C' upgrade card
          * is suppressed because the customer already has a Neostat thermostat.
          *
          * To add a new card: add an entry to THERMOSTAT_OPTION_ITEM_IDS and a corresponding
@@ -54,7 +62,7 @@ define(['N/record', 'N/search', 'N/log', 'N/format', 'N/error', 'N/runtime', 'N/
         var THERMOSTAT_EXCLUSION_PREFIXES = {
             'DSSB5-C':      'DSSB',
             'neoHub+-C':    'NeoHub',
-            'neoStatWv2-C': 'Neostat',
+            'neoStatWv3-C': 'Neostat',
             'neoAirWv3-C':  'NeoAir'
         };
 
@@ -4179,12 +4187,10 @@ function loadQuoteData(quoteId, debugLog, pricingOverrides) {
             // Load thermostat option items — fixed four cards, prefix-based exclusion
             var thermostatOptions = loadThermostatOptionItems(THERMOSTAT_OPTION_ITEM_IDS, displayedItemCodes, debugLog);
 
-            // Sort by order defined in THERMOSTAT_OPTION_ITEM_IDS, with recommended card first.
+            // Sort strictly by THERMOSTAT_OPTION_ITEM_IDS array order.
+            // The Recommended badge is displayed on the card itself — it does not affect
+            // position. Display order is controlled entirely by the array above.
             thermostatOptions.sort(function(a, b) {
-                // Recommended card always appears first
-                if (a.isRecommended && !b.isRecommended) return -1;
-                if (!a.isRecommended && b.isRecommended) return 1;
-                // Otherwise preserve THERMOSTAT_OPTION_ITEM_IDS order
                 var indexA = THERMOSTAT_OPTION_ITEM_IDS.indexOf(a.itemId);
                 var indexB = THERMOSTAT_OPTION_ITEM_IDS.indexOf(b.itemId);
                 if (indexA === -1) indexA = 999;
