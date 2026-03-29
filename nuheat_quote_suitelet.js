@@ -36,7 +36,7 @@ define(['N/record', 'N/search', 'N/log', 'N/format', 'N/error', 'N/runtime', 'N/
          * These are always loaded via record.load() — maximum four loads, predictable performance.
          * To change which cards are shown, update this array and THERMOSTAT_EXCLUSION_PREFIXES.
          */
-        var THERMOSTAT_OPTION_ITEM_IDS = ['DSSB5-C', 'neoHub+-C', 'Neostatwv2-C', 'NeoAirwv3-C'];
+        var THERMOSTAT_OPTION_ITEM_IDS = ['DSSB5-C', 'neoHub+-C', 'neoStatWv2-C', 'neoAirWv3-C'];
 
         /**
          * Prefix exclusion map — controls which card is hidden when the main quote already
@@ -45,7 +45,7 @@ define(['N/record', 'N/search', 'N/log', 'N/format', 'N/error', 'N/runtime', 'N/
          * Logic: if ANY item in the main quote's materials list has an itemId that begins
          * with the prefix (case-insensitive), the corresponding card is hidden.
          *
-         * Example: if the quote contains 'NeoStatwv3-C', the 'Neostatwv2-C' upgrade card
+         * Example: if the quote contains 'NeoStatwv3-C', the 'neoStatWv2-C' upgrade card
          * is suppressed because the customer already has a Neostat thermostat.
          *
          * To add a new card: add an entry to THERMOSTAT_OPTION_ITEM_IDS and a corresponding
@@ -54,8 +54,8 @@ define(['N/record', 'N/search', 'N/log', 'N/format', 'N/error', 'N/runtime', 'N/
         var THERMOSTAT_EXCLUSION_PREFIXES = {
             'DSSB5-C':      'DSSB',
             'neoHub+-C':    'NeoHub',
-            'Neostatwv2-C': 'Neostat',
-            'NeoAirwv3-C':  'NeoAir'
+            'neoStatWv2-C': 'Neostat',
+            'neoAirWv3-C':  'NeoAir'
         };
 
         /**
@@ -862,7 +862,15 @@ define(['N/record', 'N/search', 'N/log', 'N/format', 'N/error', 'N/runtime', 'N/
                     // Prefix-based exclusion — hide this card if the main quote already
                     // contains any item from the same thermostat family.
                     // THERMOSTAT_EXCLUSION_PREFIXES maps each card ID to its family prefix.
-                    var exclusionPrefix = THERMOSTAT_EXCLUSION_PREFIXES[itemId] || '';
+                    // Case-insensitive key lookup — THERMOSTAT_EXCLUSION_PREFIXES keys may not match
+                    // the exact casing returned by NetSuite for the item ID.
+                    var exclusionPrefix = '';
+                    var itemIdLower = (itemId || '').toLowerCase();
+                    Object.keys(THERMOSTAT_EXCLUSION_PREFIXES).forEach(function(key) {
+                        if (key.toLowerCase() === itemIdLower) {
+                            exclusionPrefix = THERMOSTAT_EXCLUSION_PREFIXES[key];
+                        }
+                    });
                     if (exclusionPrefix && displayedItemCodes) {
                         var excluded = false;
                         for (var i = 0; i < displayedItemCodes.length; i++) {
