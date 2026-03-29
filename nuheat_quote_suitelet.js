@@ -4136,14 +4136,13 @@ function loadQuoteData(quoteId, debugLog, pricingOverrides) {
                 return '';
             }
 
-            // v4.3.56: Collect item name/codes (not internal IDs) from the main quote materials
-            // list. Used for prefix-based exclusion — if a line item code begins with a
-            // thermostat family prefix, the corresponding upgrade card is suppressed.
+            // v4.3.56 FIX: Use item.itemName (SKU/item code e.g. "neoStatWv3-C") not item.itemId
+            // (numeric internal ID e.g. "12345"). Prefix comparison requires the item code string.
             var displayedItemCodes = [];
             if (quoteData.lineItems) {
                 quoteData.lineItems.forEach(function(item) {
-                    if (item.itemId) {
-                        displayedItemCodes.push(String(item.itemId));
+                    if (item.itemName) {
+                        displayedItemCodes.push(String(item.itemName));
                     }
                 });
             }
