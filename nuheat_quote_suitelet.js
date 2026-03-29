@@ -26,14 +26,43 @@ define(['N/record', 'N/search', 'N/log', 'N/format', 'N/error', 'N/runtime', 'N/
         // =====================================================================
         // SCRIPT VERSION
         // =====================================================================
-        var SCRIPT_VERSION = '4.3.55';
+        var SCRIPT_VERSION = '4.3.56';
         
         // =====================================================================
         // THERMOSTAT OPTIONS CONFIGURATION (v4.3.9)
         // =====================================================================
-        // Item IDs for thermostat options section - loaded dynamically
+        /**
+         * The four fixed thermostat option cards shown in the Upgrades & Offers section.
+         * These are always loaded via record.load() — maximum four loads, predictable performance.
+         * To change which cards are shown, update this array and THERMOSTAT_EXCLUSION_PREFIXES.
+         */
         var THERMOSTAT_OPTION_ITEM_IDS = ['DSSB5-C', 'neoHub+-C', 'Neostatwv2-C', 'NeoAirwv3-C'];
-        var RECOMMENDED_ITEM_ID = 'neoHub+-C'; // Item to show "Recommended" badge
+
+        /**
+         * Prefix exclusion map — controls which card is hidden when the main quote already
+         * includes a thermostat from that family.
+         *
+         * Logic: if ANY item in the main quote's materials list has an itemId that begins
+         * with the prefix (case-insensitive), the corresponding card is hidden.
+         *
+         * Example: if the quote contains 'NeoStatwv3-C', the 'Neostatwv2-C' upgrade card
+         * is suppressed because the customer already has a Neostat thermostat.
+         *
+         * To add a new card: add an entry to THERMOSTAT_OPTION_ITEM_IDS and a corresponding
+         * prefix entry here.
+         */
+        var THERMOSTAT_EXCLUSION_PREFIXES = {
+            'DSSB5-C':      'DSSB',
+            'neoHub+-C':    'NeoHub',
+            'Neostatwv2-C': 'Neostat',
+            'NeoAirwv3-C':  'NeoAir'
+        };
+
+        /**
+         * The exact item ID of the model to highlight with the "Recommended" badge.
+         * Case-insensitive comparison is used, so casing variations are handled automatically.
+         */
+        var RECOMMENDED_ITEM_ID = 'neoHub+-C';
 
         // =====================================================================
         // CONFIGURATION FOR HTML GENERATION (v4.0.0)
@@ -745,57 +774,53 @@ define(['N/record', 'N/search', 'N/log', 'N/format', 'N/error', 'N/runtime', 'N/
         }
 
         // =====================================================================
-        // THERMOSTAT OPTIONS ITEM LOADER (v4.3.9)
+        // THERMOSTAT OPTIONS ITEM LOADER (v4.3.56)
         // =====================================================================
         /**
-         * Load thermostat option items by item name/ID
-         * @param {Array} itemIds - Array of item name/IDs to load (e.g., ['DSSB5-C', 'Neostatwv2-C'])
-         * @param {Array} displayedItemIds - Array of item internal IDs already displayed in main section
-         * @param {Function} debugLog - Debug logging function
-         * @returns {Array} Array of item objects with product name, description, features, image
+         * Loads the fixed set of thermostat option cards for the Upgrades & Offers section.
+         *
+         * v4.3.56 REWRITE (take 2) — Fixed card set with prefix-based exclusion:
+         *
+         *   PERFORMANCE FIX: The previous approach (v4.3.56 draft PR #1) used 'itemid STARTSWITH'
+         *   search filters against the full item catalogue, then called record.load() for every
+         *   match. This caused 80+ second execution times and ScriptNullObjectAdapter errors when
+         *   the catalogue contained many matching items.
+         *
+         *   NEW APPROACH:
+         *   - Always load the same four fixed item IDs (THERMOSTAT_OPTION_ITEM_IDS).
+         *     Maximum four record.load() calls — fast and predictable.
+         *   - Exclusion uses prefix matching against quoteData.lineItems item codes
+         *     (not against internal numeric IDs). If the main quote already contains any
+         *     item whose ID begins with the family prefix, that card is hidden.
+         *     e.g. quote contains 'NeoStatwv3-C' → 'Neostatwv2-C' upgrade card hidden.
+         *   - Prefix map is defined in THERMOSTAT_EXCLUSION_PREFIXES — one entry per card.
+         *
+         * v4.3.54 fixes retained:
+         *   - Standard columns only in search (no custitem_* columns → no SSS_INVALID_SRCH_COL)
+         *   - Double-prefixed fab field IDs (custitemcustitem_quote_fab_1 through _6)
+         *   - Case-insensitive RECOMMENDED_ITEM_ID matching
+         *
+         * @param {Array}    itemIds            - Fixed item IDs to load (THERMOSTAT_OPTION_ITEM_IDS)
+         * @param {Array}    displayedItemCodes  - Item name/codes already in the main quote materials list
+         * @param {Function} debugLog            - Debug logging function
+         * @returns {Array} Array of item objects for rendering as mini product cards
          */
-        /**
-         * Load thermostat option items by item name/ID.
-         *
-         * v4.3.54 REWRITE — Two-step approach to fix SSS_INVALID_SRCH_COL:
-         *   STEP 1: search.create() using ONLY standard columns (itemid, displayname,
-         *           description). Custom item fields (custitem_*) are NOT valid search
-         *           columns on search.Type.ITEM and caused the entire search to fail,
-         *           resulting in the static fallback tiles always rendering.
-         *   STEP 2: record.load() per matched item to read all custitem_* fields reliably.
-         *
-         * v4.3.54 FIX — Double-prefixed fab field IDs:
-         *   The six feature/benefit fields have internal IDs of custitemcustitem_quote_fab_1
-         *   through custitemcustitem_quote_fab_6 (NetSuite double-prefixes the ID when the
-         *   field name already begins with custitem_). record.load().getValue() requires the
-         *   internal ID, so custitem_quote_fab_1 silently returned empty. All other custom
-         *   item fields use their standard IDs and are unaffected.
-         *
-         * v4.3.54 FIX — Case-insensitive RECOMMENDED_ITEM_ID matching:
-         *   Guards against NetSuite returning itemid in different casing across environments.
-         *
-         * @param {Array}    itemIds          - Array of item name/codes to load (e.g. ['DSSB5-C', 'neoHub+-C'])
-         * @param {Array}    displayedItemIds - Array of item internal IDs already shown in main UFH section
-         * @param {Function} debugLog         - Debug logging function
-         * @returns {Array} Array of item objects with productName, description, features, imageUrl, isRecommended
-         */
-        function loadThermostatOptionItems(itemIds, displayedItemIds, debugLog) {
+        function loadThermostatOptionItems(itemIds, displayedItemCodes, debugLog) {
             var items = [];
 
             if (!itemIds || itemIds.length === 0) {
                 return items;
             }
 
-            debugLog('ThermostatOptions', 'Loading thermostat option items', {
-                itemIds: itemIds,
-                displayedItemIds: displayedItemIds
+            debugLog('ThermostatOptions', 'Loading fixed thermostat option items', {
+                itemIds:            itemIds,
+                displayedItemCodes: displayedItemCodes
             });
 
             try {
-                // ── STEP 1: Search using standard columns only ───────────────────────────
-                // custitem_* fields cannot be used as search columns on search.Type.ITEM —
-                // they cause SSS_INVALID_SRCH_COL and abort the entire search.
-                // Only use itemid, displayname, description here.
+                // ── STEP 1: Search for the fixed item IDs using exact 'is' filters ───────
+                // Only four items maximum — fast and governance-efficient.
+                // Custom item fields (custitem_*) excluded from search columns as per v4.3.54.
                 var filterExpression = [];
                 itemIds.forEach(function(id, index) {
                     if (index > 0) {
@@ -825,22 +850,38 @@ define(['N/record', 'N/search', 'N/log', 'N/format', 'N/error', 'N/runtime', 'N/
                     return true;
                 });
 
-                debugLog('ThermostatOptions', 'Step 1 search complete', { matchedCount: matchedItems.length });
+                debugLog('ThermostatOptions', 'Step 1 search complete', {
+                    matchedCount: matchedItems.length
+                });
 
-                // ── STEP 2: record.load() per item to read custitem_* fields ────────────
+                // ── STEP 2: For each matched item, check prefix exclusion then record.load() ──
                 matchedItems.forEach(function(matched) {
                     var internalId = matched.internalId;
                     var itemId     = matched.itemId;
 
-                    // Skip if already displayed in the main UFH section
-                    if (displayedItemIds && displayedItemIds.indexOf(String(internalId)) !== -1) {
-                        debugLog('ThermostatOptions', 'Skipping item - already displayed', {
-                            itemId:     itemId,
-                            internalId: internalId
-                        });
-                        return;
+                    // Prefix-based exclusion — hide this card if the main quote already
+                    // contains any item from the same thermostat family.
+                    // THERMOSTAT_EXCLUSION_PREFIXES maps each card ID to its family prefix.
+                    var exclusionPrefix = THERMOSTAT_EXCLUSION_PREFIXES[itemId] || '';
+                    if (exclusionPrefix && displayedItemCodes) {
+                        var excluded = false;
+                        for (var i = 0; i < displayedItemCodes.length; i++) {
+                            var lineItemCode = String(displayedItemCodes[i] || '');
+                            if (lineItemCode.toLowerCase().indexOf(exclusionPrefix.toLowerCase()) === 0) {
+                                excluded = true;
+                                break;
+                            }
+                        }
+                        if (excluded) {
+                            debugLog('ThermostatOptions', 'Skipping card — family prefix found in main quote', {
+                                itemId:          itemId,
+                                exclusionPrefix: exclusionPrefix
+                            });
+                            return;
+                        }
                     }
 
+                    // ── STEP 3: record.load() to read custitem_* fields ─────────────────
                     try {
                         var itemRecord = record.load({
                             type: record.Type.INVENTORY_ITEM,
@@ -861,8 +902,7 @@ define(['N/record', 'N/search', 'N/log', 'N/format', 'N/error', 'N/runtime', 'N/
                         } catch (e) { /* field may not exist on this item type */ }
                         if (!description) description = matched.description || '';
 
-                        // Features — NOTE: internal IDs are custitemcustitem_quote_fab_1 through _6
-                        // (double-prefixed because field name already begins with custitem_)
+                        // Features — double-prefixed internal IDs (v4.3.54 fix)
                         var features = [];
                         for (var f = 1; f <= 6; f++) {
                             try {
@@ -871,7 +911,7 @@ define(['N/record', 'N/search', 'N/log', 'N/format', 'N/error', 'N/runtime', 'N/
                             } catch (e) { /* field may not exist */ }
                         }
 
-                        // Image — custitem_quote_prod_visual_1 (standard ID — no double prefix)
+                        // Image — custitem_quote_prod_visual_1 (standard ID)
                         var imageUrl = '';
                         try {
                             var imageRef = itemRecord.getValue({ fieldId: 'custitem_quote_prod_visual_1' });
@@ -879,17 +919,19 @@ define(['N/record', 'N/search', 'N/log', 'N/format', 'N/error', 'N/runtime', 'N/
                                 imageUrl = getFileUrl(imageRef, debugLog);
                             }
                         } catch (e) {
-                            debugLog('ThermostatOptions', 'Image load error', { itemId: itemId, error: e.message });
+                            debugLog('ThermostatOptions', 'Image load error', {
+                                itemId: itemId,
+                                error:  e.message
+                            });
                         }
 
-                        // Product info link — custitem_prod_info_link (standard ID — no double prefix)
+                        // Product info link — custitem_prod_info_link (standard ID)
                         var productInfoLink = '';
                         try {
                             productInfoLink = itemRecord.getValue({ fieldId: 'custitem_prod_info_link' }) || '';
                         } catch (e) { /* field may not exist */ }
 
-                        // v4.3.54: Case-insensitive recommended check — guards against NS
-                        // returning itemid in different casing across Sandbox vs Production
+                        // Recommended — case-insensitive exact match
                         var isRecommended = (itemId &&
                             itemId.toLowerCase() === RECOMMENDED_ITEM_ID.toLowerCase());
 
@@ -913,15 +955,13 @@ define(['N/record', 'N/search', 'N/log', 'N/format', 'N/error', 'N/runtime', 'N/
                         });
 
                     } catch (loadErr) {
-                        // record.load() with INVENTORY_ITEM fails if the item is a different
-                        // type (e.g. NON_INVENTORY_ITEM). Fall back to search data only.
-                        debugLog('ThermostatOptions', 'record.load(INVENTORY_ITEM) failed — using search data fallback', {
+                        // record.load(INVENTORY_ITEM) fails if item is a different type.
+                        // Fall back to search data — card still renders without custitem_* fields.
+                        debugLog('ThermostatOptions',
+                            'record.load(INVENTORY_ITEM) failed — using search data fallback', {
                             itemId: itemId,
                             error:  loadErr.message
                         });
-
-                        var isRecommendedFallback = (itemId &&
-                            itemId.toLowerCase() === RECOMMENDED_ITEM_ID.toLowerCase());
 
                         items.push({
                             internalId:      internalId,
@@ -930,14 +970,16 @@ define(['N/record', 'N/search', 'N/log', 'N/format', 'N/error', 'N/runtime', 'N/
                             description:     matched.description || '',
                             features:        [],
                             imageUrl:        '',
-                            isRecommended:   isRecommendedFallback,
+                            isRecommended:   (itemId &&
+                                itemId.toLowerCase() === RECOMMENDED_ITEM_ID.toLowerCase()),
                             productInfoLink: ''
                         });
                     }
                 });
 
             } catch (e) {
-                log.error('THERMOSTAT_OPTIONS_ERROR', 'Failed to load thermostat option items: ' + e.message);
+                log.error('THERMOSTAT_OPTIONS_ERROR',
+                    'Failed to load thermostat option items: ' + e.message);
                 debugLog('ThermostatOptions', 'Search error', { error: e.message });
             }
 
@@ -4094,12 +4136,14 @@ function loadQuoteData(quoteId, debugLog, pricingOverrides) {
                 return '';
             }
 
-            // v4.3.9: Collect displayed item IDs from quote line items to filter thermostat options
-            var displayedItemIds = [];
+            // v4.3.56: Collect item name/codes (not internal IDs) from the main quote materials
+            // list. Used for prefix-based exclusion — if a line item code begins with a
+            // thermostat family prefix, the corresponding upgrade card is suppressed.
+            var displayedItemCodes = [];
             if (quoteData.lineItems) {
                 quoteData.lineItems.forEach(function(item) {
                     if (item.itemId) {
-                        displayedItemIds.push(String(item.itemId));
+                        displayedItemCodes.push(String(item.itemId));
                     }
                 });
             }
@@ -4126,14 +4170,17 @@ function loadQuoteData(quoteId, debugLog, pricingOverrides) {
 '                <h2 class="thermostat-options-header">Thermostat options</h2>\n' +
 '                <p>Select from our range of controls to enjoy precise control and effortless convenience.</p>\n';
 
-            // Load thermostat option items dynamically
-            var thermostatOptions = loadThermostatOptionItems(THERMOSTAT_OPTION_ITEM_IDS, displayedItemIds, debugLog);
-            
-            // v4.3.26: Sort by order defined in THERMOSTAT_OPTION_ITEM_IDS (not by recommended status)
+            // Load thermostat option items — fixed four cards, prefix-based exclusion
+            var thermostatOptions = loadThermostatOptionItems(THERMOSTAT_OPTION_ITEM_IDS, displayedItemCodes, debugLog);
+
+            // Sort by order defined in THERMOSTAT_OPTION_ITEM_IDS, with recommended card first.
             thermostatOptions.sort(function(a, b) {
+                // Recommended card always appears first
+                if (a.isRecommended && !b.isRecommended) return -1;
+                if (!a.isRecommended && b.isRecommended) return 1;
+                // Otherwise preserve THERMOSTAT_OPTION_ITEM_IDS order
                 var indexA = THERMOSTAT_OPTION_ITEM_IDS.indexOf(a.itemId);
                 var indexB = THERMOSTAT_OPTION_ITEM_IDS.indexOf(b.itemId);
-                // Handle items not in the list (put at end)
                 if (indexA === -1) indexA = 999;
                 if (indexB === -1) indexB = 999;
                 return indexA - indexB;

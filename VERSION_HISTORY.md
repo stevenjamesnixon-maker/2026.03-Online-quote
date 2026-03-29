@@ -20,6 +20,16 @@
 
 ## Quote Suitelet (`nuheat_quote_suitelet.js`)
 
+### v4.3.56 — 29 March 2026 ⏳ Pending Sandbox testing
+
+- IMPROVED: Thermostat upgrade cards now use prefix-based exclusion (`THERMOSTAT_EXCLUSION_PREFIXES`)
+  against `quoteData.lineItems`. A card is hidden if the quote contains any item whose code begins
+  with the card's family prefix. Any thermostat variant suppresses the corresponding upgrade card.
+- PERFORMANCE: Fixed card set retained (max four `record.load()` calls). Earlier catalogue-scan
+  approach (PR #1, `itemid STARTSWITH`) caused 80+ second timeouts and was abandoned.
+- CHANGED: Sort — recommended card first, then `THERMOSTAT_OPTION_ITEM_IDS` defined order.
+- ADDED: `THERMOSTAT_EXCLUSION_PREFIXES` constant.
+
 ### v4.3.55 — 29 March 2026
 
 - FIXED: Main product card feature bullets empty across all sections (UFH, Heat Pump,

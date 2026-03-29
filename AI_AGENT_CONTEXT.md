@@ -119,7 +119,7 @@ A multi-component SuiteScript 2.1 solution:
 - v1.6.2: Removed file cleanup (keep all versions for audit)
 - v1.6.3: Fixed broken email proposal URL. `file.url` returns a relative path — added `getAccountHostname()` using `N/runtime.accountId` to construct absolute `https://` URL. Fixes "Redirect Notice: invalid URL" on desktop and silent button failure on mobile.
 
-### Phase 6: UI Refinements (v4.3.35 → v4.3.55, Mar 2026)
+### Phase 6: UI Refinements (v4.3.35 → v4.3.56, Mar 2026)
 
 - Design importance section, product links, section descriptions
 - DRY refactoring — extracted helper functions, SVG constants
@@ -127,6 +127,7 @@ A multi-component SuiteScript 2.1 solution:
 - Mobile CSS improvements (detailed in `nu-heat-quote-change-specification.md`)
 - v4.3.54: Fixed thermostat options section. Refactored `loadThermostatOptionItems()` to two-step search+`record.load()` pattern (`custitem_*` fields invalid as search columns). Fixed double-prefixed fab field IDs (`custitemcustitem_quote_fab_1`). Added case-insensitive `RECOMMENDED_ITEM_ID` matching.
 - v4.3.55: Fixed double-prefixed fab field IDs in `loadItemCustomFields()` — same root cause as v4.3.54 thermostat fix. All main product card feature bullets were silently empty across UFH, Heat Pump, Solar, and Commissioning sections.
+- v4.3.56: Prefix-based exclusion on fixed thermostat card set. Added `THERMOSTAT_EXCLUSION_PREFIXES` map. Cards now suppressed when quote already contains any item from the same family. Earlier catalogue-scan approach (PR #1) caused 80+ second timeouts — this approach is O(4) record loads. ⏳ Pending Sandbox testing sign-off.
 
 ---
 
@@ -136,7 +137,7 @@ A multi-component SuiteScript 2.1 solution:
 
 | Component | Version | File | Status |
 |-----------|---------|------|--------|
-| Quote Suitelet | v4.3.55 | `src/nuheat_quote_suitelet.js` | ✅ Production ready |
+| Quote Suitelet | v4.3.56 | `src/nuheat_quote_suitelet.js` | ⏳ Sandbox testing |
 | Quote UE | v4.0.9 | `src/nuheat_quote_ue.js` | ✅ Production ready |
 | Quote CS | v4.0.6 | `src/nuheat_quote_cs.js` | ✅ Production ready |
 | Quote Viewer | v1.1.0 | `src/nuheat_quote_viewer_sl.js` | ✅ Production ready |
@@ -283,7 +284,9 @@ src/
 var SCRIPT_VERSION = '4.3.53';
 var QUOTE_HTML_FOLDER_ID = 26895192;
 var MAX_FILE_VERSIONS = 5;
+// v4.3.56: fixed card set + prefix-based exclusion map
 var THERMOSTAT_OPTION_ITEM_IDS = ['DSSB5-C', 'neoHub+-C', 'Neostatwv2-C', 'NeoAirwv3-C'];
+var THERMOSTAT_EXCLUSION_PREFIXES = { 'DSSB5-C': 'DSSB', 'neoHub+-C': 'NeoHub', 'Neostatwv2-C': 'Neostat', 'NeoAirwv3-C': 'NeoAir' };
 var RECOMMENDED_ITEM_ID = 'neoHub+-C';
 
 // Product Type ID Map — 52 entries mapping names to internal IDs

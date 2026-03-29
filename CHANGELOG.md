@@ -1,3 +1,47 @@
+## v4.3.56 — Thermostat upgrade cards: prefix-based exclusion on fixed card set
+**Date:** 29 March 2026
+**Component:** Quote Suitelet (`src/nuheat_quote_suitelet.js`)
+**Status:** ⏳ Pending Sandbox testing sign-off — do not deploy to Production until confirmed
+
+### Improvement
+Thermostat upgrade cards now use prefix-based exclusion against the main quote
+materials list, replacing the old exact item ID comparison. A card is hidden if
+the main quote already contains any item whose ID begins with the corresponding
+family prefix — meaning any variant of that thermostat suppresses the upgrade card.
+
+### Performance note
+An earlier approach (closed PR #1) attempted prefix-based catalogue searching using
+`itemid STARTSWITH` filters. This caused 80+ second execution times and
+ScriptNullObjectAdapter errors because it scanned the full item catalogue and called
+`record.load()` for every match. The final implementation retains a fixed set of four
+item IDs (maximum four `record.load()` calls) and moves prefix logic to the exclusion
+check only — where it has no performance cost.
+
+### Constants
+- `THERMOSTAT_OPTION_ITEM_IDS` — fixed four card IDs (unchanged from original)
+- `THERMOSTAT_EXCLUSION_PREFIXES` — new map of card ID → family prefix
+- `RECOMMENDED_ITEM_ID` — unchanged
+
+### Exclusion logic
+| Card | Hidden when main quote contains item starting with |
+|------|---------------------------------------------------|
+| DSSB5-C | DSSB |
+| neoHub+-C | NeoHub |
+| Neostatwv2-C | Neostat |
+| NeoAirwv3-C | NeoAir |
+
+### Files Changed
+- `src/nuheat_quote_suitelet.js` — v4.3.55 → v4.3.56
+
+### Testing
+- [ ] All four cards render on a UFH-only quote with no thermostat on the order
+- [ ] Each card is correctly suppressed when its family prefix is on the quote
+- [ ] neoHub+-C Recommended badge present, card appears first
+- [ ] Execution time normal (under 5 seconds)
+- [ ] No THERMOSTAT_OPTIONS_ERROR in Script Execution Log
+
+---
+
 ## v4.3.55 — Fix double-prefixed fab field IDs in main product cards
 **Date:** 29 March 2026
 **Component:** Quote Suitelet (`src/nuheat_quote_suitelet.js`)
