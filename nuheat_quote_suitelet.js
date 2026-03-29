@@ -754,21 +754,48 @@ define(['N/record', 'N/search', 'N/log', 'N/format', 'N/error', 'N/runtime', 'N/
          * @param {Function} debugLog - Debug logging function
          * @returns {Array} Array of item objects with product name, description, features, image
          */
+        /**
+         * Load thermostat option items by item name/ID.
+         *
+         * v4.3.54 REWRITE — Two-step approach to fix SSS_INVALID_SRCH_COL:
+         *   STEP 1: search.create() using ONLY standard columns (itemid, displayname,
+         *           description). Custom item fields (custitem_*) are NOT valid search
+         *           columns on search.Type.ITEM and caused the entire search to fail,
+         *           resulting in the static fallback tiles always rendering.
+         *   STEP 2: record.load() per matched item to read all custitem_* fields reliably.
+         *
+         * v4.3.54 FIX — Double-prefixed fab field IDs:
+         *   The six feature/benefit fields have internal IDs of custitemcustitem_quote_fab_1
+         *   through custitemcustitem_quote_fab_6 (NetSuite double-prefixes the ID when the
+         *   field name already begins with custitem_). record.load().getValue() requires the
+         *   internal ID, so custitem_quote_fab_1 silently returned empty. All other custom
+         *   item fields use their standard IDs and are unaffected.
+         *
+         * v4.3.54 FIX — Case-insensitive RECOMMENDED_ITEM_ID matching:
+         *   Guards against NetSuite returning itemid in different casing across environments.
+         *
+         * @param {Array}    itemIds          - Array of item name/codes to load (e.g. ['DSSB5-C', 'neoHub+-C'])
+         * @param {Array}    displayedItemIds - Array of item internal IDs already shown in main UFH section
+         * @param {Function} debugLog         - Debug logging function
+         * @returns {Array} Array of item objects with productName, description, features, imageUrl, isRecommended
+         */
         function loadThermostatOptionItems(itemIds, displayedItemIds, debugLog) {
             var items = [];
-            
+
             if (!itemIds || itemIds.length === 0) {
                 return items;
             }
-            
-            debugLog('ThermostatOptions', 'Loading thermostat option items', { 
-                itemIds: itemIds, 
-                displayedItemIds: displayedItemIds 
+
+            debugLog('ThermostatOptions', 'Loading thermostat option items', {
+                itemIds: itemIds,
+                displayedItemIds: displayedItemIds
             });
-            
+
             try {
-                // Create search to find items by name/itemid
-                // Build filter expression: itemid IS value1 OR itemid IS value2 OR ...
+                // ── STEP 1: Search using standard columns only ───────────────────────────
+                // custitem_* fields cannot be used as search columns on search.Type.ITEM —
+                // they cause SSS_INVALID_SRCH_COL and abort the entire search.
+                // Only use itemid, displayname, description here.
                 var filterExpression = [];
                 itemIds.forEach(function(id, index) {
                     if (index > 0) {
@@ -776,101 +803,144 @@ define(['N/record', 'N/search', 'N/log', 'N/format', 'N/error', 'N/runtime', 'N/
                     }
                     filterExpression.push(['itemid', 'is', id]);
                 });
-                
-                debugLog('ThermostatOptions', 'Search filter expression', { 
-                    filterExpression: JSON.stringify(filterExpression) 
-                });
-                
+
                 var itemSearch = search.create({
                     type: search.Type.ITEM,
                     filters: filterExpression,
                     columns: [
                         search.createColumn({ name: 'itemid' }),
                         search.createColumn({ name: 'displayname' }),
-                        search.createColumn({ name: 'description' }),
-                        search.createColumn({ name: 'custitem_quote_product_name' }),
-                        search.createColumn({ name: 'custitem_quote_description' }),
-                        search.createColumn({ name: 'custitem_quote_prod_visual_1' }),
-                        search.createColumn({ name: 'custitem_quote_fab_1' }),
-                        search.createColumn({ name: 'custitem_quote_fab_2' }),
-                        search.createColumn({ name: 'custitem_quote_fab_3' }),
-                        search.createColumn({ name: 'custitem_quote_fab_4' }),
-                        search.createColumn({ name: 'custitem_quote_fab_5' }),
-                        search.createColumn({ name: 'custitem_quote_fab_6' }),
-                        search.createColumn({ name: 'custitem_prod_info_link' })
+                        search.createColumn({ name: 'description' })
                     ]
                 });
-                
+
+                var matchedItems = [];
                 itemSearch.run().each(function(result) {
-                    var internalId = result.id;
-                    var itemId = result.getValue({ name: 'itemid' });
-                    
-                    // Skip if this item is already displayed in the main UFH section
+                    matchedItems.push({
+                        internalId:  result.id,
+                        itemId:      result.getValue({ name: 'itemid' }),
+                        displayName: result.getValue({ name: 'displayname' }) || '',
+                        description: result.getValue({ name: 'description' }) || ''
+                    });
+                    return true;
+                });
+
+                debugLog('ThermostatOptions', 'Step 1 search complete', { matchedCount: matchedItems.length });
+
+                // ── STEP 2: record.load() per item to read custitem_* fields ────────────
+                matchedItems.forEach(function(matched) {
+                    var internalId = matched.internalId;
+                    var itemId     = matched.itemId;
+
+                    // Skip if already displayed in the main UFH section
                     if (displayedItemIds && displayedItemIds.indexOf(String(internalId)) !== -1) {
-                        debugLog('ThermostatOptions', 'Skipping item - already displayed', { 
-                            itemId: itemId, 
-                            internalId: internalId 
+                        debugLog('ThermostatOptions', 'Skipping item - already displayed', {
+                            itemId:     itemId,
+                            internalId: internalId
                         });
-                        return true; // Continue to next result
+                        return;
                     }
-                    
-                    // Get product name (prefer custitem_quote_product_name, fallback to displayname)
-                    var productName = result.getValue({ name: 'custitem_quote_product_name' }) ||
-                                     result.getValue({ name: 'displayname' }) ||
-                                     itemId;
-                    
-                    // Get description (prefer custitem_quote_description, fallback to description)
-                    var description = result.getValue({ name: 'custitem_quote_description' }) ||
-                                     result.getValue({ name: 'description' }) || '';
-                    
-                    // Get features (fab_1 through fab_6)
-                    var features = [];
-                    for (var f = 1; f <= 6; f++) {
-                        var fab = result.getValue({ name: 'custitem_quote_fab_' + f });
-                        if (fab) features.push(fab);
-                    }
-                    
-                    // Get image
-                    var imageRef = result.getValue({ name: 'custitem_quote_prod_visual_1' });
-                    var imageUrl = '';
-                    if (imageRef) {
+
+                    try {
+                        var itemRecord = record.load({
+                            type: record.Type.INVENTORY_ITEM,
+                            id:   internalId
+                        });
+
+                        // Product name — prefer custitem_quote_product_name, fall back to displayname
+                        var productName = '';
                         try {
-                            imageUrl = getFileUrl(imageRef, debugLog);
+                            productName = itemRecord.getValue({ fieldId: 'custitem_quote_product_name' }) || '';
+                        } catch (e) { /* field may not exist on this item type */ }
+                        if (!productName) productName = matched.displayName || itemId;
+
+                        // Description — prefer custitem_quote_description, fall back to standard
+                        var description = '';
+                        try {
+                            description = itemRecord.getValue({ fieldId: 'custitem_quote_description' }) || '';
+                        } catch (e) { /* field may not exist on this item type */ }
+                        if (!description) description = matched.description || '';
+
+                        // Features — NOTE: internal IDs are custitemcustitem_quote_fab_1 through _6
+                        // (double-prefixed because field name already begins with custitem_)
+                        var features = [];
+                        for (var f = 1; f <= 6; f++) {
+                            try {
+                                var fab = itemRecord.getValue({ fieldId: 'custitemcustitem_quote_fab_' + f });
+                                if (fab) features.push(fab);
+                            } catch (e) { /* field may not exist */ }
+                        }
+
+                        // Image — custitem_quote_prod_visual_1 (standard ID — no double prefix)
+                        var imageUrl = '';
+                        try {
+                            var imageRef = itemRecord.getValue({ fieldId: 'custitem_quote_prod_visual_1' });
+                            if (imageRef) {
+                                imageUrl = getFileUrl(imageRef, debugLog);
+                            }
                         } catch (e) {
                             debugLog('ThermostatOptions', 'Image load error', { itemId: itemId, error: e.message });
                         }
+
+                        // Product info link — custitem_prod_info_link (standard ID — no double prefix)
+                        var productInfoLink = '';
+                        try {
+                            productInfoLink = itemRecord.getValue({ fieldId: 'custitem_prod_info_link' }) || '';
+                        } catch (e) { /* field may not exist */ }
+
+                        // v4.3.54: Case-insensitive recommended check — guards against NS
+                        // returning itemid in different casing across Sandbox vs Production
+                        var isRecommended = (itemId &&
+                            itemId.toLowerCase() === RECOMMENDED_ITEM_ID.toLowerCase());
+
+                        items.push({
+                            internalId:      internalId,
+                            itemId:          itemId,
+                            productName:     productName,
+                            description:     description,
+                            features:        features,
+                            imageUrl:        imageUrl,
+                            isRecommended:   isRecommended,
+                            productInfoLink: productInfoLink
+                        });
+
+                        debugLog('ThermostatOptions', 'Loaded item via record.load()', {
+                            itemId:        itemId,
+                            productName:   productName,
+                            featuresCount: features.length,
+                            hasImage:      !!imageUrl,
+                            isRecommended: isRecommended
+                        });
+
+                    } catch (loadErr) {
+                        // record.load() with INVENTORY_ITEM fails if the item is a different
+                        // type (e.g. NON_INVENTORY_ITEM). Fall back to search data only.
+                        debugLog('ThermostatOptions', 'record.load(INVENTORY_ITEM) failed — using search data fallback', {
+                            itemId: itemId,
+                            error:  loadErr.message
+                        });
+
+                        var isRecommendedFallback = (itemId &&
+                            itemId.toLowerCase() === RECOMMENDED_ITEM_ID.toLowerCase());
+
+                        items.push({
+                            internalId:      internalId,
+                            itemId:          itemId,
+                            productName:     matched.displayName || itemId,
+                            description:     matched.description || '',
+                            features:        [],
+                            imageUrl:        '',
+                            isRecommended:   isRecommendedFallback,
+                            productInfoLink: ''
+                        });
                     }
-                    
-                    // v4.3.40: Get product info link
-                    var productInfoLink = result.getValue({ name: 'custitem_prod_info_link' }) || '';
-                    
-                    items.push({
-                        internalId: internalId,
-                        itemId: itemId,
-                        productName: productName,
-                        description: description,
-                        features: features,
-                        imageUrl: imageUrl,
-                        isRecommended: (itemId === RECOMMENDED_ITEM_ID),
-                        productInfoLink: productInfoLink
-                    });
-                    
-                    debugLog('ThermostatOptions', 'Loaded item', { 
-                        itemId: itemId, 
-                        productName: productName,
-                        featuresCount: features.length,
-                        hasImage: !!imageUrl,
-                        isRecommended: (itemId === RECOMMENDED_ITEM_ID)
-                    });
-                    
-                    return true; // Continue to next result
                 });
-                
+
             } catch (e) {
                 log.error('THERMOSTAT_OPTIONS_ERROR', 'Failed to load thermostat option items: ' + e.message);
                 debugLog('ThermostatOptions', 'Search error', { error: e.message });
             }
-            
+
             debugLog('ThermostatOptions', 'Loaded items complete', { count: items.length });
             return items;
         }

@@ -1,3 +1,51 @@
+## v4.3.54 — Fix thermostat options section (search columns + field ID double-prefix)
+**Date:** 29 March 2026
+**Component:** Quote Suitelet (`src/nuheat_quote_suitelet.js`)
+
+### Bugs Fixed
+
+**Bug 1 — Thermostat cards never rendered (static fallback always showing)**
+`loadThermostatOptionItems()` included `custitem_quote_fab_1` through `fab_6` as
+`search.create()` columns. NetSuite throws `SSS_INVALID_SRCH_COL` for custom item
+fields used as search columns on `search.Type.ITEM`, aborting the entire search and
+returning zero results. The static fallback tiles rendered instead of live product cards.
+
+Fix: Refactored to a two-step approach — Step 1 searches with standard columns only
+(`itemid`, `displayname`, `description`); Step 2 calls `record.load()` per matched
+item to read all `custitem_*` fields reliably.
+
+**Bug 2 — Feature/benefit bullets always empty**
+The six fab fields have double-prefixed internal IDs (`custitemcustitem_quote_fab_1`
+through `custitemcustitem_quote_fab_6`) because the field names already begin with
+`custitem_`. `record.load().getValue({ fieldId: 'custitem_quote_fab_1' })` silently
+returned empty. All other custom item fields use standard IDs and are unaffected.
+
+Fix: Updated all six fab field reads to use the correct internal IDs
+(`custitemcustitem_quote_fab_1` through `custitemcustitem_quote_fab_6`).
+
+**Bug 3 — Recommended banner not showing on neoHub+ card**
+`isRecommended` used strict `===` comparison against `RECOMMENDED_ITEM_ID`. If
+NetSuite returns `itemid` in different casing the comparison silently fails.
+
+Fix: Changed to case-insensitive comparison using `.toLowerCase()` on both sides.
+
+### Files Changed
+- `src/nuheat_quote_suitelet.js` — `loadThermostatOptionItems()` rewritten
+- `docs/AI_AGENT_CONTEXT.md` — Added two new NetSuite quirks (Section 9)
+- `CHANGELOG.md` — This entry
+
+### Testing
+- [ ] Regen a UFH-only quote — thermostat options section should show live product cards (not static tiles)
+- [ ] Verify neoHub+ card shows the "Recommended" banner
+- [ ] Verify feature bullet points are populated on each card
+- [ ] Verify product images load correctly
+- [ ] Verify "View more details" links are present where configured
+- [ ] Regen a Heat Pump or Solar quote — thermostat section should be hidden entirely
+- [ ] Check Script Execution Log — no `THERMOSTAT_OPTIONS_ERROR` entries
+- [ ] Check debug log — confirm `featuresCount > 0` and `isRecommended: true` for neoHub+
+
+---
+
 ## v1.6.3 — Master Proposal: Fix broken email button URL
 **Date:** 29 March 2026
 **Component:** Master Proposal (`src/nuheat_master_proposal.js`)

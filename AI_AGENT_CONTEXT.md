@@ -119,12 +119,13 @@ A multi-component SuiteScript 2.1 solution:
 - v1.6.2: Removed file cleanup (keep all versions for audit)
 - v1.6.3: Fixed broken email proposal URL. `file.url` returns a relative path — added `getAccountHostname()` using `N/runtime.accountId` to construct absolute `https://` URL. Fixes "Redirect Notice: invalid URL" on desktop and silent button failure on mobile.
 
-### Phase 6: UI Refinements (v4.3.35 → v4.3.42, Mar 2026)
+### Phase 6: UI Refinements (v4.3.35 → v4.3.54, Mar 2026)
 
 - Design importance section, product links, section descriptions
 - DRY refactoring — extracted helper functions, SVG constants
 - Thermostat options conditional rendering
 - Mobile CSS improvements (detailed in `nu-heat-quote-change-specification.md`)
+- v4.3.54: Fixed thermostat options section. Refactored `loadThermostatOptionItems()` to two-step search+`record.load()` pattern (`custitem_*` fields invalid as search columns). Fixed double-prefixed fab field IDs (`custitemcustitem_quote_fab_1`). Added case-insensitive `RECOMMENDED_ITEM_ID` matching.
 
 ---
 
@@ -426,6 +427,17 @@ To modify, edit `renderProductCard()` and update CSS in `generateCSS()`.
 5. **Don't build URLs manually** — Use `url.resolveScript()` for Suitelet URLs
 6. **Don't forget "Available Without Login"** — Required for all customer-facing scripts/files
 7. **Don't use `log.warn()`** — It doesn't exist in NetSuite! Use `log.debug()` instead
+8. **Custom item field double-prefix** — When a custom item field is created with a
+   name already beginning with `custitem_`, NetSuite stores the internal ID with the
+   prefix applied twice (e.g. field name `custitem_quote_fab_1` → internal ID
+   `custitemcustitem_quote_fab_1`). Always verify internal IDs via
+   Customization → Lists, Records & Fields → Item Fields. Use the internal ID
+   (not the field name) in `record.load().getValue({ fieldId: '...' })`.
+9. **Custom item fields not valid as search columns** — Fields like `custitem_quote_fab_1`
+   cannot be used as columns in `search.create({ type: search.Type.ITEM })`. They throw
+   `SSS_INVALID_SRCH_COL` and abort the entire search. Always use a two-step pattern:
+   search with standard columns to get internal IDs, then `record.load()` per item to
+   read custom fields.
 
 ### NetSuite Record Types Used
 

@@ -20,7 +20,13 @@
 
 ## Quote Suitelet (`nuheat_quote_suitelet.js`)
 
-### v4.3.54 — 28 March 2026
+### v4.3.54 — 29 March 2026 (thermostat options fix)
+
+- FIXED: Thermostat options always showing static fallback — `custitem_*` fields invalid as `search.Type.ITEM` columns, causing `SSS_INVALID_SRCH_COL`. Refactored to two-step search + `record.load()` pattern.
+- FIXED: Feature bullet points empty — fab field internal IDs are double-prefixed (`custitemcustitem_quote_fab_1` through `_6`). Updated all six field reads to use correct internal IDs.
+- FIXED: neoHub+ Recommended banner not rendering — changed `RECOMMENDED_ITEM_ID` comparison to case-insensitive.
+
+### v4.3.54 — 28 March 2026 (design package detection)
 
 #### Added
 - `DESIGN_PACKAGE_ITEMS` constant mapping item internal IDs for MPDP-C (Standard UFH Design, ID: 480)
