@@ -1,3 +1,48 @@
+## v4.3.56 — Scalable thermostat options: prefix matching replaces exact ID list
+**Date:** 29 March 2026
+**Component:** Quote Suitelet (`src/nuheat_quote_suitelet.js`)
+**Status:** ⏳ Pending Sandbox testing sign-off — do not deploy to Production until testing complete
+
+### Improvement
+The thermostat upgrade cards previously used `THERMOSTAT_OPTION_ITEM_IDS` — a
+hardcoded array of exact item IDs. Any new thermostat variant required a script
+change to appear in the Upgrades section. This was not scalable as the product
+catalogue grows.
+
+### Change
+Replaced `THERMOSTAT_OPTION_ITEM_IDS` with `THERMOSTAT_OPTION_PREFIXES` — an array
+of item ID prefixes. The search now uses `itemid STARTSWITH prefix` filters, so any
+item whose ID begins with a known prefix is automatically included without any further
+code changes.
+
+**To add a new thermostat family in future:** add its prefix to
+`THERMOSTAT_OPTION_PREFIXES` at the top of `nuheat_quote_suitelet.js`. No other
+changes needed.
+
+Current prefixes: `DSSB`, `Neostat`, `NeoAir`, `NeoHub`
+
+### Other changes in this version
+- Sort order: recommended card now always appears first, remaining cards sorted
+  alphabetically by product name (fixed index order is no longer meaningful with
+  dynamic discovery)
+- `RECOMMENDED_ITEM_ID` retained as an exact ID — only one specific model should
+  carry the Recommended badge
+
+### Files Changed
+- `src/nuheat_quote_suitelet.js` — v4.3.55 → v4.3.56
+
+### Testing
+- [ ] Regen a UFH-only quote — thermostat cards render for all matching prefix variants
+- [ ] Verify neoHub+ card appears first and shows Recommended badge
+- [ ] Verify remaining cards sorted alphabetically by product name
+- [ ] Add a test item with ID `DSSB99-C` in Sandbox — confirm it appears automatically
+- [ ] Add a test item with ID `NeoAirwv4-C` in Sandbox — confirm it appears automatically
+- [ ] Confirm items already on the main quote are still excluded from the upgrades section
+- [ ] Regen a Heat Pump or Solar quote — thermostat section still hidden
+- [ ] Script Execution Log — no THERMOSTAT_OPTIONS_ERROR entries
+
+---
+
 ## v4.3.55 — Fix double-prefixed fab field IDs in main product cards
 **Date:** 29 March 2026
 **Component:** Quote Suitelet (`src/nuheat_quote_suitelet.js`)

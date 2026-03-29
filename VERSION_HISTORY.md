@@ -20,6 +20,14 @@
 
 ## Quote Suitelet (`nuheat_quote_suitelet.js`)
 
+### v4.3.56 — 29 March 2026 ⏳ Pending Sandbox testing
+
+- IMPROVED: Thermostat upgrade cards now use prefix matching (`THERMOSTAT_OPTION_PREFIXES`)
+  instead of exact ID list (`THERMOSTAT_OPTION_ITEM_IDS`). New thermostat variants are
+  discovered automatically — no script changes needed when adding new models to NetSuite.
+- CHANGED: Sort order — recommended card first, then alphabetical by product name.
+- REMOVED: `THERMOSTAT_OPTION_ITEM_IDS` constant (replaced by `THERMOSTAT_OPTION_PREFIXES`).
+
 ### v4.3.55 — 29 March 2026
 
 - FIXED: Main product card feature bullets empty across all sections (UFH, Heat Pump,
