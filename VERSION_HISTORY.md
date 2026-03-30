@@ -20,6 +20,12 @@
 
 ## Quote Suitelet (`nuheat_quote_suitelet.js`)
 
+### v4.3.57 — 30 March 2026 ⏳ Draft — pending Sandbox testing
+
+- FIXED: Product card image source switched from `custitem_quote_prod_visual_1` (sandbox development
+  field) to `custitem_test_image` (production field). Affects all product card image reads in
+  `loadItemCustomFields()` and the enhanced image debug block. No rendering logic changed.
+
 ### v4.3.56 — 29 March 2026 ⏳ Pending Sandbox testing
 
 - IMPROVED: Thermostat upgrade cards now use prefix-based exclusion (`THERMOSTAT_EXCLUSION_PREFIXES`)

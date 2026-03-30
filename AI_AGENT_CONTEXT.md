@@ -137,7 +137,7 @@ A multi-component SuiteScript 2.1 solution:
 
 | Component | Version | File | Status |
 |-----------|---------|------|--------|
-| Quote Suitelet | v4.3.56 | `src/nuheat_quote_suitelet.js` | ⏳ Sandbox testing |
+| Quote Suitelet | v4.3.57 | `nuheat_quote_suitelet.js` | ⏳ Sandbox testing |
 | Quote UE | v4.0.9 | `src/nuheat_quote_ue.js` | ✅ Production ready |
 | Quote CS | v4.0.6 | `src/nuheat_quote_cs.js` | ✅ Production ready |
 | Quote Viewer | v1.1.0 | `src/nuheat_quote_viewer_sl.js` | ✅ Production ready |
@@ -368,7 +368,7 @@ var BRAND = {
 ### How to Modify Product Cards
 
 Product cards are rendered by `renderProductCard(item, quoteData)`. The function generates HTML with:
-- Product image (from `custitem_quote_image` or placeholder SVG)
+- Product image (from `custitem_test_image` or placeholder SVG)
 - Product name
 - Description
 - Features grid (parsed from item fields)

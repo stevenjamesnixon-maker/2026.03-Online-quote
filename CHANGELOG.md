@@ -1,3 +1,21 @@
+## v4.3.57 — Switch product card images to production field custitem_test_image
+
+**Date:** 30 March 2026
+**Component:** Quote Suitelet (`nuheat_quote_suitelet.js`)
+**Status:** ⏳ Draft — pending Sandbox testing sign-off
+
+### Fixed
+- **Product card images** — Switched image source field from `custitem_quote_prod_visual_1`
+  to `custitem_test_image` on item records. The previous field was used during sandbox
+  development; `custitem_test_image` contains the correct production image URLs.
+  Affects all product cards (full and mini) in `nuheat_quote_suitelet.js`.
+
+### Files Changed
+- `nuheat_quote_suitelet.js` — Field ID updated in `loadItemCustomFields()` and all
+  render functions; version bumped to v4.3.57
+
+---
+
 ## v4.3.56 — Thermostat upgrade cards: prefix-based exclusion on fixed card set
 **Date:** 29 March 2026
 **Component:** Quote Suitelet (`src/nuheat_quote_suitelet.js`)
