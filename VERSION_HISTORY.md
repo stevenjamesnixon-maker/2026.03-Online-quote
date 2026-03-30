@@ -20,6 +20,12 @@
 
 ## Quote Suitelet (`nuheat_quote_suitelet.js`)
 
+### v4.3.59 — 30 March 2026 ⏳ Draft — pending testing
+
+- FIXED: Thermostat mini card images were cropped at top and bottom due to `object-fit: cover`.
+  Changed to `object-fit: contain` in `generateCSS()` so the full image fits within the 120px
+  container regardless of aspect ratio.
+
 ### v4.3.58 — 30 March 2026 ⏳ Draft — pending Sandbox/Production testing
 
 - FIXED: Thermostat upgrade card images were blank despite `custitem_test_image` being

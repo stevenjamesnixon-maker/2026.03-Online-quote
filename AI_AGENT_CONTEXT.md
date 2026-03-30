@@ -146,7 +146,7 @@ A multi-component SuiteScript 2.1 solution:
 
 | Component | Version | File | Status |
 |-----------|---------|------|--------|
-| Quote Suitelet | v4.3.58 | `nuheat_quote_suitelet.js` | ⏳ Sandbox testing |
+| Quote Suitelet | v4.3.59 | `nuheat_quote_suitelet.js` | ⏳ Sandbox testing |
 | Quote UE | v4.0.9 | `src/nuheat_quote_ue.js` | ✅ Production ready |
 | Quote CS | v4.0.6 | `src/nuheat_quote_cs.js` | ✅ Production ready |
 | Quote Viewer | v1.1.0 | `src/nuheat_quote_viewer_sl.js` | ✅ Production ready |

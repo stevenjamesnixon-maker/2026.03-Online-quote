@@ -1,3 +1,19 @@
+## v4.3.59 — Fix thermostat mini card image clipping
+**Date:** 30 March 2026
+**Component:** Quote Suitelet (`nuheat_quote_suitelet.js`)
+**Status:** ⏳ Draft — pending testing
+
+### Fixed
+- **Thermostat mini card image clipping** — Images were being cropped at the top and
+  bottom due to `object-fit: cover` scaling behaviour. Changed to `object-fit: contain`
+  so the full image is always visible within the container regardless of aspect ratio.
+
+### Files Changed
+- `nuheat_quote_suitelet.js` — CSS updated for mini card image element;
+  version bumped to v4.3.59
+
+---
+
 ## v4.3.58 — Fix thermostat upgrade card images not rendering
 **Date:** 30 March 2026
 **Component:** Quote Suitelet (`nuheat_quote_suitelet.js`)
