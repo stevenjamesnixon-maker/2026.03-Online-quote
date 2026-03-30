@@ -26,7 +26,7 @@ define(['N/record', 'N/search', 'N/log', 'N/format', 'N/error', 'N/runtime', 'N/
         // =====================================================================
         // SCRIPT VERSION
         // =====================================================================
-        var SCRIPT_VERSION = '4.3.56';
+        var SCRIPT_VERSION = '4.3.58';
         
         // =====================================================================
         // THERMOSTAT OPTIONS CONFIGURATION (v4.3.9)
@@ -927,12 +927,31 @@ define(['N/record', 'N/search', 'N/log', 'N/format', 'N/error', 'N/runtime', 'N/
                             } catch (e) { /* field may not exist */ }
                         }
 
-                        // Image — custitem_quote_prod_visual_1 (standard ID)
+                        // Image — custitem_test_image (production image field)
+                        // v4.3.58: Aligned image resolution with multi-approach pattern used in loadItemCustomFields()
+                        // custitem_test_image stores a plain URL string — detect direct URLs first before
+                        // attempting getFileUrl(), which only handles NetSuite file ID references.
                         var imageUrl = '';
                         try {
-                            var imageRef = itemRecord.getValue({ fieldId: 'custitem_quote_prod_visual_1' });
-                            if (imageRef) {
-                                imageUrl = getFileUrl(imageRef, debugLog);
+                            var imageRef = itemRecord.getValue({ fieldId: 'custitem_test_image' });
+                            if (imageRef && typeof imageRef === 'string' &&
+                                    (imageRef.indexOf('http') === 0 || imageRef.indexOf('/') === 0)) {
+                                // Approach 1: field already contains a direct URL
+                                imageUrl = imageRef;
+                            } else if (imageRef) {
+                                // Approach 2: treat value as a NetSuite file ID
+                                try {
+                                    imageUrl = getFileUrl(imageRef, debugLog);
+                                } catch (fileErr) { /* not a file ID — fall through to getText */ }
+                            }
+                            // Approach 3: fallback to getText (some field types expose URL via text)
+                            if (!imageUrl) {
+                                try {
+                                    var imageText = itemRecord.getText({ fieldId: 'custitem_test_image' }) || '';
+                                    if (imageText.indexOf('http') === 0 || imageText.indexOf('/') === 0) {
+                                        imageUrl = imageText;
+                                    }
+                                } catch (textErr) { /* getText not supported on this field type */ }
                             }
                         } catch (e) {
                             debugLog('ThermostatOptions', 'Image load error', {
@@ -2129,8 +2148,8 @@ function loadQuoteData(quoteId, debugLog, pricingOverrides) {
                         debugLog('IMAGE_PROCESS_START', 'Starting image processing for ' + itemName, { itemId: itemId });
                         log.debug('IMAGE_PROCESS_START', 'Item ' + itemId + ' (' + itemName + '): Starting image processing');
                         
-                        // Get raw value
-                        var imageFieldRaw = itemRecord.getValue({ fieldId: 'custitem_quote_prod_visual_1' });
+                        // Get raw value — custitem_test_image (v4.3.58: switched to production image field)
+                        var imageFieldRaw = itemRecord.getValue({ fieldId: 'custitem_test_image' });
                         productImageRef = imageFieldRaw || '';
                         
                         // Debug logging: raw value details
@@ -2146,7 +2165,7 @@ function loadQuoteData(quoteId, debugLog, pricingOverrides) {
                         // Try getText as alternative
                         var imageFieldText = '';
                         try {
-                            imageFieldText = itemRecord.getText({ fieldId: 'custitem_quote_prod_visual_1' }) || '';
+                            imageFieldText = itemRecord.getText({ fieldId: 'custitem_test_image' }) || '';
                             log.debug('IMAGE_FIELD_TEXT', 'Item ' + itemId + ' getText: ' + imageFieldText);
                             debugLog('ImageField', 'getText result for ' + itemName, { text: imageFieldText });
                         } catch (textErr) {
