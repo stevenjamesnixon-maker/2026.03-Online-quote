@@ -1,3 +1,19 @@
+## Master Proposal v1.6.4 — Fix last proposal sent date not populating
+**Date:** 30 March 2026
+**Component:** Master Proposal (`nuheat_master_proposal.js`)
+**Status:** ⏳ Draft — pending production testing
+
+### Fixed
+- **Last proposal sent date not populating** — `custbody_last_proposal_sent_date` was
+  passing a raw JavaScript `new Date()` object to `record.submitFields()`. NetSuite
+  requires date values to be formatted via `N/format` first. Fixed by wrapping with
+  `format.parse({ value: new Date(), type: format.Type.DATE })`.
+
+### Files Changed
+- `nuheat_master_proposal.js` — Date formatting fixed in `updateOpportunityWithProposalUrl()`; version bumped to v1.6.4
+
+---
+
 ## v4.3.59 — Fix thermostat mini card image clipping
 **Date:** 30 March 2026
 **Component:** Quote Suitelet (`nuheat_quote_suitelet.js`)

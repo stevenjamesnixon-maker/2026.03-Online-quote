@@ -2,6 +2,13 @@
 
 ## Master Proposal (`nuheat_master_proposal.js`)
 
+### v1.6.4 — 30 March 2026 ⏳ Pending production testing
+
+- FIXED: `custbody_last_proposal_sent_date` not populating when a master proposal was sent.
+  Raw `new Date()` passed to `record.submitFields()` is unreliable in NetSuite — wrapped
+  with `format.parse({ value: new Date(), type: format.Type.DATE })` using the existing
+  `N/format` import.
+
 ### v1.6.3 — 29 March 2026 (email URL fix)
 
 - FIXED: Email "VIEW YOUR QUOTES HERE" button broken on all clients (desktop: invalid URL redirect error, mobile: silent no-op)
