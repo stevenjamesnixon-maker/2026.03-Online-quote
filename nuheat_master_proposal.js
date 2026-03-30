@@ -179,7 +179,7 @@ define([
 
     // ─── Constants ────────────────────────────────────────────────────────────────
 
-    var MODULE_VERSION = '1.6.3';
+    var MODULE_VERSION = '1.6.4';
 
     /**
      * Safe logging helper — wraps N/log calls in try-catch to prevent
@@ -1446,7 +1446,7 @@ define([
                 id: opportunityId,
                 values: {
                     custbody_master_proposal_url: proposalUrl,
-                    custbody_last_proposal_sent_date: new Date()
+                    custbody_last_proposal_sent_date: format.parse({ value: new Date(), type: format.Type.DATE }) // v1.6.4: Use format.parse() for reliable date field submission via submitFields()
                 },
                 options: {
                     enableSourcing: false,
