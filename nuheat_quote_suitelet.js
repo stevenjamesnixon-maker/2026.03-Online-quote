@@ -26,7 +26,7 @@ define(['N/record', 'N/search', 'N/log', 'N/format', 'N/error', 'N/runtime', 'N/
         // =====================================================================
         // SCRIPT VERSION
         // =====================================================================
-        var SCRIPT_VERSION = '4.3.58';
+        var SCRIPT_VERSION = '4.3.59';
         
         // =====================================================================
         // THERMOSTAT OPTIONS CONFIGURATION (v4.3.9)
@@ -3044,7 +3044,7 @@ function loadQuoteData(quoteId, debugLog, pricingOverrides) {
 '.mini-product-card.recommended { border: 2px solid var(--color-primary); }\n' +
 '.mini-card-recommended-badge { position: absolute; top: -10px; left: 50%; transform: translateX(-50%); background: var(--color-primary); color: #fff; font-size: 11px; font-weight: 600; padding: 4px 12px; border-radius: 12px; text-transform: uppercase; letter-spacing: 0.5px; white-space: nowrap; }\n' +
 '.mini-card-image { width: 100%; height: 120px; margin-bottom: 12px; border-radius: 6px; overflow: hidden; background: #f5f5f5; display: flex; align-items: center; justify-content: center; }\n' +
-'.mini-card-image img { width: 100%; height: 100%; object-fit: cover; }\n' +
+'.mini-card-image img { width: 100%; height: 100%; object-fit: contain; /* v4.3.59: contain prevents image clipping for varied aspect ratios */ }\n' +
 '.mini-card-image-placeholder { color: #ccc; }\n' +
 '.mini-card-title { font-size: 16px; font-weight: 600; color: #333; margin-bottom: 8px; }\n' +
 // v4.3.11: Removed line-clamp truncation to show full description
