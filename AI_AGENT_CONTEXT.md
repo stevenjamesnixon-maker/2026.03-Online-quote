@@ -2,7 +2,7 @@
 
 **Purpose:** Comprehensive context for AI agents (Claude, etc.) to efficiently continue development on this project without extensive re-reading of source files. Load this document at the start of every new AI session.
 
-**Last Updated:** 28 March 2026
+**Last Updated:** 30 March 2026
 
 ---
 
@@ -127,7 +127,16 @@ A multi-component SuiteScript 2.1 solution:
 - Mobile CSS improvements (detailed in `nu-heat-quote-change-specification.md`)
 - v4.3.54: Fixed thermostat options section. Refactored `loadThermostatOptionItems()` to two-step search+`record.load()` pattern (`custitem_*` fields invalid as search columns). Fixed double-prefixed fab field IDs (`custitemcustitem_quote_fab_1`). Added case-insensitive `RECOMMENDED_ITEM_ID` matching.
 - v4.3.55: Fixed double-prefixed fab field IDs in `loadItemCustomFields()` — same root cause as v4.3.54 thermostat fix. All main product card feature bullets were silently empty across UFH, Heat Pump, Solar, and Commissioning sections.
-- v4.3.56: Prefix-based exclusion on fixed thermostat card set. Added `THERMOSTAT_EXCLUSION_PREFIXES` map. Cards now suppressed when quote already contains any item from the same family. Earlier catalogue-scan approach (PR #1) caused 80+ second timeouts — this approach is O(4) record loads. ⏳ Pending Sandbox testing sign-off.
+- v4.3.56: Prefix-based exclusion on fixed thermostat card set. Added `THERMOSTAT_EXCLUSION_PREFIXES` map. Cards now suppressed when quote already contains any item from the same family. Earlier catalogue-scan approach (PR #1) caused 80+ second timeouts — this approach is O(4) record loads.
+
+### Phase 7: Image Field & Resolution Fixes (v4.3.57 → v4.3.58, Mar 2026)
+
+- v4.3.57: Switched product card image source field from `custitem_quote_prod_visual_1`
+  to `custitem_test_image` across all card types (thermostat upgrade cards and main product cards).
+- v4.3.58: Fixed thermostat upgrade card images — aligned `loadThermostatOptionItems()`
+  with multi-approach image resolution pattern (direct URL → `getFileUrl` → `getText` fallback).
+  `custitem_test_image` stores plain URL strings; the previous `getFileUrl()`-only call
+  silently failed. ⏳ Pending Sandbox/Production testing sign-off.
 
 ---
 
@@ -137,7 +146,7 @@ A multi-component SuiteScript 2.1 solution:
 
 | Component | Version | File | Status |
 |-----------|---------|------|--------|
-| Quote Suitelet | v4.3.56 | `src/nuheat_quote_suitelet.js` | ⏳ Sandbox testing |
+| Quote Suitelet | v4.3.58 | `nuheat_quote_suitelet.js` | ⏳ Sandbox testing |
 | Quote UE | v4.0.9 | `src/nuheat_quote_ue.js` | ✅ Production ready |
 | Quote CS | v4.0.6 | `src/nuheat_quote_cs.js` | ✅ Production ready |
 | Quote Viewer | v1.1.0 | `src/nuheat_quote_viewer_sl.js` | ✅ Production ready |
@@ -281,12 +290,12 @@ src/
 ### Key Constants in `nuheat_quote_suitelet.js`
 
 ```javascript
-var SCRIPT_VERSION = '4.3.53';
+var SCRIPT_VERSION = '4.3.58';
 var QUOTE_HTML_FOLDER_ID = 26895192;
 var MAX_FILE_VERSIONS = 5;
-// v4.3.56: fixed card set + prefix-based exclusion map
-var THERMOSTAT_OPTION_ITEM_IDS = ['DSSB5-C', 'neoHub+-C', 'Neostatwv2-C', 'NeoAirwv3-C'];
-var THERMOSTAT_EXCLUSION_PREFIXES = { 'DSSB5-C': 'DSSB', 'neoHub+-C': 'NeoHub', 'Neostatwv2-C': 'Neostat', 'NeoAirwv3-C': 'NeoAir' };
+// v4.3.56: fixed card set + prefix-based exclusion map; v4.3.58: corrected item ID casing
+var THERMOSTAT_OPTION_ITEM_IDS = ['DSSB5-C', 'neoHub+-C', 'neoStatWv3-C', 'neoAirWv3-C'];
+var THERMOSTAT_EXCLUSION_PREFIXES = { 'DSSB5-C': 'DSSB', 'neoHub+-C': 'NeoHub', 'neoStatWv3-C': 'Neostat', 'neoAirWv3-C': 'NeoAir' };
 var RECOMMENDED_ITEM_ID = 'neoHub+-C';
 
 // Product Type ID Map — 52 entries mapping names to internal IDs
@@ -368,7 +377,7 @@ var BRAND = {
 ### How to Modify Product Cards
 
 Product cards are rendered by `renderProductCard(item, quoteData)`. The function generates HTML with:
-- Product image (from `custitem_quote_image` or placeholder SVG)
+- Product image (from `custitem_test_image` or placeholder SVG)
 - Product name
 - Description
 - Features grid (parsed from item fields)
