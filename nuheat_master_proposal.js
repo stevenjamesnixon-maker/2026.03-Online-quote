@@ -179,7 +179,7 @@ define([
 
     // ─── Constants ────────────────────────────────────────────────────────────────
 
-    var MODULE_VERSION = '1.6.3';
+    var MODULE_VERSION = '1.6.5';
 
     /**
      * Safe logging helper — wraps N/log calls in try-catch to prevent
@@ -1435,29 +1435,48 @@ define([
 
     /**
      * Updates the Opportunity record with the proposal URL and sent date.
+     * v1.6.5: Split into two separate submitFields() calls with enhanced date logging.
+     * Uses format.format() to produce a NetSuite-compatible date string.
      */
     function updateOpportunityWithProposalUrl(opportunityId, proposalUrl) {
         safeLog('debug', 'MasterProposal.updateOpp', 'Updating Opportunity ' + opportunityId +
             ' with URL: ' + proposalUrl);
 
         try {
+            // Step 1: Update URL field
             record.submitFields({
                 type: record.Type.OPPORTUNITY,
                 id: opportunityId,
                 values: {
-                    custbody_master_proposal_url: proposalUrl,
-                    custbody_last_proposal_sent_date: new Date()
+                    custbody_master_proposal_url: proposalUrl
                 },
                 options: {
                     enableSourcing: false,
                     ignoreMandatoryFields: true
                 }
             });
-            safeLog('audit', 'MasterProposal.updateOpp', 'SUCCESS — Updated Opportunity ' + opportunityId + ' with proposal URL and date');
-        } catch (e) {
-            safeLog('error', 'MasterProposal.updateOpp', 'Failed to update Opportunity ' + opportunityId +
-                ': ' + e.message + '\n' + e.stack);
+            safeLog('audit', 'MasterProposal.updateOpp', 'SUCCESS — URL field updated');
 
+            // Step 2: Update date field separately with enhanced logging
+            var today = new Date();
+            var formattedDate = format.format({ value: today, type: format.Type.DATE });
+            safeLog('audit', 'MasterProposal.updateOpp', 'Attempting date update — raw: ' + today.toISOString() + ' | formatted: ' + formattedDate);
+
+            record.submitFields({
+                type: record.Type.OPPORTUNITY,
+                id: opportunityId,
+                values: {
+                    custbody_last_proposal_sent_date: formattedDate
+                },
+                options: {
+                    enableSourcing: false,
+                    ignoreMandatoryFields: true
+                }
+            });
+            safeLog('audit', 'MasterProposal.updateOpp', 'SUCCESS — Date field updated with: ' + formattedDate);
+
+        } catch (e) {
+            safeLog('error', 'MasterProposal.updateOpp', 'Failed: ' + e.message + '\n' + e.stack);
             throw error.create({
                 name: 'UPDATE_OPPORTUNITY_FAILED',
                 message: 'Could not save proposal URL to Opportunity: ' + e.message,
