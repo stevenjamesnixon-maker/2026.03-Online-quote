@@ -20,6 +20,16 @@
 
 ## Quote Suitelet (`nuheat_quote_suitelet.js`)
 
+### v4.3.58 — 30 March 2026 ⏳ Draft — pending Sandbox/Production testing
+
+- FIXED: Thermostat upgrade card images were blank despite `custitem_test_image` being
+  populated. `loadThermostatOptionItems()` was calling `getFileUrl()` on a plain URL string,
+  which silently fails. Aligned with the multi-approach resolution already in
+  `loadItemCustomFields()`: direct URL detection → `getFileUrl()` → `getText()` fallback.
+- CHANGED: Switched all image field reads from `custitem_quote_prod_visual_1` to
+  `custitem_test_image` (production image field) — affects `loadThermostatOptionItems()`
+  and the main product card enhanced image debug block.
+
 ### v4.3.56 — 29 March 2026 ⏳ Pending Sandbox testing
 
 - IMPROVED: Thermostat upgrade cards now use prefix-based exclusion (`THERMOSTAT_EXCLUSION_PREFIXES`)

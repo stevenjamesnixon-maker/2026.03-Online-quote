@@ -1,3 +1,24 @@
+## v4.3.58 — Fix thermostat upgrade card images not rendering
+**Date:** 30 March 2026
+**Component:** Quote Suitelet (`nuheat_quote_suitelet.js`)
+**Status:** ⏳ Draft — pending Sandbox/Production testing
+
+### Fixed
+- **Thermostat upgrade card images** — Images were blank despite `custitem_test_image`
+  being populated on item records. Root cause: `loadThermostatOptionItems()` was using
+  `getFileUrl()` alone, which fails when the field contains a plain URL string rather
+  than a NetSuite file ID. Fixed by aligning with the multi-approach resolution pattern
+  already used in `loadItemCustomFields()` (direct URL → getFileUrl → getText fallback).
+- **Product card image field** — Switched both `loadThermostatOptionItems()` and the
+  main product card path from `custitem_quote_prod_visual_1` to `custitem_test_image`
+  (production image field). No remaining references to the old field.
+
+### Files Changed
+- `nuheat_quote_suitelet.js` — Image resolution updated in `loadThermostatOptionItems()`;
+  field switched to `custitem_test_image` in all three read locations; version bumped to v4.3.58
+
+---
+
 ## v4.3.56 — Thermostat upgrade cards: prefix-based exclusion on fixed card set
 **Date:** 29 March 2026
 **Component:** Quote Suitelet (`src/nuheat_quote_suitelet.js`)
