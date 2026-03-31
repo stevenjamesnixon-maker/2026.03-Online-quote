@@ -395,27 +395,28 @@ define([
         log.audit('SendQuoteSL.showForm', 'v1.4.5 — Opportunity: ' + oppTranId + ' | Title: ' + oppTitle +
             ' | Customer: ' + customerName + ' | Email: ' + customerEmail + ' | SiteAddr: ' + siteAddress);
 
-        // v1.5.0: Load contacts linked to this Opportunity via search
+        // v1.5.0: Load contacts linked to this Opportunity via Opportunity search + contact join
         var contacts = [];
         try {
             var contactSearch = search.create({
-                type: search.Type.CONTACT,
+                type: search.Type.OPPORTUNITY,
                 filters: [
-                    ['opportunity', 'anyof', opportunityId]
+                    ['internalid', 'anyof', opportunityId]
                 ],
                 columns: [
-                    search.createColumn({ name: 'internalid' }),
-                    search.createColumn({ name: 'firstname' }),
-                    search.createColumn({ name: 'lastname' }),
-                    search.createColumn({ name: 'email' })
+                    search.createColumn({ name: 'internalid',  join: 'contact' }),
+                    search.createColumn({ name: 'firstname',   join: 'contact' }),
+                    search.createColumn({ name: 'lastname',    join: 'contact' }),
+                    search.createColumn({ name: 'email',       join: 'contact' })
                 ]
             });
 
             contactSearch.run().each(function (result) {
-                var firstName = result.getValue({ name: 'firstname' }) || '';
-                var lastName  = result.getValue({ name: 'lastname' })  || '';
-                var email     = result.getValue({ name: 'email' })     || '';
-                var contactId = result.getValue({ name: 'internalid' });
+                var contactId = result.getValue({ name: 'internalid', join: 'contact' });
+                if (!contactId) return true;
+                var firstName = result.getValue({ name: 'firstname',  join: 'contact' }) || '';
+                var lastName  = result.getValue({ name: 'lastname',   join: 'contact' }) || '';
+                var email     = result.getValue({ name: 'email',      join: 'contact' }) || '';
                 contacts.push({
                     id:    contactId,
                     name:  (firstName + ' ' + lastName).trim() || 'Contact ' + contactId,
