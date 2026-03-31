@@ -129,14 +129,30 @@ A multi-component SuiteScript 2.1 solution:
 - v4.3.55: Fixed double-prefixed fab field IDs in `loadItemCustomFields()` — same root cause as v4.3.54 thermostat fix. All main product card feature bullets were silently empty across UFH, Heat Pump, Solar, and Commissioning sections.
 - v4.3.56: Prefix-based exclusion on fixed thermostat card set. Added `THERMOSTAT_EXCLUSION_PREFIXES` map. Cards now suppressed when quote already contains any item from the same family. Earlier catalogue-scan approach (PR #1) caused 80+ second timeouts — this approach is O(4) record loads.
 
-### Phase 7: Image Field & Resolution Fixes (v4.3.57 → v4.3.58, Mar 2026)
+### Phase 7: Production Deployment & Post-Launch Fixes (Mar 2026)
 
-- v4.3.57: Switched product card image source field from `custitem_quote_prod_visual_1`
-  to `custitem_test_image` across all card types (thermostat upgrade cards and main product cards).
-- v4.3.58: Fixed thermostat upgrade card images — aligned `loadThermostatOptionItems()`
-  with multi-approach image resolution pattern (direct URL → `getFileUrl` → `getText` fallback).
-  `custitem_test_image` stores plain URL strings; the previous `getFileUrl()`-only call
-  silently failed. ⏳ Pending Sandbox/Production testing sign-off.
+**Production deployment completed:**
+- Folder ID updated across all three scripts to production value (`26895192`)
+- Quote Viewer Suitelet: Available Without Login ✅, Execute As Role = Administrator ✅, All External Roles in Audience ✅
+- Quote Suitelet deployment updated to Execute As Role = Administrator — required for account manager name field to resolve correctly for non-admin users (no code change needed)
+
+**Product image field migration (v4.3.57 → v4.3.59):**
+- `custitem_quote_prod_visual_1` replaced with `custitem_test_image` across all card types
+- v4.3.58: Thermostat upgrade card images were blank — `loadThermostatOptionItems()` used `getFileUrl()` alone; `custitem_test_image` stores plain URL strings not file IDs. Fixed by aligning with multi-approach resolution pattern: direct URL → `getFileUrl` → `getText` fallback
+- v4.3.59: Thermostat mini card images were clipped — fixed by setting `object-fit: contain` on image element in `generateCSS()`
+
+**Account manager name fix:**
+- Non-admin users saw "Your Nu-Heat Team" instead of the account manager name
+- Fix: Set Execute As Role = Administrator on the Quote Suitelet deployment record
+- No code change required — purely a NetSuite deployment configuration fix
+
+**Master Proposal post-launch fixes (v1.6.3):**
+- `custbody_last_proposal_sent_date` not populating — root cause was the field was set to read-only in NetSuite. Fixed by updating field permissions to allow edit. No code change required.
+- Note: PRs #7 and #8 (`format.parse` / `format.format` attempts) were closed without merging — the issue was field permissions, not code
+
+**Send Quote Suitelet — Contact selector feature (v1.4.9 → v1.5.0):**
+- Added contact selector dropdown to proposal email form — selecting a contact populates the To address field
+- Key NetSuite pitfalls discovered during implementation (see Section 9, pitfall #11):
 
 ---
 
@@ -146,14 +162,14 @@ A multi-component SuiteScript 2.1 solution:
 
 | Component | Version | File | Status |
 |-----------|---------|------|--------|
-| Quote Suitelet | v4.3.59 | `nuheat_quote_suitelet.js` | ⏳ Sandbox testing |
-| Quote UE | v4.0.9 | `src/nuheat_quote_ue.js` | ✅ Production ready |
-| Quote CS | v4.0.6 | `src/nuheat_quote_cs.js` | ✅ Production ready |
-| Quote Viewer | v1.1.0 | `src/nuheat_quote_viewer_sl.js` | ✅ Production ready |
-| Scheduled Script | v1.0.0 | `src/nuheat_quote_generator_ss.js` | ✅ Production ready |
-| Master Proposal | v1.6.3 (email URL fix) | `src/nuheat_master_proposal.js` | ✅ Production ready |
-| Send Quote SL | v1.5.1 | `nuheat_send_quote_sl.js` | ⏳ Sandbox testing |
-| Send Quote CS | v1.2.0 | `nuheat_send_quote_cs.js` | ⏳ Sandbox testing |
+| Quote Suitelet | v4.3.59 | `nuheat_quote_suitelet.js` | ✅ Production ready |
+| Quote UE | v4.0.9 | `nuheat_quote_ue.js` | ✅ Production ready |
+| Quote CS | v4.0.6 | `nuheat_quote_cs.js` | ✅ Production ready |
+| Quote Viewer | v1.1.0 | `nuheat_quote_viewer_sl.js` | ✅ Production ready |
+| Scheduled Script | v1.0.0 | `nuheat_quote_generator_ss.js` | ✅ Production ready |
+| Master Proposal | v1.6.3 | `nuheat_master_proposal.js` | ✅ Production ready |
+| Send Quote SL | v1.5.0 | `nuheat_send_quote_sl.js` | ✅ Production ready |
+| Send Quote CS | v1.2.0 | `nuheat_send_quote_cs.js` | ✅ Production ready |
 | Opportunity UE | v1.0.0 | `src/nuheat_opportunity_ue.js` | ✅ Production ready |
 | Opportunity CS | v1.0.0 | `src/nuheat_opportunity_cs.js` | ✅ Production ready |
 
@@ -456,10 +472,24 @@ To modify, edit `renderProductCard()` and update CSS in `generateCSS()`.
     Do not pass it to `getFileUrl()` first — that function expects a NetSuite file ID
     integer and will fail on a URL string. Pattern: direct URL check → `getFileUrl()`
     fallback → `getText()` fallback.
-11. **Contact sublist on Opportunity is `'contacts'`, not `'contact'`** — Using
-    `sublistId: 'contact'` on an Opportunity record silently returns 0 lines.
-    The correct internal sublist ID is `'contacts'`. The field ID for the contact
-    internal ID within that sublist remains `fieldId: 'contact'`.
+11. **Reading Opportunity contacts requires a search — sublist API does not work** —
+    Despite multiple sublist IDs tried (`'contact'`, `'contactroles'`, `'contacts'`),
+    `getLineCount()` returns `-1` or `0` on Opportunity records for contacts in all cases.
+    The correct approach is a search on `search.Type.OPPORTUNITY` with `join: 'contact'` columns.
+    Do **NOT** use `search.Type.CONTACT` with an `opportunity` filter — that join does not exist
+    and throws `invalid search criteria: opportunity`. Correct pattern:
+    ```javascript
+    search.create({
+        type: search.Type.OPPORTUNITY,
+        filters: [['internalid', 'anyof', opportunityId]],
+        columns: [
+            search.createColumn({ name: 'internalid', join: 'contact' }),
+            search.createColumn({ name: 'firstname',  join: 'contact' }),
+            search.createColumn({ name: 'lastname',   join: 'contact' }),
+            search.createColumn({ name: 'email',      join: 'contact' })
+        ]
+    });
+    ```
 
 ### NetSuite Record Types Used
 
