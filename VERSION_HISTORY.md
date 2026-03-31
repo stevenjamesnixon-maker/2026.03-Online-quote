@@ -34,6 +34,11 @@
 
 ## Quote Suitelet (`nuheat_quote_suitelet.js`)
 
+### v4.3.64 — 31 March 2026 ⏳ Draft — pending Sandbox testing
+
+- FIXED: External link icon on the plant room guidance link in the Heat Pump section now appears
+  to the left of the link text, consistent with icon placement on product card links.
+
 ### v4.3.63 — 31 March 2026 ⏳ Draft — pending Sandbox testing
 
 - ADDED: Plant room layout guidance link in Heat Pump section. A second paragraph below the

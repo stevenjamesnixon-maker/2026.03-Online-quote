@@ -1,3 +1,19 @@
+## v4.3.64 — Move external link icon to left of plant room guidance link text
+**Date:** 31 March 2026
+**Component:** Quote Suitelet (`nuheat_quote_suitelet.js`)
+**Status:** ⏳ Draft — pending Sandbox testing
+
+### Fixed
+- **External link icon position on plant room guidance link** — The `SVG_EXTERNAL_LINK` icon was
+  appearing to the right of the link text. It now appears to the left, consistent with icon
+  placement on "View more details" links throughout the product cards.
+
+### Files Changed
+- `nuheat_quote_suitelet.js` — Icon moved before link text in `renderHeatPumpTreeSection()`;
+  version bumped to v4.3.64
+
+---
+
 ## v4.3.63 — Add plant room layout guidance link to Heat Pump section
 **Date:** 31 March 2026
 **Component:** Quote Suitelet (`nuheat_quote_suitelet.js`)
