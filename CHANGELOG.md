@@ -1,3 +1,36 @@
+## Send Quote SL v1.5.1 — Fix contact sublist ID
+**Date:** 31 March 2026
+**Component:** Send Quote Suitelet (`nuheat_send_quote_sl.js`)
+**Status:** ⏳ Draft — pending sandbox/production testing
+
+### Fixed
+- **Contact selector showing no contacts** — `getLineCount()` and `getSublistValue()` were
+  using sublist ID `'contact'`, which does not exist on Opportunity records. The correct
+  internal ID is `'contactroles'`. The field ID within the sublist (`fieldId: 'contact'`)
+  is unchanged.
+
+### Files Changed
+- `nuheat_send_quote_sl.js` — Sublist ID corrected to `'contactroles'`; version bumped to v1.5.1
+
+---
+
+## Send Quote SL v1.5.0 — Add contact selector dropdown to email field
+**Date:** 30 March 2026
+**Component:** Send Quote Suitelet (`nuheat_send_quote_sl.js`) + Client Script (`nuheat_send_quote_cs.js`)
+**Status:** ⏳ Draft — pending sandbox/production testing
+
+### Added
+- **Contact selector dropdown** — Users can now select a contact from the
+  Opportunity's contact list to populate the To email address. Contacts without
+  an email address are shown with a "(no email)" warning and do not overwrite
+  the email field when selected. No contact is pre-selected by default.
+
+### Files Changed
+- `nuheat_send_quote_sl.js` — Contact sublist loading + `custpage_contact_selector` SELECT field added; version bumped to v1.5.0
+- `nuheat_send_quote_cs.js` — `fieldChanged` handler added for contact selector; version bumped to v1.2.0
+
+---
+
 ## v4.3.59 — Fix thermostat mini card image clipping
 **Date:** 30 March 2026
 **Component:** Quote Suitelet (`nuheat_quote_suitelet.js`)

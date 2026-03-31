@@ -143,7 +143,7 @@ define([
 
     // ─── Constants ────────────────────────────────────────────────────────────────
 
-    var SCRIPT_VERSION = '1.4.10';
+    var SCRIPT_VERSION = '1.5.1';
 
     /**
      * Mapping from the NetSuite custbody_quote_type list values
@@ -395,6 +395,41 @@ define([
         log.audit('SendQuoteSL.showForm', 'v1.4.5 — Opportunity: ' + oppTranId + ' | Title: ' + oppTitle +
             ' | Customer: ' + customerName + ' | Email: ' + customerEmail + ' | SiteAddr: ' + siteAddress);
 
+        // v1.5.0: Load contacts linked to this Opportunity via Opportunity search + contact join
+        var contacts = [];
+        try {
+            var contactSearch = search.create({
+                type: search.Type.OPPORTUNITY,
+                filters: [
+                    ['internalid', 'anyof', opportunityId]
+                ],
+                columns: [
+                    search.createColumn({ name: 'internalid',  join: 'contact' }),
+                    search.createColumn({ name: 'firstname',   join: 'contact' }),
+                    search.createColumn({ name: 'lastname',    join: 'contact' }),
+                    search.createColumn({ name: 'email',       join: 'contact' })
+                ]
+            });
+
+            contactSearch.run().each(function (result) {
+                var contactId = result.getValue({ name: 'internalid', join: 'contact' });
+                if (!contactId) return true;
+                var firstName = result.getValue({ name: 'firstname',  join: 'contact' }) || '';
+                var lastName  = result.getValue({ name: 'lastname',   join: 'contact' }) || '';
+                var email     = result.getValue({ name: 'email',      join: 'contact' }) || '';
+                contacts.push({
+                    id:    contactId,
+                    name:  (firstName + ' ' + lastName).trim() || 'Contact ' + contactId,
+                    email: email
+                });
+                return true;
+            });
+
+            log.debug('SendQuoteSL.loadContacts', 'Search found ' + contacts.length + ' contacts for Opportunity ' + opportunityId);
+        } catch (contactErr) {
+            log.debug('SendQuoteSL.loadContacts', 'Contact search failed: ' + contactErr.message);
+        }
+
         // ── Create form ──────────────────────────────────────────────────────────
         var form = serverWidget.createForm({
             title: 'Send Quote — Select Quotes to Include'
@@ -612,6 +647,21 @@ define([
                     sublist.setSublistValue({ id: 'custpage_quote_description', line: i, value: q.description });  // v1.4.2
                 }
             }
+        });
+
+        // ── Contact Selector (v1.5.0) ────────────────────────────────────────────
+        // Dropdown populated from Opportunity contact sublist.
+        // Selecting a contact with an email populates the To field via fieldChanged in the CS.
+        // Option value = contact email address (empty string for contacts with no email).
+        var contactField = form.addField({
+            id:    'custpage_contact_selector',
+            type:  serverWidget.FieldType.SELECT,
+            label: 'Select Contact'
+        });
+        contactField.addSelectOption({ value: '', text: '-- Select a contact to populate email --' });
+        contacts.forEach(function (c) {
+            var label = c.email ? c.name + ' (' + c.email + ')' : c.name + ' (no email)';
+            contactField.addSelectOption({ value: c.email, text: label });
         });
 
         // ── Email Fields (v1.4.4: rendered inside grey box via inline HTML, hidden NS fields carry values) ──
