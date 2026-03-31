@@ -9,7 +9,7 @@
  * accessible via public URL with print-to-PDF functionality.
  * 
  * Author: Nu-Heat Development Team
- * Version: 4.3.61
+ * Version: 4.3.62
  * Created: February 2026
  * Updated: 28 March 2026 - v4.3.49: Suitelet Proxy for stable URLs, timestamped filenames, file cleanup
  * Updated: 28 March 2026 - v4.3.50: Removed invalid search.lookupFields() for pricing, simplified data priority
@@ -18,6 +18,7 @@
  * Updated: 28 March 2026 - v4.3.54 hotfix: Removed duplicate DESIGN_PACKAGE_ITEMS declaration
  * Updated: 31 March 2026 - v4.3.60: Hide product card image placeholder when custitem_test_image is empty
  * Updated: 31 March 2026 - v4.3.61: Fixed swapped DESIGN_PACKAGE_ITEMS — MPDPCD-C is Standard UFH Design, MPDP-C is UFH Design+ upgrade
+ * Updated: 31 March 2026 - v4.3.62: Component Breakdown — exclude internal discount/subtotal items, add right-aligned "View product info" link for items with custitem_prod_info_link
  *
  * For detailed version history, see CHANGELOG.md
  */
@@ -28,7 +29,7 @@ define(['N/record', 'N/search', 'N/log', 'N/format', 'N/error', 'N/runtime', 'N/
         // =====================================================================
         // SCRIPT VERSION
         // =====================================================================
-        var SCRIPT_VERSION = '4.3.61';
+        var SCRIPT_VERSION = '4.3.62';
         
         // =====================================================================
         // THERMOSTAT OPTIONS CONFIGURATION (v4.3.9)
@@ -332,6 +333,19 @@ define(['N/record', 'N/search', 'N/log', 'N/format', 'N/error', 'N/runtime', 'N/
         // Checked against item.productTypeText (the getText() value of custitem_prod_type).
         // Values are compared case-insensitively.
         const EXCLUDED_PRODUCT_CATEGORIES = ['pump'];
+
+        // =====================================================================
+        // COMPONENT BREAKDOWN EXCLUDED ITEM NAMES (v4.3.62)
+        // =====================================================================
+        // Items whose itemName (display text from the estimate line) matches any
+        // of these strings (case-insensitive, exact match) are excluded from the
+        // Component Breakdown table. They remain in quoteData.lineItems for all
+        // other purposes (pricing, categorisation, design package detection).
+        const COMPONENT_BREAKDOWN_EXCLUDED_ITEMS = [
+            'Hidden UFH Discount',
+            'Hidden HP Discount',
+            'Hidden Subtotal'
+        ];
 
         // =====================================================================
         // DESIGN PACKAGE ITEM DETECTION (hardcoded item internal IDs)
@@ -3990,12 +4004,30 @@ function loadQuoteData(quoteId, debugLog, pricingOverrides) {
 '                </tr>\n' +
 '            </thead>\n' +
 '            <tbody>\n';
-            // Loop through ALL line items
+            // v4.3.62: Loop through line items, excluding internal discount/subtotal items
             quoteData.lineItems.forEach(function(item) {
+                // v4.3.62: Skip internal items that should not appear in Component Breakdown
+                var itemNameLower = (item.itemName || '').toLowerCase().trim();
+                var isExcluded = COMPONENT_BREAKDOWN_EXCLUDED_ITEMS.some(function(excluded) {
+                    return excluded.toLowerCase() === itemNameLower;
+                });
+                if (isExcluded) return;
+
+                // v4.3.62: Right-aligned "View product info" link if custitem_prod_info_link is populated
+                var infoLinkHtml = '';
+                if (item.dataSheetUrl) {
+                    infoLinkHtml = '<a href="' + escapeHtml(item.dataSheetUrl) + '" ' +
+                        'target="_blank" rel="noopener noreferrer" ' +
+                        'style="float: right; color: var(--color-primary); font-size: 12px; ' +
+                        'font-weight: 500; text-decoration: none; white-space: nowrap; ' +
+                        'display: inline-flex; align-items: center; gap: 4px;">' +
+                        SVG_EXTERNAL_LINK + ' View product info</a>';
+                }
+
                 html += '                <tr>\n' +
 '                    <td>' + item.quantity + '</td>\n' +
 '                    <td>' + escapeHtml(item.itemName) + '</td>\n' +
-'                    <td>' + escapeHtml(item.description || '-') + '</td>\n' +
+'                    <td>' + escapeHtml(item.description || '-') + infoLinkHtml + '</td>\n' +
 '                </tr>\n';
             });
             html += '            </tbody>\n' +

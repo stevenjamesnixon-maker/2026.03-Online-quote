@@ -34,6 +34,15 @@
 
 ## Quote Suitelet (`nuheat_quote_suitelet.js`)
 
+### v4.3.62 — 31 March 2026 ⏳ Draft — pending Sandbox testing
+
+- ADDED: `COMPONENT_BREAKDOWN_EXCLUDED_ITEMS` constant — "Hidden UFH Discount", "Hidden HP Discount",
+  and "Hidden Subtotal" are now filtered out of the Component Breakdown table. Items remain in
+  `quoteData.lineItems` for pricing and categorisation.
+- ADDED: Right-aligned "View product info" link in the Component Breakdown Description column for
+  items that have `custitem_prod_info_link` populated (`item.dataSheetUrl`). Matches behaviour on
+  main product cards.
+
 ### v4.3.61 — 31 March 2026 ⏳ Draft — pending Sandbox testing
 
 - FIXED: `DESIGN_PACKAGE_ITEMS` had MPDPCD-C (ID 5488) and MPDP-C (ID 480) mapped to the wrong
