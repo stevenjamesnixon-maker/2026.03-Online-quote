@@ -34,6 +34,12 @@
 
 ## Quote Suitelet (`nuheat_quote_suitelet.js`)
 
+### v4.3.61 — 31 March 2026 ⏳ Draft — pending Sandbox testing
+
+- FIXED: `DESIGN_PACKAGE_ITEMS` had MPDPCD-C (ID 5488) and MPDP-C (ID 480) mapped to the wrong
+  keys. MPDPCD-C is the Standard UFH Design; MPDP-C is the UFH Design+ upgrade. The swap caused
+  the wrong hardcoded card (and upgrade banner) to render for each item code.
+
 ### v4.3.60 — 31 March 2026 ⏳ Draft — pending Sandbox/Production testing
 
 - FIXED: Product card image column (`product-image-column` + `product-image`) was always rendered,

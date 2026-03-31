@@ -1,3 +1,19 @@
+## v4.3.61 — Fix swapped DESIGN_PACKAGE_ITEMS constants
+**Date:** 31 March 2026
+**Component:** Quote Suitelet (`nuheat_quote_suitelet.js`)
+**Status:** ⏳ Draft — pending Sandbox testing
+
+### Fixed
+- **Swapped design package item IDs** — `DESIGN_PACKAGE_ITEMS` had MPDPCD-C and MPDP-C mapped
+  to the wrong keys. MPDPCD-C (internal ID 5488) is the Standard UFH Design package; MPDP-C
+  (internal ID 480) is the UFH Design+ upgrade package. The swapped mapping caused the wrong
+  hardcoded card to render for each item code, and the upgrade banner appeared on the wrong card.
+
+### Files Changed
+- `nuheat_quote_suitelet.js` — `DESIGN_PACKAGE_ITEMS` constant corrected; version bumped to v4.3.61
+
+---
+
 ## v4.3.60 — Hide product card image placeholder when custitem_test_image is empty
 **Date:** 31 March 2026
 **Component:** Quote Suitelet (`nuheat_quote_suitelet.js`)

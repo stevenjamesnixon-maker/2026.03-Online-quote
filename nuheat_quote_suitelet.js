@@ -9,7 +9,7 @@
  * accessible via public URL with print-to-PDF functionality.
  * 
  * Author: Nu-Heat Development Team
- * Version: 4.3.60
+ * Version: 4.3.61
  * Created: February 2026
  * Updated: 28 March 2026 - v4.3.49: Suitelet Proxy for stable URLs, timestamped filenames, file cleanup
  * Updated: 28 March 2026 - v4.3.50: Removed invalid search.lookupFields() for pricing, simplified data priority
@@ -17,6 +17,7 @@
  *          (matching UE script behaviour) instead of proxy URLs that caused permissions errors in popup
  * Updated: 28 March 2026 - v4.3.54 hotfix: Removed duplicate DESIGN_PACKAGE_ITEMS declaration
  * Updated: 31 March 2026 - v4.3.60: Hide product card image placeholder when custitem_test_image is empty
+ * Updated: 31 March 2026 - v4.3.61: Fixed swapped DESIGN_PACKAGE_ITEMS — MPDPCD-C is Standard UFH Design, MPDP-C is UFH Design+ upgrade
  *
  * For detailed version history, see CHANGELOG.md
  */
@@ -27,7 +28,7 @@ define(['N/record', 'N/search', 'N/log', 'N/format', 'N/error', 'N/runtime', 'N/
         // =====================================================================
         // SCRIPT VERSION
         // =====================================================================
-        var SCRIPT_VERSION = '4.3.60';
+        var SCRIPT_VERSION = '4.3.61';
         
         // =====================================================================
         // THERMOSTAT OPTIONS CONFIGURATION (v4.3.9)
@@ -339,8 +340,8 @@ define(['N/record', 'N/search', 'N/log', 'N/format', 'N/error', 'N/runtime', 'N/
         // MPDP-C = Standard UFH Design Package
         // MPDPCD-C = Upgrade UFH Design+ Package
         const DESIGN_PACKAGE_ITEMS = {
-            STANDARD_UFH: '480',   // MPDP-C — Standard UFH Design
-            UPGRADE_UFH: '5488'    // MPDPCD-C — UFH Design+ (upgrade)
+            STANDARD_UFH: '5488',  // MPDPCD-C — Standard UFH Design
+            UPGRADE_UFH: '480'     // MPDP-C — UFH Design+ (upgrade)
         };
 
         // Design package product card images (hosted in NetSuite File Cabinet)
