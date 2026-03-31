@@ -396,14 +396,13 @@ define([
             ' | Customer: ' + customerName + ' | Email: ' + customerEmail + ' | SiteAddr: ' + siteAddress);
 
         // v1.5.0: Load contacts from Opportunity contact sublist
-        // v1.5.1: Corrected sublist ID from 'contact' to 'contactroles' — the correct internal ID for
-        //         the Contacts sublist on Opportunity records. fieldId 'contact' within the sublist is unchanged.
+        // v1.5.1: Corrected sublist ID — testing 'contacts' (was 'contact', then 'contactroles')
         var contacts = [];
         try {
-            var contactCount = oppRecord.getLineCount({ sublistId: 'contactroles' });
-            log.debug('SendQuoteSL.loadContacts', 'contactroles getLineCount returned: ' + contactCount);
+            var contactCount = oppRecord.getLineCount({ sublistId: 'contacts' });
+            log.debug('SendQuoteSL.loadContacts', 'contacts getLineCount returned: ' + contactCount);
             for (var ci = 0; ci < contactCount; ci++) {
-                var contactId = oppRecord.getSublistValue({ sublistId: 'contactroles', fieldId: 'contact', line: ci });
+                var contactId = oppRecord.getSublistValue({ sublistId: 'contacts', fieldId: 'contact', line: ci });
                 log.debug('SendQuoteSL.loadContacts', 'Line ' + ci + ' contactId: ' + contactId);
                 if (contactId) {
                     try {

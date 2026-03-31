@@ -456,9 +456,9 @@ To modify, edit `renderProductCard()` and update CSS in `generateCSS()`.
     Do not pass it to `getFileUrl()` first — that function expects a NetSuite file ID
     integer and will fail on a URL string. Pattern: direct URL check → `getFileUrl()`
     fallback → `getText()` fallback.
-11. **Contact sublist on Opportunity is `'contactroles'`, not `'contact'`** — Using
+11. **Contact sublist on Opportunity is `'contacts'`, not `'contact'`** — Using
     `sublistId: 'contact'` on an Opportunity record silently returns 0 lines.
-    The correct internal sublist ID is `'contactroles'`. The field ID for the contact
+    The correct internal sublist ID is `'contacts'`. The field ID for the contact
     internal ID within that sublist remains `fieldId: 'contact'`.
 
 ### NetSuite Record Types Used
