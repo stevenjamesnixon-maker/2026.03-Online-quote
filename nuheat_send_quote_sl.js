@@ -395,34 +395,38 @@ define([
         log.audit('SendQuoteSL.showForm', 'v1.4.5 — Opportunity: ' + oppTranId + ' | Title: ' + oppTitle +
             ' | Customer: ' + customerName + ' | Email: ' + customerEmail + ' | SiteAddr: ' + siteAddress);
 
-        // v1.5.0: Load contacts from Opportunity contact sublist
-        // v1.5.1: Corrected sublist ID — testing 'contacts' (was 'contact', then 'contactroles')
+        // v1.5.0: Load contacts linked to this Opportunity via search
         var contacts = [];
         try {
-            var contactCount = oppRecord.getLineCount({ sublistId: 'contacts' });
-            log.debug('SendQuoteSL.loadContacts', 'contacts getLineCount returned: ' + contactCount);
-            for (var ci = 0; ci < contactCount; ci++) {
-                var contactId = oppRecord.getSublistValue({ sublistId: 'contacts', fieldId: 'contact', line: ci });
-                log.debug('SendQuoteSL.loadContacts', 'Line ' + ci + ' contactId: ' + contactId);
-                if (contactId) {
-                    try {
-                        var contactRecord = record.load({ type: record.Type.CONTACT, id: contactId });
-                        var firstName = contactRecord.getValue({ fieldId: 'firstname' }) || '';
-                        var lastName  = contactRecord.getValue({ fieldId: 'lastname' })  || '';
-                        var email     = contactRecord.getValue({ fieldId: 'email' })     || '';
-                        contacts.push({
-                            id:    contactId,
-                            name:  (firstName + ' ' + lastName).trim() || 'Contact ' + contactId,
-                            email: email
-                        });
-                    } catch (contactErr) {
-                        log.debug('SendQuoteSL.loadContacts', 'Could not load contact ' + contactId + ': ' + contactErr.message);
-                    }
-                }
-            }
-            log.debug('SendQuoteSL.loadContacts', 'Loaded ' + contacts.length + ' contacts for Opportunity ' + opportunityId);
-        } catch (contactListErr) {
-            log.debug('SendQuoteSL.loadContacts', 'Could not read contact sublist: ' + contactListErr.message);
+            var contactSearch = search.create({
+                type: search.Type.CONTACT,
+                filters: [
+                    ['opportunity', 'anyof', opportunityId]
+                ],
+                columns: [
+                    search.createColumn({ name: 'internalid' }),
+                    search.createColumn({ name: 'firstname' }),
+                    search.createColumn({ name: 'lastname' }),
+                    search.createColumn({ name: 'email' })
+                ]
+            });
+
+            contactSearch.run().each(function (result) {
+                var firstName = result.getValue({ name: 'firstname' }) || '';
+                var lastName  = result.getValue({ name: 'lastname' })  || '';
+                var email     = result.getValue({ name: 'email' })     || '';
+                var contactId = result.getValue({ name: 'internalid' });
+                contacts.push({
+                    id:    contactId,
+                    name:  (firstName + ' ' + lastName).trim() || 'Contact ' + contactId,
+                    email: email
+                });
+                return true;
+            });
+
+            log.debug('SendQuoteSL.loadContacts', 'Search found ' + contacts.length + ' contacts for Opportunity ' + opportunityId);
+        } catch (contactErr) {
+            log.debug('SendQuoteSL.loadContacts', 'Contact search failed: ' + contactErr.message);
         }
 
         // ── Create form ──────────────────────────────────────────────────────────
