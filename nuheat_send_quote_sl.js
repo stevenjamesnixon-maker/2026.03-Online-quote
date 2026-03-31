@@ -401,8 +401,10 @@ define([
         var contacts = [];
         try {
             var contactCount = oppRecord.getLineCount({ sublistId: 'contactroles' });
+            log.debug('SendQuoteSL.loadContacts', 'contactroles getLineCount returned: ' + contactCount);
             for (var ci = 0; ci < contactCount; ci++) {
                 var contactId = oppRecord.getSublistValue({ sublistId: 'contactroles', fieldId: 'contact', line: ci });
+                log.debug('SendQuoteSL.loadContacts', 'Line ' + ci + ' contactId: ' + contactId);
                 if (contactId) {
                     try {
                         var contactRecord = record.load({ type: record.Type.CONTACT, id: contactId });
