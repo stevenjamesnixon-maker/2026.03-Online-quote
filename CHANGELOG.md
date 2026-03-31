@@ -1,3 +1,19 @@
+## Send Quote SL v1.5.1 — Fix contact sublist ID
+**Date:** 31 March 2026
+**Component:** Send Quote Suitelet (`nuheat_send_quote_sl.js`)
+**Status:** ⏳ Draft — pending sandbox/production testing
+
+### Fixed
+- **Contact selector showing no contacts** — `getLineCount()` and `getSublistValue()` were
+  using sublist ID `'contact'`, which does not exist on Opportunity records. The correct
+  internal ID is `'contactroles'`. The field ID within the sublist (`fieldId: 'contact'`)
+  is unchanged.
+
+### Files Changed
+- `nuheat_send_quote_sl.js` — Sublist ID corrected to `'contactroles'`; version bumped to v1.5.1
+
+---
+
 ## Send Quote SL v1.5.0 — Add contact selector dropdown to email field
 **Date:** 30 March 2026
 **Component:** Send Quote Suitelet (`nuheat_send_quote_sl.js`) + Client Script (`nuheat_send_quote_cs.js`)

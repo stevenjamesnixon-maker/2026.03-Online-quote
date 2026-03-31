@@ -143,7 +143,7 @@ define([
 
     // ─── Constants ────────────────────────────────────────────────────────────────
 
-    var SCRIPT_VERSION = '1.5.0';
+    var SCRIPT_VERSION = '1.5.1';
 
     /**
      * Mapping from the NetSuite custbody_quote_type list values
@@ -396,11 +396,13 @@ define([
             ' | Customer: ' + customerName + ' | Email: ' + customerEmail + ' | SiteAddr: ' + siteAddress);
 
         // v1.5.0: Load contacts from Opportunity contact sublist
+        // v1.5.1: Corrected sublist ID from 'contact' to 'contactroles' — the correct internal ID for
+        //         the Contacts sublist on Opportunity records. fieldId 'contact' within the sublist is unchanged.
         var contacts = [];
         try {
-            var contactCount = oppRecord.getLineCount({ sublistId: 'contact' });
+            var contactCount = oppRecord.getLineCount({ sublistId: 'contactroles' });
             for (var ci = 0; ci < contactCount; ci++) {
-                var contactId = oppRecord.getSublistValue({ sublistId: 'contact', fieldId: 'contact', line: ci });
+                var contactId = oppRecord.getSublistValue({ sublistId: 'contactroles', fieldId: 'contact', line: ci });
                 if (contactId) {
                     try {
                         var contactRecord = record.load({ type: record.Type.CONTACT, id: contactId });
