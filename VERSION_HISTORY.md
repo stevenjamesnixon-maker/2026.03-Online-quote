@@ -18,6 +18,20 @@
 
 ---
 
+## Send Quote Suitelet (`nuheat_send_quote_sl.js`) & Client Script (`nuheat_send_quote_cs.js`)
+
+### v1.5.0 / v1.2.0 — 30 March 2026 ⏳ Draft — pending sandbox/production testing
+
+- ADDED: Contact selector dropdown (`custpage_contact_selector`) on the Send Quote form.
+  Loads all contacts from the Opportunity contact sublist via `record.load()`.
+  Selecting a contact with an email populates the To address field.
+  Contacts without an email display a "(no email)" warning and do not affect the field.
+- ADDED: `fieldChanged` handler in client script updates both the visible HTML input
+  (`custpage_email_to_input`) and the hidden NetSuite field (`custpage_email_to`) to
+  keep both layers in sync when a contact is selected.
+
+---
+
 ## Quote Suitelet (`nuheat_quote_suitelet.js`)
 
 ### v4.3.59 — 30 March 2026 ⏳ Draft — pending testing

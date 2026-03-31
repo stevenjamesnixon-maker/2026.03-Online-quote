@@ -143,7 +143,7 @@ define([
 
     // ─── Constants ────────────────────────────────────────────────────────────────
 
-    var SCRIPT_VERSION = '1.4.10';
+    var SCRIPT_VERSION = '1.5.0';
 
     /**
      * Mapping from the NetSuite custbody_quote_type list values
@@ -395,6 +395,33 @@ define([
         log.audit('SendQuoteSL.showForm', 'v1.4.5 — Opportunity: ' + oppTranId + ' | Title: ' + oppTitle +
             ' | Customer: ' + customerName + ' | Email: ' + customerEmail + ' | SiteAddr: ' + siteAddress);
 
+        // v1.5.0: Load contacts from Opportunity contact sublist
+        var contacts = [];
+        try {
+            var contactCount = oppRecord.getLineCount({ sublistId: 'contact' });
+            for (var ci = 0; ci < contactCount; ci++) {
+                var contactId = oppRecord.getSublistValue({ sublistId: 'contact', fieldId: 'contact', line: ci });
+                if (contactId) {
+                    try {
+                        var contactRecord = record.load({ type: record.Type.CONTACT, id: contactId });
+                        var firstName = contactRecord.getValue({ fieldId: 'firstname' }) || '';
+                        var lastName  = contactRecord.getValue({ fieldId: 'lastname' })  || '';
+                        var email     = contactRecord.getValue({ fieldId: 'email' })     || '';
+                        contacts.push({
+                            id:    contactId,
+                            name:  (firstName + ' ' + lastName).trim() || 'Contact ' + contactId,
+                            email: email
+                        });
+                    } catch (contactErr) {
+                        log.debug('SendQuoteSL.loadContacts', 'Could not load contact ' + contactId + ': ' + contactErr.message);
+                    }
+                }
+            }
+            log.debug('SendQuoteSL.loadContacts', 'Loaded ' + contacts.length + ' contacts for Opportunity ' + opportunityId);
+        } catch (contactListErr) {
+            log.debug('SendQuoteSL.loadContacts', 'Could not read contact sublist: ' + contactListErr.message);
+        }
+
         // ── Create form ──────────────────────────────────────────────────────────
         var form = serverWidget.createForm({
             title: 'Send Quote — Select Quotes to Include'
@@ -612,6 +639,21 @@ define([
                     sublist.setSublistValue({ id: 'custpage_quote_description', line: i, value: q.description });  // v1.4.2
                 }
             }
+        });
+
+        // ── Contact Selector (v1.5.0) ────────────────────────────────────────────
+        // Dropdown populated from Opportunity contact sublist.
+        // Selecting a contact with an email populates the To field via fieldChanged in the CS.
+        // Option value = contact email address (empty string for contacts with no email).
+        var contactField = form.addField({
+            id:    'custpage_contact_selector',
+            type:  serverWidget.FieldType.SELECT,
+            label: 'Select Contact'
+        });
+        contactField.addSelectOption({ value: '', text: '-- Select a contact to populate email --' });
+        contacts.forEach(function (c) {
+            var label = c.email ? c.name + ' (' + c.email + ')' : c.name + ' (no email)';
+            contactField.addSelectOption({ value: c.email, text: label });
         });
 
         // ── Email Fields (v1.4.4: rendered inside grey box via inline HTML, hidden NS fields carry values) ──

@@ -34,7 +34,7 @@ function (currentRecord, url, log, dialog) {
 
     'use strict';
 
-    var SCRIPT_VERSION = '1.1.1';
+    var SCRIPT_VERSION = '1.2.0';
 
     /**
      * All known sublist type slugs — must match the Suitelet's QUOTE_TYPE_SLUGS values.
@@ -46,6 +46,40 @@ function (currentRecord, url, log, dialog) {
      */
     function pageInit(context) {
         log.debug('SendQuoteCS.pageInit', 'Send Quote Client Script loaded (v' + SCRIPT_VERSION + ')');
+    }
+
+    /**
+     * fieldChanged — Handles contact selector changes (v1.2.0).
+     *
+     * When the user selects a contact with a valid email from custpage_contact_selector,
+     * updates both the visible email input and the hidden NetSuite field so that:
+     *   - The user sees the new address immediately in the To field
+     *   - saveRecord() validation reads the correct value from the hidden field
+     *   - The sync-on-submit inline script carries the visible value to the hidden field
+     *
+     * Contacts with no email have value '' — these are intentionally skipped so the
+     * existing To address is not cleared.
+     */
+    function fieldChanged(context) {
+        if (context.fieldId !== 'custpage_contact_selector') { return; }
+
+        try {
+            var rec           = context.currentRecord;
+            var selectedEmail = rec.getValue({ fieldId: 'custpage_contact_selector' });
+
+            if (selectedEmail) {
+                // Update visible input so the user sees the change immediately
+                var visibleInput = document.getElementById('custpage_email_to_input');
+                if (visibleInput) { visibleInput.value = selectedEmail; }
+
+                // Update hidden NetSuite field so saveRecord() validation is correct
+                rec.setValue({ fieldId: 'custpage_email_to', value: selectedEmail });
+            }
+            // If selectedEmail is '' (contact has no email), leave the To field unchanged.
+            // The "(no email)" label in the dropdown is sufficient warning.
+        } catch (e) {
+            log.error('SendQuoteCS.fieldChanged', 'Error updating email from contact selector: ' + e.message);
+        }
     }
 
     /**
@@ -299,6 +333,7 @@ function (currentRecord, url, log, dialog) {
 
     return {
         pageInit:              pageInit,
+        fieldChanged:          fieldChanged,
         saveRecord:            saveRecord,
         goBackToOpportunity:   goBackToOpportunity,
         previewProposal:       previewProposal
