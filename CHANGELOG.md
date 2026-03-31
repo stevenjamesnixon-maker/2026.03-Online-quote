@@ -1,3 +1,29 @@
+## v4.3.60 — Hide product card image placeholder when custitem_test_image is empty
+**Date:** 31 March 2026
+**Component:** Quote Suitelet (`nuheat_quote_suitelet.js`)
+**Status:** ⏳ Draft — pending Sandbox/Production testing
+
+### Fixed
+- **Empty image placeholder box on product cards** — The image container (`product-image-column`
+  and `product-image`) was always rendered even when `custitem_test_image` was blank, leaving a
+  visible empty box on cards with no image. The entire image column is now conditionally omitted
+  from the HTML when `item.productImage` is absent. Applies to all card types rendered via
+  `renderProductCard()` (UFH, Heat Pump, Solar, Commissioning).
+- **Mini card placeholder** — The thermostat mini card (`renderMiniProductCard()`) similarly
+  rendered a placeholder SVG box when no image was set. The else branch has been removed so no
+  image div is output when `item.imageUrl` is empty.
+
+### Changed
+- Removed `min-height: 150px` and `background: var(--color-bg)` from `.product-image` CSS rule —
+  these properties had no effect on the card layout once the column is conditionally omitted, but
+  removing them prevents any residual empty-box appearance if the element is rendered without an image.
+
+### Files Changed
+- `nuheat_quote_suitelet.js` — `renderProductCard()` and mini card conditional updated;
+  `.product-image` CSS rule cleaned up; version bumped to v4.3.60
+
+---
+
 ## Send Quote SL v1.5.1 — Fix contact sublist ID
 **Date:** 31 March 2026
 **Component:** Send Quote Suitelet (`nuheat_send_quote_sl.js`)

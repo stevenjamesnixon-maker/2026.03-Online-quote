@@ -34,6 +34,16 @@
 
 ## Quote Suitelet (`nuheat_quote_suitelet.js`)
 
+### v4.3.60 — 31 March 2026 ⏳ Draft — pending Sandbox/Production testing
+
+- FIXED: Product card image column (`product-image-column` + `product-image`) was always rendered,
+  leaving an empty placeholder box on cards where `custitem_test_image` is blank. `renderProductCard()`
+  now conditionally omits the entire image column when `item.productImage` is absent.
+- FIXED: Thermostat mini card (`renderMiniProductCard()`) similarly showed a placeholder SVG when no
+  image was set. Removed the else branch so no image div is output when `item.imageUrl` is empty.
+- CHANGED: Removed `min-height: 150px` and `background: var(--color-bg)` from `.product-image` CSS
+  rule to eliminate any residual empty-box appearance.
+
 ### v4.3.59 — 30 March 2026 ⏳ Draft — pending testing
 
 - FIXED: Thermostat mini card images were cropped at top and bottom due to `object-fit: cover`.
