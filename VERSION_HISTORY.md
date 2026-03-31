@@ -34,6 +34,13 @@
 
 ## Quote Suitelet (`nuheat_quote_suitelet.js`)
 
+### v4.3.63 — 31 March 2026 ⏳ Draft — pending Sandbox testing
+
+- ADDED: Plant room layout guidance link in Heat Pump section. A second paragraph below the
+  existing intro copy links to the plant room layout and space requirements PDF, styled with
+  the `.view-datasheet` class (teal, external link icon). Only renders on quotes with Heat Pump
+  items (`renderHeatPumpTreeSection()`).
+
 ### v4.3.62 — 31 March 2026 ⏳ Draft — pending Sandbox testing
 
 - ADDED: `COMPONENT_BREAKDOWN_EXCLUDED_ITEMS` constant — "Hidden UFH Discount", "Hidden HP Discount",

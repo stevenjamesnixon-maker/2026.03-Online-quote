@@ -9,7 +9,7 @@
  * accessible via public URL with print-to-PDF functionality.
  * 
  * Author: Nu-Heat Development Team
- * Version: 4.3.62
+ * Version: 4.3.63
  * Created: February 2026
  * Updated: 28 March 2026 - v4.3.49: Suitelet Proxy for stable URLs, timestamped filenames, file cleanup
  * Updated: 28 March 2026 - v4.3.50: Removed invalid search.lookupFields() for pricing, simplified data priority
@@ -19,6 +19,7 @@
  * Updated: 31 March 2026 - v4.3.60: Hide product card image placeholder when custitem_test_image is empty
  * Updated: 31 March 2026 - v4.3.61: Fixed swapped DESIGN_PACKAGE_ITEMS — MPDPCD-C is Standard UFH Design, MPDP-C is UFH Design+ upgrade
  * Updated: 31 March 2026 - v4.3.62: Component Breakdown — exclude internal discount/subtotal items, add right-aligned "View product info" link for items with custitem_prod_info_link
+ * Updated: 31 March 2026 - v4.3.63: Add plant room layout guidance link below Heat Pump section intro
  *
  * For detailed version history, see CHANGELOG.md
  */
@@ -29,7 +30,7 @@ define(['N/record', 'N/search', 'N/log', 'N/format', 'N/error', 'N/runtime', 'N/
         // =====================================================================
         // SCRIPT VERSION
         // =====================================================================
-        var SCRIPT_VERSION = '4.3.62';
+        var SCRIPT_VERSION = '4.3.63';
         
         // =====================================================================
         // THERMOSTAT OPTIONS CONFIGURATION (v4.3.9)
@@ -4140,7 +4141,8 @@ function loadQuoteData(quoteId, debugLog, pricingOverrides) {
             var html = '\n' +
 '<div class="hp-tree-section" id="heat-pump-section">\n' +
 '    <h2 class="hp-tree-title">Heat Pump</h2>\n' +
-'    <p class="hp-tree-intro">Nu-Heat UFH and heat pump systems arrive as complete, ready-to-install packages. From your buffer tank and cylinder, to bespoke designs, everything needed for a simple install is included. For the full item list, see your Component Breakdown.</p>\n';
+'    <p class="hp-tree-intro">Nu-Heat UFH and heat pump systems arrive as complete, ready-to-install packages. From your buffer tank and cylinder, to bespoke designs, everything needed for a simple install is included. For the full item list, see your Component Breakdown.</p>\n' +
+'    <p class="hp-tree-intro" style="margin-top: 12px;"><a href="https://472052.app.netsuite.com/core/media/media.nl?id=12459693&amp;c=472052&amp;h=jmx9T_3ZURF2zloY-LCJHGBuyEorOKmN9LbTQBbxHfM_5qwt&amp;_xt=.pdf" target="_blank" rel="noopener noreferrer" class="view-datasheet">View our guidance on plant room layout and space requirements ' + SVG_EXTERNAL_LINK + '</a></p>\n';
 
             // v3.7.9: Removed subsection headers - products flow together naturally
             // HP Unit items (no subsection header)

@@ -1,3 +1,22 @@
+## v4.3.63 — Add plant room layout guidance link to Heat Pump section
+**Date:** 31 March 2026
+**Component:** Quote Suitelet (`nuheat_quote_suitelet.js`)
+**Status:** ⏳ Draft — pending Sandbox testing
+
+### Added
+- **Plant room guidance link in Heat Pump section** — A second paragraph now appears directly
+  below the existing Heat Pump intro copy, containing a link to the plant room layout and space
+  requirements PDF. Styled using the existing `.view-datasheet` class (teal `#00857D`, external
+  link icon) for visual consistency with "View more details" links on product cards. The link only
+  appears on quotes that include Heat Pump line items, as it is rendered inside
+  `renderHeatPumpTreeSection()`.
+
+### Files Changed
+- `nuheat_quote_suitelet.js` — Second intro paragraph added in `renderHeatPumpTreeSection()`;
+  version bumped to v4.3.63
+
+---
+
 ## v4.3.62 — Component Breakdown improvements
 **Date:** 31 March 2026
 **Component:** Quote Suitelet (`nuheat_quote_suitelet.js`)

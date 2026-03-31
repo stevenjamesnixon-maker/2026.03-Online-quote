@@ -163,7 +163,7 @@ A multi-component SuiteScript 2.1 solution:
 
 | Component | Version | File | Status |
 |-----------|---------|------|--------|
-| Quote Suitelet | v4.3.62 | `nuheat_quote_suitelet.js` | ✅ Production ready |
+| Quote Suitelet | v4.3.63 | `nuheat_quote_suitelet.js` | ✅ Production ready |
 | Quote UE | v4.0.9 | `nuheat_quote_ue.js` | ✅ Production ready |
 | Quote CS | v4.0.6 | `nuheat_quote_cs.js` | ✅ Production ready |
 | Quote Viewer | v1.1.0 | `nuheat_quote_viewer_sl.js` | ✅ Production ready |
