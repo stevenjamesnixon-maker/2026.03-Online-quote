@@ -1,3 +1,26 @@
+## v4.3.62 — Component Breakdown improvements
+**Date:** 31 March 2026
+**Component:** Quote Suitelet (`nuheat_quote_suitelet.js`)
+**Status:** ⏳ Draft — pending Sandbox testing
+
+### Added
+- **"View product info" link in Component Breakdown** — Items that have a value in
+  `custitem_prod_info_link` (loaded as `item.dataSheetUrl`) now display a right-aligned
+  "View product info" link in the Description column, consistent with the same link already
+  shown on main product cards.
+
+### Fixed
+- **Internal items hidden from Component Breakdown** — "Hidden UFH Discount", "Hidden HP Discount",
+  and "Hidden Subtotal" line items no longer appear in the customer-facing Component Breakdown table.
+  A new `COMPONENT_BREAKDOWN_EXCLUDED_ITEMS` constant controls the exclusion list. These items remain
+  in `quoteData.lineItems` for all other purposes (pricing, categorisation, design package detection).
+
+### Files Changed
+- `nuheat_quote_suitelet.js` — `COMPONENT_BREAKDOWN_EXCLUDED_ITEMS` constant added; Component
+  Breakdown loop updated with exclusion check and conditional info link; version bumped to v4.3.62
+
+---
+
 ## v4.3.61 — Fix swapped DESIGN_PACKAGE_ITEMS constants
 **Date:** 31 March 2026
 **Component:** Quote Suitelet (`nuheat_quote_suitelet.js`)
