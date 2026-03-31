@@ -9,13 +9,14 @@
  * accessible via public URL with print-to-PDF functionality.
  * 
  * Author: Nu-Heat Development Team
- * Version: 4.3.54
+ * Version: 4.3.60
  * Created: February 2026
  * Updated: 28 March 2026 - v4.3.49: Suitelet Proxy for stable URLs, timestamped filenames, file cleanup
  * Updated: 28 March 2026 - v4.3.50: Removed invalid search.lookupFields() for pricing, simplified data priority
  * Updated: 28 March 2026 - v4.3.53: Enabled proxy URLs by default - Quote Viewer permissions fixed (All External Roles)
  *          (matching UE script behaviour) instead of proxy URLs that caused permissions errors in popup
  * Updated: 28 March 2026 - v4.3.54 hotfix: Removed duplicate DESIGN_PACKAGE_ITEMS declaration
+ * Updated: 31 March 2026 - v4.3.60: Hide product card image placeholder when custitem_test_image is empty
  *
  * For detailed version history, see CHANGELOG.md
  */
@@ -26,7 +27,7 @@ define(['N/record', 'N/search', 'N/log', 'N/format', 'N/error', 'N/runtime', 'N/
         // =====================================================================
         // SCRIPT VERSION
         // =====================================================================
-        var SCRIPT_VERSION = '4.3.59';
+        var SCRIPT_VERSION = '4.3.60';
         
         // =====================================================================
         // THERMOSTAT OPTIONS CONFIGURATION (v4.3.9)
@@ -1042,14 +1043,10 @@ define(['N/record', 'N/search', 'N/log', 'N/format', 'N/error', 'N/runtime', 'N/
                 html += '    <span class="mini-card-recommended-badge">Recommended</span>\n';
             }
             
-            // Image
+            // Image — v4.3.60: omit entirely when no imageUrl to avoid empty placeholder box
             if (item.imageUrl) {
                 html += '    <div class="mini-card-image">\n';
                 html += '        <img src="' + escapeHtml(item.imageUrl) + '" alt="' + escapeHtml(item.productName) + '" onerror="this.style.display=\'none\'; this.parentElement.innerHTML=\'<div class=mini-card-image-placeholder><svg width=32 height=32 viewBox=0 0 24 24 fill=none stroke=#ccc stroke-width=1><rect x=3 y=3 width=18 height=18 rx=2 ry=2/><circle cx=8.5 cy=8.5 r=1.5/><polyline points=21 15 16 10 5 21/></svg></div>\';">\n';
-                html += '    </div>\n';
-            } else {
-                html += '    <div class="mini-card-image">\n';
-                html += '        <div class="mini-card-image-placeholder">' + SVG_MINI_PLACEHOLDER + '</div>\n';
                 html += '    </div>\n';
             }
             
@@ -3111,7 +3108,7 @@ function loadQuoteData(quoteId, debugLog, pricingOverrides) {
 
 // Product image - v4.1.0: Fixed width column, image aligned to top
 '.product-image-column { display: flex !important; flex-direction: column !important; align-items: flex-end !important; width: 250px !important; flex-shrink: 0 !important; }\n' +
-'.product-image { width: 250px !important; height: auto !important; min-height: 150px; background: var(--color-bg); border-radius: var(--radius-md); display: flex; align-items: center; justify-content: center; overflow: hidden; }\n' +
+'.product-image { width: 250px !important; height: auto !important; border-radius: var(--radius-md); display: flex; align-items: center; justify-content: center; overflow: hidden; }\n' +
 '.product-image img { width: 100%; height: auto; object-fit: contain; max-height: 200px; }\n' +
 '.product-image-placeholder { color: var(--color-text-light); }\n' +
 '.view-datasheet { display: inline-flex; align-items: center; gap: 6px; color: var(--color-primary); font-size: 13px; font-weight: 500; text-decoration: none; margin-top: 8px; }\n' +
@@ -4288,15 +4285,18 @@ function loadQuoteData(quoteId, debugLog, pricingOverrides) {
                 featuresHtml += '                </div>\n';
             }
 
-            var imageHtml = '';
+            // v4.3.60: Omit image column entirely when no productImage — prevents empty placeholder box
+            var imageColumnHtml = '';
             if (item.productImage) {
                 // v4.0.9: Removed max-height to allow image to span full text height
-                imageHtml = '<img src="' + escapeHtml(item.productImage) + '" alt="' + escapeHtml(item.itemName) + '" ' +
+                var imageHtml = '<img src="' + escapeHtml(item.productImage) + '" alt="' + escapeHtml(item.itemName) + '" ' +
                     'onerror="console.error(\'[Image Load Error] ' + escapeHtml(item.itemName) + ': \' + this.src); this.style.display=\'none\';" ' +
                     'onload="console.log(\'[Image Loaded] ' + escapeHtml(item.itemName) + '\');" ' +
                     'style="width: 100%; height: 100%; object-fit: cover;">';
-            } else {
-                imageHtml = '<div class="product-image-placeholder">' + SVG_IMAGE_PLACEHOLDER + '</div>';
+                imageColumnHtml =
+'        <div class="product-image-column">\n' +
+'            <div class="product-image">' + imageHtml + '</div>\n' +
+'        </div>\n';
             }
 
             // v4.1.1: Header has title only, description moved into features column for proper grid constraint
@@ -4332,9 +4332,7 @@ function loadQuoteData(quoteId, debugLog, pricingOverrides) {
 '                View more details\n' +
 '            </a>\n' : '') +
 '        </div>\n' +
-'        <div class="product-image-column">\n' +
-'            <div class="product-image">' + imageHtml + '</div>\n' +
-'        </div>\n' +
+        imageColumnHtml +
 '    </div>\n' +
 '</div>';
         }

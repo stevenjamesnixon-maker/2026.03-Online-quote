@@ -104,7 +104,7 @@ A multi-component SuiteScript 2.1 solution:
 3. **v4.3.51**: Made proxy/direct URL configurable via `options.useProxyUrl`.
 4. **v4.3.52**: Fixed popup URL mismatch — default was proxy but UE used direct. Aligned defaults.
 5. **v4.3.53**: Proxy URLs enabled by default (Viewer permissions confirmed fixed).
-6. **v4.3.54**: **Current version** — Added design package item detection constants and helper function. No rendering changes — data foundation only.
+6. **v4.3.54**: Added design package item detection constants and helper function. No rendering changes — data foundation only.
 
 **Permissions saga:** The Quote Viewer Suitelet initially gave "You do not have privileges" errors even with "Available Without Login" checked. Required: setting Execute As Role = Administrator, and ensuring Audience includes All External Roles. Once configured correctly, proxy URLs work perfectly.
 
@@ -140,6 +140,7 @@ A multi-component SuiteScript 2.1 solution:
 - `custitem_quote_prod_visual_1` replaced with `custitem_test_image` across all card types
 - v4.3.58: Thermostat upgrade card images were blank — `loadThermostatOptionItems()` used `getFileUrl()` alone; `custitem_test_image` stores plain URL strings not file IDs. Fixed by aligning with multi-approach resolution pattern: direct URL → `getFileUrl` → `getText` fallback
 - v4.3.59: Thermostat mini card images were clipped — fixed by setting `object-fit: contain` on image element in `generateCSS()`
+- v4.3.60: Hide product card image placeholder when `custitem_test_image` is empty — entire image column conditionally omitted from `renderProductCard()`; mini card placeholder else-branch removed; `min-height`/`background` removed from `.product-image` CSS
 
 **Account manager name fix:**
 - Non-admin users saw "Your Nu-Heat Team" instead of the account manager name
@@ -162,7 +163,7 @@ A multi-component SuiteScript 2.1 solution:
 
 | Component | Version | File | Status |
 |-----------|---------|------|--------|
-| Quote Suitelet | v4.3.59 | `nuheat_quote_suitelet.js` | ✅ Production ready |
+| Quote Suitelet | v4.3.60 | `nuheat_quote_suitelet.js` | ✅ Production ready |
 | Quote UE | v4.0.9 | `nuheat_quote_ue.js` | ✅ Production ready |
 | Quote CS | v4.0.6 | `nuheat_quote_cs.js` | ✅ Production ready |
 | Quote Viewer | v1.1.0 | `nuheat_quote_viewer_sl.js` | ✅ Production ready |
@@ -306,7 +307,7 @@ src/
 ### Key Constants in `nuheat_quote_suitelet.js`
 
 ```javascript
-var SCRIPT_VERSION = '4.3.58';
+var SCRIPT_VERSION = '4.3.60';
 var QUOTE_HTML_FOLDER_ID = 26895192;
 var MAX_FILE_VERSIONS = 5;
 // v4.3.56: fixed card set + prefix-based exclusion map; v4.3.58: corrected item ID casing
