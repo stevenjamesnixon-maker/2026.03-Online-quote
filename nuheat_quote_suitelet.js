@@ -9,7 +9,7 @@
  * accessible via public URL with print-to-PDF functionality.
  * 
  * Author: Nu-Heat Development Team
- * Version: 4.3.64
+ * Version: 4.3.65
  * Created: February 2026
  * Updated: 28 March 2026 - v4.3.49: Suitelet Proxy for stable URLs, timestamped filenames, file cleanup
  * Updated: 28 March 2026 - v4.3.50: Removed invalid search.lookupFields() for pricing, simplified data priority
@@ -21,6 +21,7 @@
  * Updated: 31 March 2026 - v4.3.62: Component Breakdown — exclude internal discount/subtotal items, add right-aligned "View product info" link for items with custitem_prod_info_link
  * Updated: 31 March 2026 - v4.3.63: Add plant room layout guidance link below Heat Pump section intro
  * Updated: 31 March 2026 - v4.3.64: Move external link icon to left of plant room guidance link text
+ * Updated: 31 March 2026 - v4.3.65: Show Design+ upgrade price in UFH upgrade banner from custbody_upgrades_optiontype/custbody_upgrades_itemprice fields
  *
  * For detailed version history, see CHANGELOG.md
  */
@@ -31,7 +32,7 @@ define(['N/record', 'N/search', 'N/log', 'N/format', 'N/error', 'N/runtime', 'N/
         // =====================================================================
         // SCRIPT VERSION
         // =====================================================================
-        var SCRIPT_VERSION = '4.3.64';
+        var SCRIPT_VERSION = '4.3.65';
         
         // =====================================================================
         // THERMOSTAT OPTIONS CONFIGURATION (v4.3.9)
@@ -1645,7 +1646,13 @@ function loadQuoteData(quoteId, debugLog, pricingOverrides) {
                 temps: estimate.getValue({ fieldId: 'custbody_design_temp_list' }) || '',
                 manifolds: estimate.getValue({ fieldId: 'custbody_manifold_number_list' }) || ''
             };
-            
+
+            // v4.3.65: Read upgrade option fields for Design+ pricing
+            var upgradesOptionType = estimate.getValue({ fieldId: 'custbody_upgrades_optiontype' }) || '';
+            var upgradesItemPrice  = estimate.getValue({ fieldId: 'custbody_upgrades_itemprice' }) || '';
+            var designUpgradePrice = getUpgradePrice(upgradesOptionType, upgradesItemPrice, 'Design Charge Option');
+            log.audit('loadQuoteData', 'Design upgrade price lookup — optionType: "' + upgradesOptionType + '" → price: "' + (designUpgradePrice || 'NOT FOUND') + '"');
+
             debugLog('LoadQuote', 'Rooms data raw values', {
                 rooms: roomsDataRaw.rooms,
                 levels: roomsDataRaw.levels,
@@ -1752,7 +1759,8 @@ function loadQuoteData(quoteId, debugLog, pricingOverrides) {
                 hasDesignPackageStandard:    hasDesignPackageItem(lineItems, DESIGN_PACKAGE_ITEMS.STANDARD_UFH),
                 hasDesignPackageUpgrade:     hasDesignPackageItem(lineItems, DESIGN_PACKAGE_ITEMS.UPGRADE_UFH),
                 hasDesignPackage:            hasDesignPackageItem(lineItems, DESIGN_PACKAGE_ITEMS.STANDARD_UFH) ||
-                                             hasDesignPackageItem(lineItems, DESIGN_PACKAGE_ITEMS.UPGRADE_UFH)
+                                             hasDesignPackageItem(lineItems, DESIGN_PACKAGE_ITEMS.UPGRADE_UFH),
+                designUpgradePrice:          designUpgradePrice   // v4.3.65: Design+ upgrade price from custbody_upgrades fields
             };
 
             log.audit('loadQuoteData', 'Design package detection — standard: ' + quoteData.hasDesignPackageStandard + ', upgrade: ' + quoteData.hasDesignPackageUpgrade);
@@ -4452,7 +4460,13 @@ function loadQuoteData(quoteId, debugLog, pricingOverrides) {
                     '    <div class="upgrade-banner-content">\n' +
                     '        <div class="upgrade-banner-title">Old property or considering a heat pump? Upgrade to UFH Design+</div>\n' +
                     '        <div class="upgrade-banner-desc">We\'ll calculate full room-by-room heat loss calculations for complete performance peace of mind.</div>\n' +
-                    '        <a href="' + mailtoLink + '" class="upgrade-banner-cta">Ask your AM to include this</a>\n' +
+                    (quoteData.designUpgradePrice
+                        ? '        <div class="upgrade-banner-price" style="display: inline-flex; align-items: baseline; gap: 8px;">' +
+                          '<span style="font-size: 22px; font-weight: 700; color: #2c3e50;">' + escapeHtml(quoteData.designUpgradePrice) + '</span>' +
+                          '<span style="font-size: 13px; color: #7f8c8d;">plus VAT</span>' +
+                          '</div>\n'
+                        : '        <a href="' + mailtoLink + '" class="upgrade-banner-cta">Ask your AM to include this</a>\n'
+                    ) +
                     '    </div>\n' +
                     '</div>\n';
             }
@@ -4928,6 +4942,29 @@ function loadQuoteData(quoteId, debugLog, pricingOverrides) {
         // =====================================================================
         function createError(name, message) {
             return error.create({ name: name, message: message, notifyOff: true });
+        }
+
+        /**
+         * Look up the price for a specific upgrade option from the parallel delimited lists.
+         * Both lists are '*'-delimited. Finds the index of targetType in optionTypeStr
+         * (case-insensitive, trimmed) and returns the corresponding value from itemPriceStr.
+         *
+         * @param {string} optionTypeStr  - Raw value of custbody_upgrades_optiontype
+         * @param {string} itemPriceStr   - Raw value of custbody_upgrades_itemprice
+         * @param {string} targetType     - The option type label to search for
+         * @returns {string} The matching price string, or '' if not found
+         */
+        function getUpgradePrice(optionTypeStr, itemPriceStr, targetType) {
+            if (!optionTypeStr || !itemPriceStr) return '';
+            var types  = optionTypeStr.split('*').map(function(v) { return v.trim(); });
+            var prices = itemPriceStr.split('*').map(function(v) { return v.trim(); });
+            var target = targetType.toLowerCase().trim();
+            for (var i = 0; i < types.length; i++) {
+                if (types[i].toLowerCase() === target) {
+                    return prices[i] || '';
+                }
+            }
+            return '';
         }
 
         function escapeHtml(str) {

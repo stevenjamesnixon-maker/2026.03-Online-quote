@@ -1,3 +1,27 @@
+## v4.3.65 — Show Design+ upgrade price in UFH upgrade banner
+**Date:** 31 March 2026
+**Component:** Quote Suitelet (`nuheat_quote_suitelet.js`)
+**Status:** ⏳ Draft — pending Sandbox testing
+
+### Added
+- **Design+ upgrade price in UFH upgrade banner** — The "Ask your AM to include this" CTA button
+  in the Standard UFH Design card's upgrade banner is now replaced by the actual Design+ upgrade
+  price when available. Price is looked up by splitting `custbody_upgrades_optiontype` and
+  `custbody_upgrades_itemprice` on `*`, finding the entry whose type equals "Design Charge Option"
+  (case-insensitive), and displaying the corresponding price as e.g. "£450.00 plus VAT".
+  Falls back to the original CTA button when no matching price is found, so quotes without these
+  fields populated are unaffected.
+- **New helper:** `getUpgradePrice(optionTypeStr, itemPriceStr, targetType)` — generic parallel
+  delimited-list lookup, reusable for other upgrade option types.
+
+### Files Changed
+- `nuheat_quote_suitelet.js` — `getUpgradePrice()` helper added; `loadQuoteData()` reads
+  `custbody_upgrades_optiontype` / `custbody_upgrades_itemprice` and stores result as
+  `quoteData.designUpgradePrice`; upgrade banner in `renderDesignPackageCard()` updated;
+  version bumped to v4.3.65
+
+---
+
 ## v4.3.64 — Move external link icon to left of plant room guidance link text
 **Date:** 31 March 2026
 **Component:** Quote Suitelet (`nuheat_quote_suitelet.js`)
