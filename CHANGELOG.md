@@ -1,3 +1,19 @@
+## v4.3.67 — Prepend £ symbol to Design+ upgrade price in UFH banner
+**Date:** 31 March 2026
+**Component:** Quote Suitelet (`nuheat_quote_suitelet.js`)
+**Status:** ✅ Merged to main
+
+### Fixed
+- **£ symbol on upgrade price** — The Design+ upgrade price in the UFH Standard Design banner
+  now displays with a `£` prefix. Applied conditionally — if the value in
+  `custbody_upgrades_itemprice` already begins with `£`, it is used as-is to prevent doubling.
+  All styling from v4.3.66 is preserved unchanged.
+
+### Files Changed
+- `nuheat_quote_suitelet.js` — Price span updated with conditional `£` prefix; version bumped to v4.3.67
+
+---
+
 ## v4.3.66 — Style Design+ upgrade price to match pink CTA button
 **Date:** 31 March 2026
 **Component:** Quote Suitelet (`nuheat_quote_suitelet.js`)
