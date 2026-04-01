@@ -34,6 +34,11 @@
 
 ## Quote Suitelet (`nuheat_quote_suitelet.js`)
 
+### v4.3.67 — 31 March 2026 ⏳ Draft — pending Sandbox testing
+
+- FIXED: `£` symbol conditionally prepended to Design+ upgrade price in UFH banner — skipped
+  if value already starts with `£`. All v4.3.66 styling unchanged.
+
 ### v4.3.66 — 31 March 2026 ⏳ Draft — pending Sandbox testing
 
 - FIXED: Design+ upgrade price in the UFH upgrade banner now uses the `.upgrade-banner-cta`
