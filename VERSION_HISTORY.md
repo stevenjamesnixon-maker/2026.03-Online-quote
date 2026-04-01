@@ -34,6 +34,12 @@
 
 ## Quote Suitelet (`nuheat_quote_suitelet.js`)
 
+### v4.3.66 — 31 March 2026 ⏳ Draft — pending Sandbox testing
+
+- FIXED: Design+ upgrade price in the UFH upgrade banner now uses the `.upgrade-banner-cta`
+  class — same pink background and white text as the button it replaces. `cursor: default` added
+  since the element is not a link. Font size adjusted to match button text size.
+
 ### v4.3.65 — 31 March 2026 ⏳ Draft — pending Sandbox testing
 
 - ADDED: `getUpgradePrice()` helper — looks up a price from parallel `*`-delimited fields

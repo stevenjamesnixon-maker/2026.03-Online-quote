@@ -1,3 +1,21 @@
+## v4.3.66 — Style Design+ upgrade price to match pink CTA button
+**Date:** 31 March 2026
+**Component:** Quote Suitelet (`nuheat_quote_suitelet.js`)
+**Status:** ⏳ Draft — pending Sandbox testing
+
+### Fixed
+- **Design+ upgrade price styling** — The price pill in the UFH Standard Design upgrade banner
+  now uses the existing `.upgrade-banner-cta` class, giving it the same pink (`#AA0061`)
+  background and white text as the "Ask your AM to include this" button it replaces. Font sizes
+  brought in line with the button (15px bold for the price, 13px regular for "plus VAT").
+  `cursor: default` prevents the pointer cursor since this is not a link. No new CSS required.
+
+### Files Changed
+- `nuheat_quote_suitelet.js` — Price display block in `renderDesignPackageCard()` updated;
+  version bumped to v4.3.66
+
+---
+
 ## v4.3.65 — Show Design+ upgrade price in UFH upgrade banner
 **Date:** 31 March 2026
 **Component:** Quote Suitelet (`nuheat_quote_suitelet.js`)
