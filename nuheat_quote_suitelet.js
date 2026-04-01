@@ -9,7 +9,7 @@
  * accessible via public URL with print-to-PDF functionality.
  * 
  * Author: Nu-Heat Development Team
- * Version: 4.3.66
+ * Version: 4.3.67
  * Created: February 2026
  * Updated: 28 March 2026 - v4.3.49: Suitelet Proxy for stable URLs, timestamped filenames, file cleanup
  * Updated: 28 March 2026 - v4.3.50: Removed invalid search.lookupFields() for pricing, simplified data priority
@@ -23,6 +23,7 @@
  * Updated: 31 March 2026 - v4.3.64: Move external link icon to left of plant room guidance link text
  * Updated: 31 March 2026 - v4.3.65: Show Design+ upgrade price in UFH upgrade banner from custbody_upgrades_optiontype/custbody_upgrades_itemprice fields
  * Updated: 31 March 2026 - v4.3.66: Style Design+ upgrade price to match pink CTA button styling
+ * Updated: 31 March 2026 - v4.3.67: Upgrade price pill sized to match UPGRADE badge, £ symbol added
  *
  * For detailed version history, see CHANGELOG.md
  */
@@ -33,7 +34,7 @@ define(['N/record', 'N/search', 'N/log', 'N/format', 'N/error', 'N/runtime', 'N/
         // =====================================================================
         // SCRIPT VERSION
         // =====================================================================
-        var SCRIPT_VERSION = '4.3.66';
+        var SCRIPT_VERSION = '4.3.67';
         
         // =====================================================================
         // THERMOSTAT OPTIONS CONFIGURATION (v4.3.9)
@@ -4462,10 +4463,15 @@ function loadQuoteData(quoteId, debugLog, pricingOverrides) {
                     '        <div class="upgrade-banner-title">Old property or considering a heat pump? Upgrade to UFH Design+</div>\n' +
                     '        <div class="upgrade-banner-desc">We\'ll calculate full room-by-room heat loss calculations for complete performance peace of mind.</div>\n' +
                     (quoteData.designUpgradePrice
-                        ? '        <div class="upgrade-banner-cta" style="display: inline-flex; align-items: baseline; gap: 8px; cursor: default;">' +
-                          '<span style="font-size: 15px; font-weight: 600;">' + escapeHtml(quoteData.designUpgradePrice) + '</span>' +
-                          '<span style="font-size: 13px; font-weight: 400; opacity: 0.85;">plus VAT</span>' +
-                          '</div>\n'
+                        ? (function() {
+                              var rawPrice = quoteData.designUpgradePrice || '';
+                              var displayPrice = (rawPrice.charAt(0) === '\u00a3') ? rawPrice : '\u00a3' + rawPrice;
+                              return '        <div style="display: inline-flex; align-items: center; gap: 8px;">' +
+                                  '<span style="display: inline-flex; align-items: center; background: #AA0061; color: #fff; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; padding: 4px 12px; border-radius: 12px; cursor: default;">' +
+                                  escapeHtml(displayPrice) + '</span>' +
+                                  '<span style="font-size: 12px; color: #7f8c8d;">plus VAT</span>' +
+                                  '</div>\n';
+                          })()
                         : '        <a href="' + mailtoLink + '" class="upgrade-banner-cta">Ask your AM to include this</a>\n'
                     ) +
                     '    </div>\n' +

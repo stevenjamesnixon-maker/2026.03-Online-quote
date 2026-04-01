@@ -1,3 +1,23 @@
+## v4.3.67 — Size upgrade price pill to match UPGRADE badge, add £ symbol
+**Date:** 31 March 2026
+**Component:** Quote Suitelet (`nuheat_quote_suitelet.js`)
+**Status:** ⏳ Draft — pending Sandbox testing
+
+### Fixed
+- **Upgrade price pill size** — The price pill now uses the same inline styles as the "UPGRADE"
+  badge (`padding: 4px 12px; border-radius: 12px; font-size: 11px; letter-spacing: 0.5px`), so
+  it is visually the same size as the tag above it. The `.upgrade-banner-cta` class (full button
+  padding) is no longer used on this element.
+- **£ symbol** — A `£` symbol is conditionally prepended to the price value. If the value from
+  `custbody_upgrades_itemprice` already starts with `£`, it is used as-is; otherwise `£` is
+  added. Prevents doubling the symbol regardless of what the field contains.
+
+### Files Changed
+- `nuheat_quote_suitelet.js` — Price pill block in `renderDesignPackageCard()` updated;
+  version bumped to v4.3.67
+
+---
+
 ## v4.3.66 — Style Design+ upgrade price to match pink CTA button
 **Date:** 31 March 2026
 **Component:** Quote Suitelet (`nuheat_quote_suitelet.js`)

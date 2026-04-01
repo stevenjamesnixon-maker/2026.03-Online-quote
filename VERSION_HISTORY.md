@@ -34,6 +34,12 @@
 
 ## Quote Suitelet (`nuheat_quote_suitelet.js`)
 
+### v4.3.67 — 31 March 2026 ⏳ Draft — pending Sandbox testing
+
+- FIXED: Upgrade price pill now matches the "UPGRADE" badge size (`padding: 4px 12px`,
+  `border-radius: 12px`, `font-size: 11px`). `.upgrade-banner-cta` class removed from this element.
+- FIXED: `£` symbol conditionally prepended to price — skipped if value already starts with `£`.
+
 ### v4.3.66 — 31 March 2026 ⏳ Draft — pending Sandbox testing
 
 - FIXED: Design+ upgrade price in the UFH upgrade banner now uses the `.upgrade-banner-cta`
