@@ -1,3 +1,80 @@
+## v4.3.66 — Style Design+ upgrade price to match pink CTA button
+**Date:** 31 March 2026
+**Component:** Quote Suitelet (`nuheat_quote_suitelet.js`)
+**Status:** ⏳ Draft — pending Sandbox testing
+
+### Fixed
+- **Design+ upgrade price styling** — The price pill in the UFH Standard Design upgrade banner
+  now uses the existing `.upgrade-banner-cta` class, giving it the same pink (`#AA0061`)
+  background and white text as the "Ask your AM to include this" button it replaces. Font sizes
+  brought in line with the button (15px bold for the price, 13px regular for "plus VAT").
+  `cursor: default` prevents the pointer cursor since this is not a link. No new CSS required.
+
+### Files Changed
+- `nuheat_quote_suitelet.js` — Price display block in `renderDesignPackageCard()` updated;
+  version bumped to v4.3.66
+
+---
+
+## v4.3.65 — Show Design+ upgrade price in UFH upgrade banner
+**Date:** 31 March 2026
+**Component:** Quote Suitelet (`nuheat_quote_suitelet.js`)
+**Status:** ⏳ Draft — pending Sandbox testing
+
+### Added
+- **Design+ upgrade price in UFH upgrade banner** — The "Ask your AM to include this" CTA button
+  in the Standard UFH Design card's upgrade banner is now replaced by the actual Design+ upgrade
+  price when available. Price is looked up by splitting `custbody_upgrades_optiontype` and
+  `custbody_upgrades_itemprice` on `*`, finding the entry whose type equals "Design Charge Option"
+  (case-insensitive), and displaying the corresponding price as e.g. "£450.00 plus VAT".
+  Falls back to the original CTA button when no matching price is found, so quotes without these
+  fields populated are unaffected.
+- **New helper:** `getUpgradePrice(optionTypeStr, itemPriceStr, targetType)` — generic parallel
+  delimited-list lookup, reusable for other upgrade option types.
+
+### Files Changed
+- `nuheat_quote_suitelet.js` — `getUpgradePrice()` helper added; `loadQuoteData()` reads
+  `custbody_upgrades_optiontype` / `custbody_upgrades_itemprice` and stores result as
+  `quoteData.designUpgradePrice`; upgrade banner in `renderDesignPackageCard()` updated;
+  version bumped to v4.3.65
+
+---
+
+## v4.3.64 — Move external link icon to left of plant room guidance link text
+**Date:** 31 March 2026
+**Component:** Quote Suitelet (`nuheat_quote_suitelet.js`)
+**Status:** ⏳ Draft — pending Sandbox testing
+
+### Fixed
+- **External link icon position on plant room guidance link** — The `SVG_EXTERNAL_LINK` icon was
+  appearing to the right of the link text. It now appears to the left, consistent with icon
+  placement on "View more details" links throughout the product cards.
+
+### Files Changed
+- `nuheat_quote_suitelet.js` — Icon moved before link text in `renderHeatPumpTreeSection()`;
+  version bumped to v4.3.64
+
+---
+
+## v4.3.63 — Add plant room layout guidance link to Heat Pump section
+**Date:** 31 March 2026
+**Component:** Quote Suitelet (`nuheat_quote_suitelet.js`)
+**Status:** ⏳ Draft — pending Sandbox testing
+
+### Added
+- **Plant room guidance link in Heat Pump section** — A second paragraph now appears directly
+  below the existing Heat Pump intro copy, containing a link to the plant room layout and space
+  requirements PDF. Styled using the existing `.view-datasheet` class (teal `#00857D`, external
+  link icon) for visual consistency with "View more details" links on product cards. The link only
+  appears on quotes that include Heat Pump line items, as it is rendered inside
+  `renderHeatPumpTreeSection()`.
+
+### Files Changed
+- `nuheat_quote_suitelet.js` — Second intro paragraph added in `renderHeatPumpTreeSection()`;
+  version bumped to v4.3.63
+
+---
+
 ## v4.3.62 — Component Breakdown improvements
 **Date:** 31 March 2026
 **Component:** Quote Suitelet (`nuheat_quote_suitelet.js`)

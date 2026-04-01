@@ -34,6 +34,34 @@
 
 ## Quote Suitelet (`nuheat_quote_suitelet.js`)
 
+### v4.3.66 — 31 March 2026 ⏳ Draft — pending Sandbox testing
+
+- FIXED: Design+ upgrade price in the UFH upgrade banner now uses the `.upgrade-banner-cta`
+  class — same pink background and white text as the button it replaces. `cursor: default` added
+  since the element is not a link. Font size adjusted to match button text size.
+
+### v4.3.65 — 31 March 2026 ⏳ Draft — pending Sandbox testing
+
+- ADDED: `getUpgradePrice()` helper — looks up a price from parallel `*`-delimited fields
+  `custbody_upgrades_optiontype` and `custbody_upgrades_itemprice` by matching a target type string.
+- ADDED: `quoteData.designUpgradePrice` — populated by matching "Design Charge Option" in the
+  upgrades fields. Stored on `quoteData` and passed through to `renderDesignPackageCard()`.
+- CHANGED: UFH Standard Design upgrade banner — "Ask your AM to include this" button is now
+  replaced by the Design+ price (e.g. "£450.00 plus VAT") when `designUpgradePrice` is non-empty.
+  Falls back to the original button when no price is found.
+
+### v4.3.64 — 31 March 2026 ⏳ Draft — pending Sandbox testing
+
+- FIXED: External link icon on the plant room guidance link in the Heat Pump section now appears
+  to the left of the link text, consistent with icon placement on product card links.
+
+### v4.3.63 — 31 March 2026 ⏳ Draft — pending Sandbox testing
+
+- ADDED: Plant room layout guidance link in Heat Pump section. A second paragraph below the
+  existing intro copy links to the plant room layout and space requirements PDF, styled with
+  the `.view-datasheet` class (teal, external link icon). Only renders on quotes with Heat Pump
+  items (`renderHeatPumpTreeSection()`).
+
 ### v4.3.62 — 31 March 2026 ⏳ Draft — pending Sandbox testing
 
 - ADDED: `COMPONENT_BREAKDOWN_EXCLUDED_ITEMS` constant — "Hidden UFH Discount", "Hidden HP Discount",
