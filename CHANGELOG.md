@@ -1,3 +1,17 @@
+## [Analytics Suitelet v1.0.0] — April 2026
+### Added
+- New script: nuheat_analytics_sl.js
+- Receives POST from GTM on quote and proposal view events
+- Quote views: writes last viewed date and view count to Estimate record
+- Proposal views: writes last viewed date and view count to Opportunity record
+- Customer ID logged to Script Execution Log for diagnostic purposes
+- CORS headers included for browser fetch() compatibility
+- Fire-and-forget pattern — never blocks customer page load
+### Notes
+- Estimate fields use double-prefix IDs (custbodycustbody_*) due to field creation error in NetSuite — correct in production before go-live
+
+---
+
 ## v4.3.67 — Prepend £ symbol to Design+ upgrade price in UFH banner
 **Date:** 31 March 2026
 **Component:** Quote Suitelet (`nuheat_quote_suitelet.js`)

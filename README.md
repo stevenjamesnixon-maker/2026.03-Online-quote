@@ -64,7 +64,8 @@ nuheat_netsuite_suitelet/
 │   ├── nuheat_send_quote_sl.js        # Quote selection Suitelet (v1.4.9)
 │   ├── nuheat_send_quote_cs.js        # Send Quote form handler (v1.1.1)
 │   ├── nuheat_opportunity_ue.js       # Opportunity "Send Quote" button (v1.0.0)
-│   └── nuheat_opportunity_cs.js       # Opportunity button handler (v1.0.0)
+│   ├── nuheat_opportunity_cs.js       # Opportunity button handler (v1.0.0)
+│   └── nuheat_analytics_sl.js         # Analytics Suitelet — records quote and proposal view events (v1.0.0)
 ├── docs/
 │   ├── TECHNICAL_DOCUMENTATION.md     # Full technical reference
 │   ├── USER_GUIDE.md                  # End-user guide
@@ -215,6 +216,7 @@ See [Configuration Checklist](docs/CONFIGURATION_CHECKLIST.md) for the full list
 | Opportunity UE | v1.0.0 | 28 Mar 2026 |
 | Opportunity CS | v1.0.0 | 28 Mar 2026 |
 | Scheduled Script | v1.0.0 | Mar 2026 |
+| Analytics Suitelet | v1.0.0 | Apr 2026 |
 
 See [CHANGELOG.md](CHANGELOG.md) for detailed version history.
 

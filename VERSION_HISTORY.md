@@ -1,5 +1,18 @@
 # Version History
 
+## Analytics Suitelet (`nuheat_analytics_sl.js`)
+
+### v1.0.0 — April 2026
+
+- ADDED: New Suitelet that receives POST requests from GTM on quote and proposal view events
+- ADDED: Quote views write `custbodycustbody_quote_last_viewed` (DateTime) and `custbodycustbody_quote_view_count` (Integer) to the Estimate record
+- ADDED: Proposal views write `custbody_opp_quote_last_viewed` (DateTime) and `custbody_opp_view_count` (Integer) to the Opportunity record
+- ADDED: Customer ID received and logged to Script Execution Log — not written to any field
+- ADDED: CORS headers (`Access-Control-Allow-Origin: *`) and OPTIONS preflight handling for browser fetch() compatibility
+- NOTE: Estimate fields use double-prefix IDs (`custbodycustbody_*`) matching how they were created in NetSuite — correct before go-live
+
+---
+
 ## Master Proposal (`nuheat_master_proposal.js`)
 
 ### v1.6.3 — 29 March 2026 (email URL fix)
