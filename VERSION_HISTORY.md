@@ -1,5 +1,17 @@
 # Version History
 
+## Quote Suitelet (`nuheat_quote_suitelet.js`)
+
+### v4.3.68 — April 2026
+
+- ADDED: `GTM_CONTAINER_ID` constant (`GTM-5NJJSBMP`) for centralised GTM container reference
+- ADDED: Data layer push (`nuheat_quote_view` event) injected before GTM head snippet in all generated quote pages — fields: `customerId`, `opportunityId`, `quoteId`, `quoteInternalId`, `pageType`
+- ADDED: GTM head snippet (`<script>` loader) injected immediately after `<head>` opening tag
+- ADDED: GTM noscript fallback (`<noscript><iframe>`) injected immediately after `<body>` opening tag
+- NOTE: No logic or rendering changes — GTM and data layer injection only
+
+---
+
 ## Analytics Suitelet (`nuheat_analytics_sl.js`)
 
 ### v1.0.1 — April 2026

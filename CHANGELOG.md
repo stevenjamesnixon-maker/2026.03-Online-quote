@@ -1,3 +1,13 @@
+## [Quote Suitelet v4.3.68] — April 2026
+### Added
+- GTM container GTM-5NJJSBMP injected into all generated quote pages
+- Data layer push fires nuheat_quote_view event on page load with:
+  customerId, opportunityId, quoteId (tranId), quoteInternalId, pageType
+- GTM noscript fallback added immediately after <body> tag
+- Data layer populated before GTM snippet to ensure values available on load
+
+---
+
 ## [Analytics Suitelet v1.0.1] — April 2026
 ### Fixed
 - DateTime fields now receive a JavaScript Date object instead of an ISO string

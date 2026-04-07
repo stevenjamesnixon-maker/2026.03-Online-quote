@@ -34,7 +34,12 @@ define(['N/record', 'N/search', 'N/log', 'N/format', 'N/error', 'N/runtime', 'N/
         // =====================================================================
         // SCRIPT VERSION
         // =====================================================================
-        var SCRIPT_VERSION = '4.3.67';
+        var SCRIPT_VERSION = '4.3.68';
+
+        // =====================================================================
+        // GTM CONFIGURATION (v4.3.68)
+        // =====================================================================
+        var GTM_CONTAINER_ID = 'GTM-5NJJSBMP';
         
         // =====================================================================
         // THERMOSTAT OPTIONS CONFIGURATION (v4.3.9)
@@ -2784,6 +2789,29 @@ function loadQuoteData(quoteId, debugLog, pricingOverrides) {
             return '<!DOCTYPE html>\n' +
 '<html lang="en">\n' +
 '<head>\n' +
+
+// Data layer — must be before GTM snippet so values are available on gtm.js load
+'<script>\n' +
+'window.dataLayer = window.dataLayer || [];\n' +
+'window.dataLayer.push({\n' +
+'  "event": "nuheat_quote_view",\n' +
+'  "customerId": "' + (quoteData.header.customerId || '') + '",\n' +
+'  "opportunityId": "' + (quoteData.opportunityId || '') + '",\n' +
+'  "quoteId": "' + (quoteData.header.tranId || '') + '",\n' +
+'  "quoteInternalId": "' + (quoteData.id || '') + '",\n' +
+'  "pageType": "quote"\n' +
+'});\n' +
+'</script>\n' +
+
+// GTM head snippet
+'<!-- Google Tag Manager -->\n' +
+'<script>(function(w,d,s,l,i){w[l]=w[l]||[];w[l].push({"gtm.start":\n' +
+'new Date().getTime(),event:"gtm.js"});var f=d.getElementsByTagName(s)[0],\n' +
+'j=d.createElement(s),dl=l!="dataLayer"?"&l="+l:"";j.async=true;j.src=\n' +
+'"https://www.googletagmanager.com/gtm.js?id="+i+dl;f.parentNode.insertBefore(j,f);\n' +
+'})(window,document,"script","dataLayer","' + GTM_CONTAINER_ID + '");</script>\n' +
+'<!-- End Google Tag Manager -->\n' +
+
 '    <meta charset="UTF-8">\n' +
 '    <meta name="viewport" content="width=device-width, initial-scale=1.0">\n' +
 '    <meta name="robots" content="noindex, nofollow">\n' +
@@ -2797,6 +2825,13 @@ function loadQuoteData(quoteId, debugLog, pricingOverrides) {
 '    <style>' + css + '</style>\n' +
 '</head>\n' +
 '<body>\n' +
+
+// GTM noscript — immediately after <body>
+'<!-- Google Tag Manager (noscript) -->\n' +
+'<noscript><iframe src="https://www.googletagmanager.com/ns.html?id=' + GTM_CONTAINER_ID + '"\n' +
+'height="0" width="0" style="display:none;visibility:hidden"></iframe></noscript>\n' +
+'<!-- End Google Tag Manager (noscript) -->\n' +
+
 '    <div class="page-container">\n' +
         header +
         trustBadges +
