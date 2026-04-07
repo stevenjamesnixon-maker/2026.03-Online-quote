@@ -179,7 +179,9 @@ define([
 
     // ─── Constants ────────────────────────────────────────────────────────────────
 
-    var MODULE_VERSION = '1.6.3';
+    var MODULE_VERSION = '1.6.4';
+
+    var GTM_CONTAINER_ID = 'GTM-5NJJSBMP';
 
     /**
      * Safe logging helper — wraps N/log calls in try-catch to prevent
@@ -542,6 +544,27 @@ define([
         html.push('<!DOCTYPE html>');
         html.push('<html lang="en">');
         html.push('<head>');
+
+        // Data layer — must be before GTM snippet so values are available on gtm.js load
+        html.push('<script>');
+        html.push('window.dataLayer = window.dataLayer || [];');
+        html.push('window.dataLayer.push({');
+        html.push('  "event": "nuheat_proposal_view",');
+        html.push('  "customerId": "' + (oppData.customerId || '') + '",');
+        html.push('  "opportunityId": "' + (oppData.id || '') + '",');
+        html.push('  "pageType": "proposal"');
+        html.push('});');
+        html.push('</script>');
+
+        // GTM head snippet
+        html.push('<!-- Google Tag Manager -->');
+        html.push('<script>(function(w,d,s,l,i){w[l]=w[l]||[];w[l].push({"gtm.start":');
+        html.push('new Date().getTime(),event:"gtm.js"});var f=d.getElementsByTagName(s)[0],');
+        html.push('j=d.createElement(s),dl=l!="dataLayer"?"&l="+l:"";j.async=true;j.src=');
+        html.push('"https://www.googletagmanager.com/gtm.js?id="+i+dl;f.parentNode.insertBefore(j,f);');
+        html.push('})(window,document,"script","dataLayer","' + GTM_CONTAINER_ID + '");</script>');
+        html.push('<!-- End Google Tag Manager -->');
+
         html.push('<meta charset="UTF-8">');
         html.push('<meta name="viewport" content="width=device-width, initial-scale=1.0">');
         html.push('<meta name="robots" content="noindex, nofollow">');
@@ -554,6 +577,13 @@ define([
         html.push('</style>');
         html.push('</head>');
         html.push('<body>');
+
+        // GTM noscript — immediately after <body>
+        html.push('<!-- Google Tag Manager (noscript) -->');
+        html.push('<noscript><iframe src="https://www.googletagmanager.com/ns.html?id=' + GTM_CONTAINER_ID + '"');
+        html.push('height="0" width="0" style="display:none;visibility:hidden"></iframe></noscript>');
+        html.push('<!-- End Google Tag Manager (noscript) -->');
+
         html.push('<div class="page-container">');
 
         // 1. Header — teal bar with logo, phone, email, print button
