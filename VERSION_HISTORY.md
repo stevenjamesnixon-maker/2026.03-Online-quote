@@ -1,5 +1,17 @@
 # Version History
 
+## Master Proposal (`nuheat_master_proposal.js`)
+
+### v1.6.4 — April 2026
+
+- ADDED: `GTM_CONTAINER_ID` constant (`GTM-5NJJSBMP`) for centralised GTM container reference
+- ADDED: Data layer push (`nuheat_proposal_view` event) injected before GTM head snippet in all generated proposal pages — fields: `customerId`, `opportunityId`, `pageType`
+- ADDED: GTM head snippet (`<script>` loader) injected immediately after `<head>` opening tag
+- ADDED: GTM noscript fallback (`<noscript><iframe>`) injected immediately after `<body>` opening tag
+- NOTE: No logic or rendering changes — GTM and data layer injection only
+
+---
+
 ## Quote Suitelet (`nuheat_quote_suitelet.js`)
 
 ### v4.3.68 — April 2026
