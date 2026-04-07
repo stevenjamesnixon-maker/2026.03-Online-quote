@@ -173,7 +173,7 @@ A multi-component SuiteScript 2.1 solution:
 | Send Quote CS | v1.2.0 | `nuheat_send_quote_cs.js` | ✅ Production ready |
 | Opportunity UE | v1.0.0 | `src/nuheat_opportunity_ue.js` | ✅ Production ready |
 | Opportunity CS | v1.0.0 | `src/nuheat_opportunity_cs.js` | ✅ Production ready |
-| Analytics Suitelet | v1.0.0 | `nuheat_analytics_sl.js` | ✅ Production ready |
+| Analytics Suitelet | v1.0.1 | `nuheat_analytics_sl.js` | ✅ Production ready |
 
 ### Current Configuration
 

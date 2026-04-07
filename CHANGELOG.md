@@ -1,3 +1,10 @@
+## [Analytics Suitelet v1.0.1] — April 2026
+### Fixed
+- DateTime fields now receive a JavaScript Date object instead of an ISO string
+- NetSuite record.submitFields() rejects ISO 8601 strings for DateTime field types
+
+---
+
 ## [Analytics Suitelet v1.0.0] — April 2026
 ### Added
 - New script: nuheat_analytics_sl.js

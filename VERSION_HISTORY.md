@@ -2,6 +2,11 @@
 
 ## Analytics Suitelet (`nuheat_analytics_sl.js`)
 
+### v1.0.1 — April 2026
+
+- FIXED: DateTime fields now receive a JavaScript `Date` object instead of an ISO 8601 string
+- FIXED: NetSuite `record.submitFields()` rejects ISO strings for DateTime field types — both `custbodycustbody_quote_last_viewed` and `custbody_opp_quote_last_viewed` affected
+
 ### v1.0.0 — April 2026
 
 - ADDED: New Suitelet that receives POST requests from GTM on quote and proposal view events

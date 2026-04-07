@@ -22,7 +22,7 @@
  *   custbody_opp_view_count         (Integer)
  *
  * Author: Nu-Heat Development Team
- * Version: 1.0.0
+ * Version: 1.0.1
  * Created: April 2026
  */
 define(['N/record', 'N/log'], function(record, log) {
@@ -59,7 +59,7 @@ define(['N/record', 'N/log'], function(record, log) {
                 ' | oppId: ' + opportunityId +
                 ' | customerId: ' + customerId);
 
-            var now = new Date().toISOString();
+            var now = new Date();
 
             // ── Quote page view → write to Estimate only ──────────────────────────
             if (type === 'quote' && recordId) {
