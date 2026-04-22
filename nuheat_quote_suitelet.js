@@ -34,7 +34,7 @@ define(['N/record', 'N/search', 'N/log', 'N/format', 'N/error', 'N/runtime', 'N/
         // =====================================================================
         // SCRIPT VERSION
         // =====================================================================
-        var SCRIPT_VERSION = '4.3.68';
+        var SCRIPT_VERSION = '4.3.69';
 
         // =====================================================================
         // GTM CONFIGURATION (v4.3.68)
@@ -3192,6 +3192,7 @@ function loadQuoteData(quoteId, debugLog, pricingOverrides) {
 '.upgrade-banner-content { flex: 1; }\n' +
 '.upgrade-banner-title { font-size: 15px; font-weight: 600; color: #2c3e50; margin-bottom: 6px; line-height: 1.4; }\n' +
 '.upgrade-banner-desc { font-size: 13px; color: #7f8c8d; line-height: 1.5; margin-bottom: 14px; }\n' +
+'.upgrade-banner-pricing { margin-bottom: 10px; }\n' +
 '.upgrade-banner-cta { display: inline-flex; align-items: center; gap: 6px; background: #AA0061; color: white; font-size: 13px; font-weight: 600; padding: 10px 22px; border-radius: 6px; text-decoration: none; cursor: pointer; border: none; font-family: var(--font-family); transition: background 0.2s; }\n' +
 '.upgrade-banner-cta:hover { background: #8a0050; }\n' +
 
@@ -4498,11 +4499,12 @@ function loadQuoteData(quoteId, debugLog, pricingOverrides) {
                     '        <div class="upgrade-banner-title">Old property or considering a heat pump? Upgrade to UFH Design+</div>\n' +
                     '        <div class="upgrade-banner-desc">We\'ll calculate full room-by-room heat loss calculations for complete performance peace of mind.</div>\n' +
                     (quoteData.designUpgradePrice
-                        ? '        <div class="upgrade-banner-cta" style="display: inline-flex; align-items: baseline; gap: 8px; cursor: default;">' +
+                        ? '        <div class="upgrade-banner-pricing">' +
                           '<span style="font-size: 15px; font-weight: 600;">' + (quoteData.designUpgradePrice.charAt(0) === '\u00a3' ? escapeHtml(quoteData.designUpgradePrice) : '\u00a3' + escapeHtml(quoteData.designUpgradePrice)) + '</span>' +
-                          '<span style="font-size: 13px; font-weight: 400; opacity: 0.85;">plus VAT</span>' +
-                          '</div>\n'
-                        : '        <a href="' + mailtoLink + '" class="upgrade-banner-cta">Ask your AM to include this</a>\n'
+                          '<span style="font-size: 13px; font-weight: 400; color: #7f8c8d; margin-left: 6px;">plus VAT</span>' +
+                          '</div>\n' +
+                          '        <a href="' + mailtoLink + '" class="upgrade-banner-cta">Email your AM to include this</a>\n'
+                        : '        <a href="' + mailtoLink + '" class="upgrade-banner-cta">Email your AM to include this</a>\n'
                     ) +
                     '    </div>\n' +
                     '</div>\n';

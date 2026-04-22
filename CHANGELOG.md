@@ -1,3 +1,15 @@
+## [Quote Suitelet v4.3.69] — 22 April 2026
+**Status:** ⏳ Draft — pending Sandbox testing
+### Changed
+- Design+ upgrade banner: price now renders above the mailto CTA button rather than replacing it — both price and button are visible together when `designUpgradePrice` is present
+- Button label updated: "Ask your AM to include this" → "Email your AM to include this" (both the price-present and price-absent cases)
+- Price display changed from pink `.upgrade-banner-cta` pill to plain `.upgrade-banner-pricing` div — button retains the pink styling
+- `.upgrade-banner-cta` class and `href` unchanged (GTM click tracking preserved)
+### Added
+- `.upgrade-banner-pricing { margin-bottom: 10px; }` CSS rule in `generateCSS()`
+
+---
+
 ## [Master Proposal v1.6.6] — 22 April 2026
 **Status:** ✅ Merged to main
 ### Added
