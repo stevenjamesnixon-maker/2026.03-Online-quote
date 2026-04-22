@@ -1,3 +1,29 @@
+## [Quote Suitelet v4.3.70] — 22 April 2026
+**Status:** ⏳ Draft — pending Sandbox testing
+### Changed
+- Heat pump display price now deducts £7,500 BUS grant (`HP_GRANT_AMOUNT` constant). `hpGrantedPrice = hpDisplayPrice - 7500` shown in the price card.
+- `hp-grant-banner` text updated from "may be eligible for a £7,500 Government grant" to "£7,500 grant funding has been applied to this quote" with asterisk line "*Subject to scheme eligibility" in smaller italic text.
+### Added
+- `HP_GRANT_AMOUNT = 7500` constant — blanket deduction, intended to become conditional on a NetSuite field in future.
+- `.hp-grant-banner-text .hp-grant-banner-asterisk` CSS class for the smaller italic asterisk line.
+- `renderTopTotalSection()` — headline subtotal and Total inc VAT deduct `HP_GRANT_AMOUNT` for HP quotes (`taxTotal` line unchanged). Uses `quoteData.hasHeatPump` flag.
+- `renderTotalSection()` — same grant deduction applied to the lower total section.
+
+---
+
+## [Master Proposal v1.6.7] — 22 April 2026
+**Status:** ⏳ Draft — pending Sandbox testing
+### Changed
+- Heat Pump quote cards now display subtotal minus £7,500 BUS grant (`HP_GRANT_AMOUNT` constant). Uses `Math.max(0, subtotal - HP_GRANT_AMOUNT)` to prevent negative prices.
+- `generateBUSGrantBanner()` text updated to "£7,500 grant funding has been applied to this quote" with asterisk line "*Subject to scheme eligibility".
+### Added
+- `HP_GRANT_AMOUNT = 7500` constant alongside `SHOW_BUS_GRANT_BANNER`.
+- `.grant-highlight-asterisk` CSS modifier class for the asterisk line.
+- `calculateTotals()` — HP quotes deduct `HP_GRANT_AMOUNT` from both `subtotal` and `amount` (total inc VAT) before aggregating into the proposal total bar.
+- `generateQuoteCard()` — Total inc VAT detail line also deducts `HP_GRANT_AMOUNT` for Heat Pump quotes, consistent with `displaySubtotal`.
+
+---
+
 ## [Quote Suitelet v4.3.69] — 22 April 2026
 **Status:** ✅ Merged to main
 ### Changed
