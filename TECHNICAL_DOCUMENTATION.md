@@ -48,14 +48,14 @@
 │           │                      │                                       │
 │  ┌────────▼──────────┐  ┌───────▼──────────┐   ┌──────────────────┐    │
 │  │ Send Quote SL      │  │ File Cabinet      │   │ Quote Viewer SL  │    │
-│  │ (v1.4.9)           │  │ Folder: 21719365  │   │ (v1.1.0)         │    │
+│  │ (v1.5.1)           │  │ Folder: 21719365  │   │ (v1.1.0)         │    │
 │  │ Select quotes for  │  │ Quote HTML Files  │   │ Proxy for stable │    │
 │  │ master proposal    │  └──────────────────┘   │ URLs              │    │
 │  └────────┬──────────┘                          └──────────────────┘    │
 │           │                                                              │
 │  ┌────────▼──────────┐                                                  │
 │  │ Master Proposal    │                                                  │
-│  │ (v1.6.2)           │                                                  │
+│  │ (v1.6.3)           │                                                  │
 │  │ Generates multi-   │                                                  │
 │  │ quote proposals    │                                                  │
 │  └───────────────────┘                                                  │
@@ -63,7 +63,7 @@
 │  CLIENT-SIDE SCRIPTS:                                                   │
 │  ┌─────────────────┐  ┌─────────────────┐  ┌──────────────────┐       │
 │  │ Quote CS (v4.0.6)│  │ Send Quote CS   │  │ Opportunity CS   │       │
-│  │ "Regen quote"    │  │ (v1.1.1)        │  │ (v1.0.0)         │       │
+│  │ "Regen quote"    │  │ (v1.2.0)        │  │ (v1.0.0)         │       │
 │  │ button handler   │  │ Preview/Submit  │  │ "Send Quote" btn │       │
 │  └─────────────────┘  └─────────────────┘  └──────────────────┘       │
 │                                                                         │
@@ -125,13 +125,13 @@ EXTERNAL ACCESS:
 1. TRIGGER
    └── User clicks "Send Quote" on Opportunity → Opens Send Quote Suitelet
 
-2. QUOTE SELECTION (Send Quote Suitelet v1.4.9)
+2. QUOTE SELECTION (Send Quote Suitelet v1.5.1)
    ├── Searches all Estimates linked to Opportunity
    ├── Groups by type: UFH, Heat Pump, Solar, Other
    ├── User selects Main vs Alternative quotes
    └── User enters email recipients
 
-3. PROPOSAL GENERATION (Master Proposal v1.6.2)
+3. PROPOSAL GENERATION (Master Proposal v1.6.3)
    ├── Loads customer/opportunity data
    ├── Aggregates pricing across selected quotes
    ├── Generates branded HTML with quote cards
@@ -166,9 +166,9 @@ EXTERNAL ACCESS:
 | Quote Client Script | `nuheat_quote_cs.js` | v4.0.6 | ClientScript | Handles "Regen quote" button click; saves record first, passes fresh pricing |
 | Quote Viewer | `nuheat_quote_viewer_sl.js` | v1.1.0 | Suitelet | Proxy that serves latest quote HTML via stable URL |
 | Scheduled Script | `nuheat_quote_generator_ss.js` | v1.0.0 | ScheduledScript | Fallback for governance-limited UE contexts |
-| Master Proposal | `nuheat_master_proposal.js` | v1.6.2 | Module | Generates multi-quote master proposals |
-| Send Quote SL | `nuheat_send_quote_sl.js` | v1.4.9 | Suitelet | Quote selection UI for proposal generation |
-| Send Quote CS | `nuheat_send_quote_cs.js` | v1.1.1 | ClientScript | Handles Send Quote form interactions |
+| Master Proposal | `nuheat_master_proposal.js` | v1.6.3 | Module | Generates multi-quote master proposals |
+| Send Quote SL | `nuheat_send_quote_sl.js` | v1.5.1 | Suitelet | Quote selection UI for proposal generation |
+| Send Quote CS | `nuheat_send_quote_cs.js` | v1.2.0 | ClientScript | Handles Send Quote form interactions |
 | Opportunity UE | `nuheat_opportunity_ue.js` | v1.0.0 | UserEventScript | Adds "Send Quote" button to Opportunity form |
 | Opportunity CS | `nuheat_opportunity_cs.js` | v1.0.0 | ClientScript | Opens Send Quote Suitelet from Opportunity |
 
