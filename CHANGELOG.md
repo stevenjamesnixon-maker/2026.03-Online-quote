@@ -1,4 +1,5 @@
 ## [Master Proposal v1.6.5] — 22 April 2026
+**Status:** ✅ Merged to main
 ### Changed
 - UFH benefits: 'Room-by-room heat losses' replaced with 'Detailed installation pack'
 - Step 2 "Bespoke design" description: removed reference to heat-loss calculations
