@@ -2,6 +2,13 @@
 
 ## Master Proposal (`nuheat_master_proposal.js`)
 
+### v1.6.5 — 22 April 2026
+
+- CHANGED: `SYSTEM_BENEFITS` 'Underfloor Heating' array — 'Room-by-room heat losses' replaced with 'Detailed installation pack'
+- CHANGED: `generateWhatHappensNext()` Step 2 description — "Through meticulous heat-loss calculations, we ensure..." replaced with "Our approach ensures..."
+
+---
+
 ### v1.6.4 — April 2026
 
 - ADDED: `GTM_CONTAINER_ID` constant (`GTM-5NJJSBMP`) for centralised GTM container reference

@@ -6,8 +6,20 @@
  * @description Module that generates a master proposal HTML page aggregating
  *              multiple quotes under a single Opportunity. Called by the
  *              Send Quote Suitelet after the user selects which quotes to include.
- * @version     1.6.3
+ * @version     1.6.5
  * @author      Nu-Heat Development
+ *
+ * CHANGELOG v1.6.5 (Fix: UFH benefits wording + Step 2 description):
+ *   - CHANGED: SYSTEM_BENEFITS 'Underfloor Heating' — 'Room-by-room heat losses'
+ *     replaced with 'Detailed installation pack'.
+ *   - CHANGED: generateWhatHappensNext() Step 2 description — removed reference to
+ *     "meticulous heat-loss calculations"; text now reads "Our approach ensures
+ *     optimal system performance and a seamless installation process."
+ *
+ * CHANGELOG v1.6.4 (GTM injection):
+ *   - ADDED: GTM_CONTAINER_ID constant (GTM-5NJJSBMP).
+ *   - ADDED: Data layer push (nuheat_proposal_view event) before GTM snippet.
+ *   - ADDED: GTM head snippet and noscript fallback injected into all proposal pages.
  *
  * CHANGELOG v1.6.3 (Fix: Absolute proposal URL for email button):
  *   - FIXED: "VIEW YOUR QUOTES HERE" email button was broken on all clients.
@@ -179,7 +191,7 @@ define([
 
     // ─── Constants ────────────────────────────────────────────────────────────────
 
-    var MODULE_VERSION = '1.6.4';
+    var MODULE_VERSION = '1.6.5';
 
     var GTM_CONTAINER_ID = 'GTM-5NJJSBMP';
 
@@ -252,7 +264,7 @@ define([
     var SYSTEM_BENEFITS = {
         'Underfloor Heating': [
             'Bespoke pipework design',
-            'Room-by-room heat losses',
+            'Detailed installation pack',
             'All components included',
             'Lifetime tech support'
         ],
@@ -996,7 +1008,7 @@ define([
         h.push('    <div class="stage-item">');
         h.push('      <div class="stage-number-row"><div class="stage-number">2</div><div class="dotted-line"></div></div>');
         h.push('      <h3 class="stage-title">Bespoke design</h3>');
-        h.push('      <p class="stage-description">Our specialists craft a custom layout tailored specifically to the requirements of your property. Through meticulous heat-loss calculations, we ensure optimal system performance and a seamless installation process.</p>');
+        h.push('      <p class="stage-description">Our specialists craft a custom layout tailored specifically to the requirements of your property. Our approach ensures optimal system performance and a seamless installation process.</p>');
         h.push('    </div>');
 
         // Step 3
