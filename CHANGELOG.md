@@ -1,3 +1,10 @@
+## [Master Proposal v1.6.5] — 22 April 2026
+### Changed
+- UFH benefits: 'Room-by-room heat losses' replaced with 'Detailed installation pack'
+- Step 2 "Bespoke design" description: removed reference to heat-loss calculations
+
+---
+
 ## [Master Proposal v1.6.4] — April 2026
 ### Added
 - GTM container GTM-5NJJSBMP injected into all generated proposal pages
