@@ -1,5 +1,5 @@
 ## [Master Proposal v1.6.6] — 22 April 2026
-**Status:** ⏳ Draft — pending Sandbox testing
+**Status:** ✅ Merged to main
 ### Added
 - Site address (`custbody_opp_site_adress`) read from Opportunity record in `loadOpportunityData()` using defensive try-catch pattern
 - "Site address:" row rendered in Customer Information card between Customer name and System reference — conditionally hidden when field is empty
