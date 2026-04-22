@@ -28,6 +28,13 @@
 
 ## Quote Suitelet (`nuheat_quote_suitelet.js`)
 
+### v4.3.69 — 22 April 2026 ⏳ Draft — pending Sandbox testing
+
+- CHANGED: Design+ upgrade banner — price (`designUpgradePrice`) now renders above the mailto CTA button rather than replacing it. Both are visible when price is present; only the button renders when price is absent.
+- CHANGED: Button label "Ask your AM to include this" → "Email your AM to include this" (both branches).
+- CHANGED: Price display uses new `.upgrade-banner-pricing` div (plain text) instead of the pink `.upgrade-banner-cta` pill. Button class and `href` unchanged for GTM compatibility.
+- ADDED: `.upgrade-banner-pricing { margin-bottom: 10px; }` in `generateCSS()`.
+
 ### v4.3.68 — April 2026
 
 - ADDED: `GTM_CONTAINER_ID` constant (`GTM-5NJJSBMP`) for centralised GTM container reference
