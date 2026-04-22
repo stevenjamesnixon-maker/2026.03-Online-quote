@@ -2,6 +2,13 @@
 
 ## Master Proposal (`nuheat_master_proposal.js`)
 
+### v1.6.6 — 22 April 2026
+
+- ADDED: `loadOpportunityData()` reads `custbody_opp_site_adress` from the Opportunity record using a defensive try-catch. Value stored as `siteAddress` on the returned `oppData` object.
+- ADDED: `generateHeaderContent()` renders a "Site address:" info-item in the Customer Information card, between "Customer name" and "System reference". Conditionally rendered — row is omitted when `siteAddress` is empty.
+
+---
+
 ### v1.6.5 — 22 April 2026
 
 - CHANGED: `SYSTEM_BENEFITS` 'Underfloor Heating' array — 'Room-by-room heat losses' replaced with 'Detailed installation pack'

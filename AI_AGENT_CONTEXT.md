@@ -168,7 +168,7 @@ A multi-component SuiteScript 2.1 solution:
 | Quote CS | v4.0.6 | `nuheat_quote_cs.js` | ✅ Production ready |
 | Quote Viewer | v1.1.0 | `nuheat_quote_viewer_sl.js` | ✅ Production ready |
 | Scheduled Script | v1.0.0 | `nuheat_quote_generator_ss.js` | ✅ Production ready |
-| Master Proposal | v1.6.5 | `nuheat_master_proposal.js` | ✅ Production ready |
+| Master Proposal | v1.6.6 | `nuheat_master_proposal.js` | ✅ Production ready |
 | Send Quote SL | v1.5.0 | `nuheat_send_quote_sl.js` | ✅ Production ready |
 | Send Quote CS | v1.2.0 | `nuheat_send_quote_cs.js` | ✅ Production ready |
 | Opportunity UE | v1.0.0 | `src/nuheat_opportunity_ue.js` | ✅ Production ready |

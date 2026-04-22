@@ -19,3 +19,4 @@ All custom NetSuite fields used by this solution, organised by record type and p
 |---|---|---|
 | custbody_opp_quote_last_viewed | DateTime | Timestamp of most recent proposal view |
 | custbody_opp_view_count | Integer | Running total of proposal views |
+| custbody_opp_site_adress | Text | Site address — displayed in Customer Information section of Master Proposal (note: field ID has single 'd' in "adress") |

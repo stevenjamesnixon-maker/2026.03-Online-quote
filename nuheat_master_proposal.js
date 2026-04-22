@@ -6,8 +6,16 @@
  * @description Module that generates a master proposal HTML page aggregating
  *              multiple quotes under a single Opportunity. Called by the
  *              Send Quote Suitelet after the user selects which quotes to include.
- * @version     1.6.5
+ * @version     1.6.6
  * @author      Nu-Heat Development
+ *
+ * CHANGELOG v1.6.6 (feat: Site address in Customer Information):
+ *   - ADDED: loadOpportunityData() reads custbody_opp_site_adress from Opportunity
+ *     record using the same defensive try-catch pattern as custbody_sales_rep_phone.
+ *     Result stored as siteAddress on the returned oppData object.
+ *   - ADDED: generateHeaderContent() renders a "Site address:" info-item row between
+ *     "Customer name" and "System reference" in the Customer Information card.
+ *     Row is conditionally rendered — hidden when custbody_opp_site_adress is empty.
  *
  * CHANGELOG v1.6.5 (Fix: UFH benefits wording + Step 2 description):
  *   - CHANGED: SYSTEM_BENEFITS 'Underfloor Heating' — 'Room-by-room heat losses'
@@ -191,7 +199,7 @@ define([
 
     // ─── Constants ────────────────────────────────────────────────────────────────
 
-    var MODULE_VERSION = '1.6.5';
+    var MODULE_VERSION = '1.6.6';
 
     var GTM_CONTAINER_ID = 'GTM-5NJJSBMP';
 
@@ -447,6 +455,13 @@ define([
             safeLog('debug', 'MasterProposal.loadOppData', 'custbody_sales_rep_phone empty — falling back to employee phone: "' + salesRepData.phone + '"');
         }
 
+        var siteAddress = '';
+        try {
+            siteAddress = (oppRecord.getValue({ fieldId: 'custbody_opp_site_adress' }) || '').trim();
+        } catch (e) {
+            safeLog('debug', 'MasterProposal.loadOppData', 'Could not read custbody_opp_site_adress: ' + e.message);
+        }
+
         var customerId = oppRecord.getValue({ fieldId: 'entity' });
         var customerName = oppRecord.getText({ fieldId: 'entity' }) || '';
 
@@ -489,6 +504,7 @@ define([
             customerFirst:     firstName,
             customerId:        customerId,
             customerEmail:     customerEmail,
+            siteAddress:       siteAddress,
             status:            oppRecord.getText({ fieldId: 'entitystatus' }) || '',
             salesRep:          salesRepData,
             proposalDate:      formatDate(new Date())
@@ -704,6 +720,9 @@ define([
         h.push('    <div class="info-block">');
         h.push('      <h3>Customer Information</h3>');
         h.push('      <div class="info-item"><span class="info-label">Customer name:</span><span class="info-value">' + escapeHtml(oppData.customerName) + '</span></div>');
+        if (oppData.siteAddress) {
+            h.push('      <div class="info-item"><span class="info-label">Site address:</span><span class="info-value">' + escapeHtml(oppData.siteAddress) + '</span></div>');
+        }
         h.push('      <div class="info-item"><span class="info-label">System reference:</span><span class="info-value">' + escapeHtml(oppData.tranId) + '</span></div>');
         h.push('      <div class="info-item"><span class="info-label">Quote date:</span><span class="info-value">' + escapeHtml(oppData.proposalDate) + '</span></div>');
         h.push('    </div>');
