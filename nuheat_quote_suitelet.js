@@ -34,7 +34,7 @@ define(['N/record', 'N/search', 'N/log', 'N/format', 'N/error', 'N/runtime', 'N/
         // =====================================================================
         // SCRIPT VERSION
         // =====================================================================
-        var SCRIPT_VERSION = '4.3.69';
+        var SCRIPT_VERSION = '4.3.70';
 
         // =====================================================================
         // GTM CONFIGURATION (v4.3.68)
@@ -367,6 +367,13 @@ define(['N/record', 'N/search', 'N/log', 'N/format', 'N/error', 'N/runtime', 'N/
             STANDARD_UFH: '5488',  // MPDPCD-C — Standard UFH Design
             UPGRADE_UFH: '480'     // MPDP-C — UFH Design+ (upgrade)
         };
+
+        // =====================================================================
+        // BUS GRANT CONFIGURATION (v4.3.70)
+        // =====================================================================
+        // v4.3.70: BUS grant amount deducted from HP display price.
+        // Blanket deduction applied to all HP quotes — make conditional on a NetSuite field in future if needed.
+        var HP_GRANT_AMOUNT = 7500;
 
         // Design package product card images (hosted in NetSuite File Cabinet)
         // v4.3.38: Corrected design package image URLs to use NetSuite File Cabinet
@@ -3052,6 +3059,7 @@ function loadQuoteData(quoteId, debugLog, pricingOverrides) {
 '.hp-grant-banner-icon { color: var(--color-primary); flex-shrink: 0; }\n' +
 '.hp-grant-banner-text strong { display: block; color: var(--color-primary); margin-bottom: 4px; }\n' +
 '.hp-grant-banner-text span { color: #666; font-size: 14px; }\n' +
+'.hp-grant-banner-text .hp-grant-banner-asterisk { font-size: 11px; opacity: 0.8; font-style: italic; margin-top: 4px; display: block; }\n' +
 
 // Component Breakdown (v3.6.1 - collapsible with all items) - v3.7.9: reduced margins
 '.component-breakdown { margin-top: 20px; }\n' +
@@ -4215,19 +4223,21 @@ function loadQuoteData(quoteId, debugLog, pricingOverrides) {
             // v4.3.38: Heat Pump Price = Total quote price (subtotal) minus Commissioning subtotal
             var commissioningTotal = (quoteData.categoryTotals['Commissioning'] && quoteData.categoryTotals['Commissioning'].total) || 0;
             var hpDisplayPrice = header.subtotal - commissioningTotal;
+            // v4.3.70: Deduct BUS grant amount from displayed price
+            var hpGrantedPrice = hpDisplayPrice - HP_GRANT_AMOUNT;
             html += '    <div class="hp-price-card">\n' +
 '        <div class="hp-price-row">\n' +
 '            <span class="hp-price-label">Your heat pump price (On-site commissioning priced below):</span>\n' +
-'            <span class="hp-price-amount">' + symbol + formatNumber(hpDisplayPrice) + ' <span class="hp-price-vat">plus VAT</span></span>\n' +
+'            <span class="hp-price-amount">' + symbol + formatNumber(hpGrantedPrice) + ' <span class="hp-price-vat">plus VAT</span></span>\n' +
 '        </div>\n' +
 '    </div>\n';
 
-            // Grant banner - v4.2.0: Changed $ to £ icon and "is eligible" to "may be eligible"
+            // Grant banner - v4.3.70: Updated to confirm grant has been applied to price
             html += '    <div class="hp-grant-banner">\n' +
 '        <div class="hp-grant-banner-icon"><span style="font-size: 24px; font-weight: 700;">£</span></div>\n' +
 '        <div class="hp-grant-banner-text">\n' +
-'            <strong>This system may be eligible for a £7,500 Government grant</strong>\n' +
-'            <span>You could save on the cost of a heat pump. Speak to your account manager to see if you are eligible and we\'ll handle the rest.</span>\n' +
+'            <strong>£7,500 grant funding has been applied to this quote</strong>\n' +
+'            <span class="hp-grant-banner-asterisk">*Subject to scheme eligibility</span>\n' +
 '        </div>\n' +
 '    </div>\n';
 
