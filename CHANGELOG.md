@@ -1,5 +1,5 @@
 ## [Quote Suitelet v4.3.69] — 22 April 2026
-**Status:** ⏳ Draft — pending Sandbox testing
+**Status:** ✅ Merged to main
 ### Changed
 - Design+ upgrade banner: price now renders above the mailto CTA button rather than replacing it — both price and button are visible together when `designUpgradePrice` is present
 - Button label updated: "Ask your AM to include this" → "Email your AM to include this" (both the price-present and price-absent cases)
