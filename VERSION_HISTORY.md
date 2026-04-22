@@ -14,7 +14,7 @@
 
 ## Quote Suitelet (`nuheat_quote_suitelet.js`)
 
-### v4.3.68 — April 2026
+### v4.3.68 — 31 March 2026 ✅ Merged to main
 
 - ADDED: `GTM_CONTAINER_ID` constant (`GTM-5NJJSBMP`) for centralised GTM container reference
 - ADDED: Data layer push (`nuheat_quote_view` event) injected before GTM head snippet in all generated quote pages — fields: `customerId`, `opportunityId`, `quoteId`, `quoteInternalId`, `pageType`
@@ -62,7 +62,7 @@
 
 ## Send Quote Suitelet (`nuheat_send_quote_sl.js`) & Client Script (`nuheat_send_quote_cs.js`)
 
-### v1.5.0 / v1.2.0 — 30 March 2026 ⏳ Draft — pending sandbox/production testing
+### v1.5.1 / v1.5.0 / v1.2.0 — 30 March 2026 ✅ Merged to main
 
 - ADDED: Contact selector dropdown (`custpage_contact_selector`) on the Send Quote form.
   Loads all contacts from the Opportunity contact sublist via `record.load()`.
@@ -87,7 +87,7 @@
   class — same pink background and white text as the button it replaces. `cursor: default` added
   since the element is not a link. Font size adjusted to match button text size.
 
-### v4.3.65 — 31 March 2026 ⏳ Draft — pending Sandbox testing
+### v4.3.65 — 31 March 2026 ✅ Merged to main
 
 - ADDED: `getUpgradePrice()` helper — looks up a price from parallel `*`-delimited fields
   `custbody_upgrades_optiontype` and `custbody_upgrades_itemprice` by matching a target type string.
@@ -97,19 +97,19 @@
   replaced by the Design+ price (e.g. "£450.00 plus VAT") when `designUpgradePrice` is non-empty.
   Falls back to the original button when no price is found.
 
-### v4.3.64 — 31 March 2026 ⏳ Draft — pending Sandbox testing
+### v4.3.64 — 31 March 2026 ✅ Merged to main
 
 - FIXED: External link icon on the plant room guidance link in the Heat Pump section now appears
   to the left of the link text, consistent with icon placement on product card links.
 
-### v4.3.63 — 31 March 2026 ⏳ Draft — pending Sandbox testing
+### v4.3.63 — 31 March 2026 ✅ Merged to main
 
 - ADDED: Plant room layout guidance link in Heat Pump section. A second paragraph below the
   existing intro copy links to the plant room layout and space requirements PDF, styled with
   the `.view-datasheet` class (teal, external link icon). Only renders on quotes with Heat Pump
   items (`renderHeatPumpTreeSection()`).
 
-### v4.3.62 — 31 March 2026 ⏳ Draft — pending Sandbox testing
+### v4.3.62 — 31 March 2026 ✅ Merged to main
 
 - ADDED: `COMPONENT_BREAKDOWN_EXCLUDED_ITEMS` constant — "Hidden UFH Discount", "Hidden HP Discount",
   and "Hidden Subtotal" are now filtered out of the Component Breakdown table. Items remain in
@@ -118,13 +118,13 @@
   items that have `custitem_prod_info_link` populated (`item.dataSheetUrl`). Matches behaviour on
   main product cards.
 
-### v4.3.61 — 31 March 2026 ⏳ Draft — pending Sandbox testing
+### v4.3.61 — 31 March 2026 ✅ Merged to main
 
 - FIXED: `DESIGN_PACKAGE_ITEMS` had MPDPCD-C (ID 5488) and MPDP-C (ID 480) mapped to the wrong
   keys. MPDPCD-C is the Standard UFH Design; MPDP-C is the UFH Design+ upgrade. The swap caused
   the wrong hardcoded card (and upgrade banner) to render for each item code.
 
-### v4.3.60 — 31 March 2026 ⏳ Draft — pending Sandbox/Production testing
+### v4.3.60 — 31 March 2026 ✅ Merged to main
 
 - FIXED: Product card image column (`product-image-column` + `product-image`) was always rendered,
   leaving an empty placeholder box on cards where `custitem_test_image` is blank. `renderProductCard()`
@@ -134,7 +134,7 @@
 - CHANGED: Removed `min-height: 150px` and `background: var(--color-bg)` from `.product-image` CSS
   rule to eliminate any residual empty-box appearance.
 
-### v4.3.59 — 30 March 2026 ⏳ Draft — pending testing
+### v4.3.59 — 30 March 2026 ✅ Merged to main
 
 - FIXED: Thermostat mini card images were cropped at top and bottom due to `object-fit: cover`.
   Changed to `object-fit: contain` in `generateCSS()` so the full image fits within the 120px

@@ -2,7 +2,7 @@
 
 **Purpose:** Comprehensive context for AI agents (Claude, etc.) to efficiently continue development on this project without extensive re-reading of source files. Load this document at the start of every new AI session.
 
-**Last Updated:** 31 March 2026
+**Last Updated:** 22 April 2026
 
 ---
 
@@ -169,7 +169,7 @@ A multi-component SuiteScript 2.1 solution:
 | Quote Viewer | v1.1.0 | `nuheat_quote_viewer_sl.js` | ✅ Production ready |
 | Scheduled Script | v1.0.0 | `nuheat_quote_generator_ss.js` | ✅ Production ready |
 | Master Proposal | v1.6.4 | `nuheat_master_proposal.js` | ✅ Production ready |
-| Send Quote SL | v1.5.0 | `nuheat_send_quote_sl.js` | ✅ Production ready |
+| Send Quote SL | v1.5.1 | `nuheat_send_quote_sl.js` | ✅ Production ready |
 | Send Quote CS | v1.2.0 | `nuheat_send_quote_cs.js` | ✅ Production ready |
 | Opportunity UE | v1.0.0 | `src/nuheat_opportunity_ue.js` | ✅ Production ready |
 | Opportunity CS | v1.0.0 | `src/nuheat_opportunity_cs.js` | ✅ Production ready |

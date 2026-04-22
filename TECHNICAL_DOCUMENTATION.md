@@ -2,7 +2,7 @@
 
 **Version:** 1.0.0  
 **Last Updated:** 28 March 2026  
-**Applies to:** Suitelet v4.3.53, UE v4.0.9, CS v4.0.6, Viewer v1.1.0, Master Proposal v1.6.2
+**Applies to:** Suitelet v4.3.68, UE v4.0.9, CS v4.0.6, Viewer v1.1.0, Master Proposal v1.6.3, Send Quote SL v1.5.1, Send Quote CS v1.2.0
 
 ---
 

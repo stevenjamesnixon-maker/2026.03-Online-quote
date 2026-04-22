@@ -206,13 +206,13 @@ See [Configuration Checklist](docs/CONFIGURATION_CHECKLIST.md) for the full list
 
 | Component | Current Version | Last Updated |
 |-----------|----------------|--------------|
-| Quote Suitelet | v4.3.53 | 28 Mar 2026 |
+| Quote Suitelet | v4.3.68 | 22 Apr 2026 |
 | Quote UE Script | v4.0.9 | 28 Mar 2026 |
 | Quote Client Script | v4.0.6 | 28 Mar 2026 |
 | Quote Viewer | v1.1.0 | 28 Mar 2026 |
 | Master Proposal | v1.6.2 | 28 Mar 2026 |
-| Send Quote Suitelet | v1.4.9 | 28 Mar 2026 |
-| Send Quote CS | v1.1.1 | 28 Mar 2026 |
+| Send Quote Suitelet | v1.5.1 | 22 Apr 2026 |
+| Send Quote CS | v1.2.0 | 22 Apr 2026 |
 | Opportunity UE | v1.0.0 | 28 Mar 2026 |
 | Opportunity CS | v1.0.0 | 28 Mar 2026 |
 | Scheduled Script | v1.0.0 | Mar 2026 |

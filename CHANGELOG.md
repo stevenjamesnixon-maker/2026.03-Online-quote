@@ -39,6 +39,19 @@
 
 ---
 
+## v4.3.68 — GTM injection on quote pages
+**Date:** 31 March 2026
+**Component:** Quote Suitelet (`nuheat_quote_suitelet.js`)
+**Status:** ✅ Merged to main
+
+### Added
+- Google Tag Manager snippet injected into all generated quote pages.
+
+### Files Changed
+- `nuheat_quote_suitelet.js` — GTM snippet added; version bumped to v4.3.68
+
+---
+
 ## v4.3.67 — Prepend £ symbol to Design+ upgrade price in UFH banner
 **Date:** 31 March 2026
 **Component:** Quote Suitelet (`nuheat_quote_suitelet.js`)
@@ -58,7 +71,7 @@
 ## v4.3.66 — Style Design+ upgrade price to match pink CTA button
 **Date:** 31 March 2026
 **Component:** Quote Suitelet (`nuheat_quote_suitelet.js`)
-**Status:** ⏳ Draft — pending Sandbox testing
+**Status:** ✅ Merged to main
 
 ### Fixed
 - **Design+ upgrade price styling** — The price pill in the UFH Standard Design upgrade banner
@@ -76,7 +89,7 @@
 ## v4.3.65 — Show Design+ upgrade price in UFH upgrade banner
 **Date:** 31 March 2026
 **Component:** Quote Suitelet (`nuheat_quote_suitelet.js`)
-**Status:** ⏳ Draft — pending Sandbox testing
+**Status:** ✅ Merged to main
 
 ### Added
 - **Design+ upgrade price in UFH upgrade banner** — The "Ask your AM to include this" CTA button
@@ -100,7 +113,7 @@
 ## v4.3.64 — Move external link icon to left of plant room guidance link text
 **Date:** 31 March 2026
 **Component:** Quote Suitelet (`nuheat_quote_suitelet.js`)
-**Status:** ⏳ Draft — pending Sandbox testing
+**Status:** ✅ Merged to main
 
 ### Fixed
 - **External link icon position on plant room guidance link** — The `SVG_EXTERNAL_LINK` icon was
@@ -116,7 +129,7 @@
 ## v4.3.63 — Add plant room layout guidance link to Heat Pump section
 **Date:** 31 March 2026
 **Component:** Quote Suitelet (`nuheat_quote_suitelet.js`)
-**Status:** ⏳ Draft — pending Sandbox testing
+**Status:** ✅ Merged to main
 
 ### Added
 - **Plant room guidance link in Heat Pump section** — A second paragraph now appears directly
@@ -135,7 +148,7 @@
 ## v4.3.62 — Component Breakdown improvements
 **Date:** 31 March 2026
 **Component:** Quote Suitelet (`nuheat_quote_suitelet.js`)
-**Status:** ⏳ Draft — pending Sandbox testing
+**Status:** ✅ Merged to main
 
 ### Added
 - **"View product info" link in Component Breakdown** — Items that have a value in
@@ -158,7 +171,7 @@
 ## v4.3.61 — Fix swapped DESIGN_PACKAGE_ITEMS constants
 **Date:** 31 March 2026
 **Component:** Quote Suitelet (`nuheat_quote_suitelet.js`)
-**Status:** ⏳ Draft — pending Sandbox testing
+**Status:** ✅ Merged to main
 
 ### Fixed
 - **Swapped design package item IDs** — `DESIGN_PACKAGE_ITEMS` had MPDPCD-C and MPDP-C mapped
@@ -174,7 +187,7 @@
 ## v4.3.60 — Hide product card image placeholder when custitem_test_image is empty
 **Date:** 31 March 2026
 **Component:** Quote Suitelet (`nuheat_quote_suitelet.js`)
-**Status:** ⏳ Draft — pending Sandbox/Production testing
+**Status:** ✅ Merged to main
 
 ### Fixed
 - **Empty image placeholder box on product cards** — The image container (`product-image-column`
@@ -200,7 +213,7 @@
 ## Send Quote SL v1.5.1 — Fix contact sublist ID
 **Date:** 31 March 2026
 **Component:** Send Quote Suitelet (`nuheat_send_quote_sl.js`)
-**Status:** ⏳ Draft — pending sandbox/production testing
+**Status:** ✅ Merged to main
 
 ### Fixed
 - **Contact selector showing no contacts** — `getLineCount()` and `getSublistValue()` were
@@ -216,7 +229,7 @@
 ## Send Quote SL v1.5.0 — Add contact selector dropdown to email field
 **Date:** 30 March 2026
 **Component:** Send Quote Suitelet (`nuheat_send_quote_sl.js`) + Client Script (`nuheat_send_quote_cs.js`)
-**Status:** ⏳ Draft — pending sandbox/production testing
+**Status:** ✅ Merged to main
 
 ### Added
 - **Contact selector dropdown** — Users can now select a contact from the
@@ -233,7 +246,7 @@
 ## v4.3.59 — Fix thermostat mini card image clipping
 **Date:** 30 March 2026
 **Component:** Quote Suitelet (`nuheat_quote_suitelet.js`)
-**Status:** ⏳ Draft — pending testing
+**Status:** ✅ Merged to main
 
 ### Fixed
 - **Thermostat mini card image clipping** — Images were being cropped at the top and
