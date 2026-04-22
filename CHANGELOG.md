@@ -6,6 +6,8 @@
 ### Added
 - `HP_GRANT_AMOUNT = 7500` constant — blanket deduction, intended to become conditional on a NetSuite field in future.
 - `.hp-grant-banner-text .hp-grant-banner-asterisk` CSS class for the smaller italic asterisk line.
+- `renderTopTotalSection()` — headline subtotal and Total inc VAT deduct `HP_GRANT_AMOUNT` for HP quotes (`taxTotal` line unchanged). Uses `quoteData.hasHeatPump` flag.
+- `renderTotalSection()` — same grant deduction applied to the lower total section.
 
 ---
 
@@ -17,6 +19,8 @@
 ### Added
 - `HP_GRANT_AMOUNT = 7500` constant alongside `SHOW_BUS_GRANT_BANNER`.
 - `.grant-highlight-asterisk` CSS modifier class for the asterisk line.
+- `calculateTotals()` — HP quotes deduct `HP_GRANT_AMOUNT` from both `subtotal` and `amount` (total inc VAT) before aggregating into the proposal total bar.
+- `generateQuoteCard()` — Total inc VAT detail line also deducts `HP_GRANT_AMOUNT` for Heat Pump quotes, consistent with `displaySubtotal`.
 
 ---
 

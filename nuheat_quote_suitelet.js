@@ -3937,6 +3937,11 @@ function loadQuoteData(quoteId, debugLog, pricingOverrides) {
             var header = quoteData.header;
             var symbol = header.currencySymbol;
 
+            // v4.3.70: Deduct BUS grant from displayed totals for HP quotes
+            var grantDeduction = quoteData.hasHeatPump ? HP_GRANT_AMOUNT : 0;
+            var displaySubtotal = Math.max(0, header.subtotal - grantDeduction);
+            var displayTotal = Math.max(0, header.total - grantDeduction);
+
             var discountHtml = '';
             if (header.hasDiscount && header.discountTotal > 0) {
                 discountHtml = '        <div class="top-total-breakdown-item">Discount: -' + symbol + formatNumber(header.discountTotal) + '</div>\n';
@@ -3950,11 +3955,11 @@ function loadQuoteData(quoteId, debugLog, pricingOverrides) {
 '            <p class="top-total-terms">This quotation is subject to our terms and conditions</p>\n' +
 '        </div>\n' +
 '        <div class="top-total-right">\n' +
-'            <div class="top-total-amount">' + symbol + formatNumber(header.subtotal) + ' <span class="top-total-plus-vat">plus VAT</span></div>\n' +
+'            <div class="top-total-amount">' + symbol + formatNumber(displaySubtotal) + ' <span class="top-total-plus-vat">plus VAT</span></div>\n' +
 '            <div class="top-total-breakdown">\n' +
                  discountHtml +
 '                <div class="top-total-breakdown-item">VAT: ' + symbol + formatNumber(header.taxTotal) + '</div>\n' +
-'                <div class="top-total-breakdown-item top-total-inc-vat">Total inc VAT: ' + symbol + formatNumber(header.total) + '</div>\n' +
+'                <div class="top-total-breakdown-item top-total-inc-vat">Total inc VAT: ' + symbol + formatNumber(displayTotal) + '</div>\n' +
 '            </div>\n' +
 '        </div>\n' +
 '    </div>\n' +
@@ -4606,6 +4611,11 @@ function loadQuoteData(quoteId, debugLog, pricingOverrides) {
             var header = quoteData.header;
             var symbol = header.currencySymbol;
 
+            // v4.3.70: Deduct BUS grant from displayed totals for HP quotes
+            var grantDeduction = quoteData.hasHeatPump ? HP_GRANT_AMOUNT : 0;
+            var displaySubtotal = Math.max(0, header.subtotal - grantDeduction);
+            var displayTotal = Math.max(0, header.total - grantDeduction);
+
             // Conditional discount line - only show if discount > 0
             var discountHtml = '';
             if (header.hasDiscount && header.discountTotal > 0) {
@@ -4620,11 +4630,11 @@ function loadQuoteData(quoteId, debugLog, pricingOverrides) {
 '            <p class="total-terms">This quotation is subject to our terms and conditions</p>\n' +
 '        </div>\n' +
 '        <div class="total-right">\n' +
-'            <div class="total-amount">' + symbol + formatNumber(header.subtotal) + '</div>\n' +
+'            <div class="total-amount">' + symbol + formatNumber(displaySubtotal) + '</div>\n' +
 '            <div class="total-breakdown-list">\n' +
                  discountHtml +
 '                <div class="total-breakdown-item">VAT: ' + symbol + formatNumber(header.taxTotal) + '</div>\n' +
-'                <div class="total-breakdown-item total-inc-vat">Total inc VAT: ' + symbol + formatNumber(header.total) + '</div>\n' +
+'                <div class="total-breakdown-item total-inc-vat">Total inc VAT: ' + symbol + formatNumber(displayTotal) + '</div>\n' +
 '            </div>\n' +
 '        </div>\n' +
 '    </div>\n' +

@@ -950,7 +950,8 @@ define([
             var discountDisplay = Math.abs(discountTotal);
             detailParts.push('<span class="discount">Discount: -' + formatCurrency(discountDisplay) + '</span>');
         }
-        var totalIncVat = total;  // v1.5.4 FIX: NS 'total' already includes VAT
+        // v1.6.7: Deduct BUS grant from Total inc VAT for HP quotes
+        var totalIncVat = (quote.quoteType === 'Heat Pump') ? Math.max(0, total - HP_GRANT_AMOUNT) : total;
         if (totalIncVat > 0) {
             detailParts.push('Total inc. VAT: <strong>' + formatCurrency(totalIncVat) + '</strong>');
         }
@@ -1600,10 +1601,12 @@ define([
         var total = 0;
 
         quotes.forEach(function (q) {
-            subtotal += parseCurrencyAmount(q.subtotal);
+            // v1.6.7: Deduct BUS grant from HP quote totals before aggregation
+            var grantDeduction = (q.quoteType === 'Heat Pump') ? HP_GRANT_AMOUNT : 0;
+            subtotal += Math.max(0, parseCurrencyAmount(q.subtotal) - grantDeduction);
             discount += Math.abs(parseCurrencyAmount(q.discountTotal));
             vat      += parseCurrencyAmount(q.taxTotal);
-            total    += parseCurrencyAmount(q.amount);  // NS 'total' field = already inc VAT
+            total    += Math.max(0, parseCurrencyAmount(q.amount) - grantDeduction);  // NS 'total' field = already inc VAT
         });
 
         // v1.5.4 FIX: NS 'total' already includes VAT — do NOT add vat again
