@@ -9,8 +9,23 @@
  *              categorise them as Main or Additional, and trigger proposal generation.
  *              Supports preview (generates HTML without saving) and email sending.
  *              Quotes are grouped into separate sections by type.
- * @version     1.4.9
+ * @version     1.6.0
  * @author      Nu-Heat Development
+ *
+ * CHANGELOG v1.6.0 (feat: BUS grant rate resolution):
+ *   - ADDED: ./nuheat_bus_grant shared module imported via define(). Direct module
+ *     import — never https.get() between same-account scripts.
+ *   - ADDED: extractItemNames() reads every item line off the loaded Estimate,
+ *     unfiltered, so the Suppak lines that drive the rate (product type Labour, ID 41)
+ *     are visible to the resolver.
+ *   - ADDED: searchRelatedQuotes() resolves busAmount (0 | 7500 | 9000) and busRate
+ *     ('none' | 'standard' | 'enhanced') per quote, reusing the record.load() already
+ *     performed for pricing — no extra governance cost.
+ *   - ADDED: hidden sublist fields custpage_bus_amount and custpage_bus_rate, plus
+ *     read-back in handleSubmission(). The form POSTs back through the sublist, so the
+ *     resolved rate would otherwise be lost on the round-trip.
+ *   - ADDED: busAmount/busRate to the handlePreview() mapping so preview and sent
+ *     proposal show the same grant.
  *
  * Script ID:      customscript_nuheat_send_quote_sl
  * Deployment ID:  customdeploy_nuheat_send_quote_sl
@@ -136,14 +151,15 @@ define([
     'N/runtime',
     'N/format',
     'N/email',
-    './nuheat_master_proposal'
-], function (serverWidget, search, record, log, url, redirect, runtime, format, email, masterProposal) {
+    './nuheat_master_proposal',
+    './nuheat_bus_grant'
+], function (serverWidget, search, record, log, url, redirect, runtime, format, email, masterProposal, busGrant) {
 
     'use strict';
 
     // ─── Constants ────────────────────────────────────────────────────────────────
 
-    var SCRIPT_VERSION = '1.5.1';
+    var SCRIPT_VERSION = '1.6.0';
 
     /**
      * Mapping from the NetSuite custbody_quote_type list values
@@ -318,7 +334,9 @@ define([
                     taxTotal:      q.taxTotal || '',        // v1.4.3: VAT total
                     quoteUrl:      q.url || q.quoteUrl || '',
                     category:      q.category || 'main',
-                    description:   q.description || ''     // v1.4.2: For master proposal HTML rendering
+                    description:   q.description || '',    // v1.4.2: For master proposal HTML rendering
+                    busAmount:     parseFloat(q.busAmount) || 0,   // v1.6.0: 0 | 7500 | 9000
+                    busRate:       q.busRate || 'none'             // v1.6.0: 'none' | 'standard' | 'enhanced'
                 };
             });
 
@@ -618,6 +636,24 @@ define([
             });
             hiddenDesc.updateDisplayType({ displayType: serverWidget.FieldDisplayType.HIDDEN });
 
+            // v1.6.0: Hidden: resolved BUS grant amount (0 | 7500 | 9000).
+            // The form POSTs back through the sublist, so these must survive the
+            // round-trip or the Master Proposal loses the rate resolved above.
+            var hiddenBusAmount = sublist.addField({
+                id: 'custpage_bus_amount',
+                type: serverWidget.FieldType.TEXT,
+                label: 'BUS Grant Amount'
+            });
+            hiddenBusAmount.updateDisplayType({ displayType: serverWidget.FieldDisplayType.HIDDEN });
+
+            // v1.6.0: Hidden: resolved BUS rate ('none' | 'standard' | 'enhanced')
+            var hiddenBusRate = sublist.addField({
+                id: 'custpage_bus_rate',
+                type: serverWidget.FieldType.TEXT,
+                label: 'BUS Grant Rate'
+            });
+            hiddenBusRate.updateDisplayType({ displayType: serverWidget.FieldDisplayType.HIDDEN });
+
             // ── Populate sublist rows ──────────────────────────────────────────────
             for (var i = 0; i < typeQuotes.length; i++) {
                 var q = typeQuotes[i];
@@ -643,6 +679,8 @@ define([
                 sublist.setSublistValue({ id: 'custpage_quote_type',   line: i, value: q.quoteTypeDisplay });
                 sublist.setSublistValue({ id: 'custpage_discount_total', line: i, value: q.discountTotal || '£0.00' });  // v1.4.3
                 sublist.setSublistValue({ id: 'custpage_tax_total',      line: i, value: q.taxTotal || '£0.00' });       // v1.4.3
+                sublist.setSublistValue({ id: 'custpage_bus_amount',     line: i, value: String(q.busAmount || 0) });   // v1.6.0
+                sublist.setSublistValue({ id: 'custpage_bus_rate',       line: i, value: q.busRate || 'none' });        // v1.6.0
                 if (q.description) {
                     sublist.setSublistValue({ id: 'custpage_quote_description', line: i, value: q.description });  // v1.4.2
                 }
@@ -759,6 +797,8 @@ define([
                     var taxTotal     = request.getSublistValue({ group: sublistId, name: 'custpage_tax_total', line: i }) || '';        // v1.4.3
                     var quoteUrl     = request.getSublistValue({ group: sublistId, name: 'custpage_quote_url', line: i });
                     var description  = request.getSublistValue({ group: sublistId, name: 'custpage_quote_description', line: i }) || '';  // v1.4.2
+                    var busAmount    = parseFloat(request.getSublistValue({ group: sublistId, name: 'custpage_bus_amount', line: i })) || 0;   // v1.6.0
+                    var busRate      = request.getSublistValue({ group: sublistId, name: 'custpage_bus_rate', line: i }) || 'none';            // v1.6.0
 
                     var entry = {
                         quoteId:       quoteId,
@@ -771,7 +811,9 @@ define([
                         taxTotal:      taxTotal,        // v1.4.3: VAT total from NS taxtotal field
                         quoteUrl:      quoteUrl,
                         category:      category,
-                        description:   description      // v1.4.2: For master proposal HTML rendering
+                        description:   description,     // v1.4.2: For master proposal HTML rendering
+                        busAmount:     busAmount,       // v1.6.0: 0 | 7500 | 9000
+                        busRate:       busRate          // v1.6.0: 'none' | 'standard' | 'enhanced'
                     };
 
                     selectedQuotes.push(entry);
@@ -1864,6 +1906,35 @@ define([
      * Searches for all Estimates linked to the given Opportunity that have
      * a generated online quote URL (custbody_test_new_quote is not empty).
      */
+    /**
+     * v1.6.0: Reads every item line off a loaded Estimate as { itemName } objects,
+     * the shape busGrant.resolveBusGrant() expects.
+     *
+     * Deliberately unfiltered — the Suppak lines that drive the BUS rate sit in the
+     * Commissioning category (product type Labour, ID 41) and must not be excluded.
+     *
+     * Never throws: a BUS rate is a display concern and must not break quote gathering.
+     *
+     * @param {Record} estimateRec - loaded Estimate record
+     * @param {string} estimateId  - for logging only
+     * @returns {Array<{itemName: string}>}
+     */
+    function extractItemNames(estimateRec, estimateId) {
+        var names = [];
+        try {
+            var lineCount = estimateRec.getLineCount({ sublistId: 'item' });
+            for (var i = 0; i < lineCount; i++) {
+                names.push({
+                    itemName: estimateRec.getSublistText({ sublistId: 'item', fieldId: 'item', line: i }) || ''
+                });
+            }
+        } catch (e) {
+            log.error('SendQuoteSL.extractItemNames', 'Could not read item lines for Estimate ' +
+                estimateId + ': ' + e.message + ' — BUS grant will resolve to none.');
+        }
+        return names;
+    }
+
     function searchRelatedQuotes(opportunityId) {
         var quotes = [];
 
@@ -1946,6 +2017,8 @@ define([
                 var discountTotalVal = '';
                 var taxTotalVal = '';
                 var totalVal = '';
+                var busAmountVal = 0;                 // v1.6.0
+                var busRateVal = 'none';              // v1.6.0
                 if (estimateId) {
                     try {
                         var estimateRec = record.load({
@@ -1958,9 +2031,18 @@ define([
                         taxTotalVal      = estimateRec.getValue({ fieldId: 'taxtotal' }) || '';
                         totalVal         = estimateRec.getValue({ fieldId: 'total' }) || '';
 
+                        // v1.6.0: Resolve the BUS grant from this estimate's line items using the
+                        // shared module, so the Master Proposal applies exactly the same rate the
+                        // quote page does. The record is already loaded — no extra governance cost
+                        // beyond reading the item sublist.
+                        var busResolution = busGrant.resolveBusGrant(extractItemNames(estimateRec, estimateId));
+                        busAmountVal = busResolution.amount;
+                        busRateVal   = busResolution.rate;
+
                         log.debug('SendQuoteSL.searchRelatedQuotes', 'Pricing loaded via record.load for Estimate ' + estimateId +
                             ': subtotal=' + subtotalVal + ', discount=' + discountTotalVal +
-                            ', tax=' + taxTotalVal + ', total=' + totalVal);
+                            ', tax=' + taxTotalVal + ', total=' + totalVal +
+                            ', busRate=' + busRateVal + ', busAmount=' + busAmountVal);
                     } catch (pricingErr) {
                         log.debug('SendQuoteSL.searchRelatedQuotes', 'Could not load Estimate record ' + estimateId +
                             ' for pricing: ' + pricingErr.message + ' — will use search total as fallback');
@@ -1980,6 +2062,8 @@ define([
                     discountTotal:    formatCurrency(discountTotalVal),
                     taxTotal:         formatCurrency(taxTotalVal),
                     amount:           formatCurrency(totalVal || result.getValue({ name: 'total' })),
+                    busAmount:        busAmountVal,   // v1.6.0: 0 | 7500 | 9000
+                    busRate:          busRateVal,     // v1.6.0: 'none' | 'standard' | 'enhanced'
                     quoteUrl:         result.getValue({ name: 'custbody_test_new_quote' }) || '',
                     description:      result.getValue({ name: 'custbody_quote_description' }) || ''
                 });

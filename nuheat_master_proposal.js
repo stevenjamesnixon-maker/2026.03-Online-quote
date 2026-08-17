@@ -6,8 +6,28 @@
  * @description Module that generates a master proposal HTML page aggregating
  *              multiple quotes under a single Opportunity. Called by the
  *              Send Quote Suitelet after the user selects which quotes to include.
- * @version     1.6.6
+ * @version     1.7.0
  * @author      Nu-Heat Development
+ *
+ * CHANGELOG v1.7.0 (feat: BUS grant rates and post-grant balance):
+ *   - CHANGED: generateQuoteCard() shows the post-grant balance for heat pump quotes
+ *     carrying a BUS grant. NS 'subtotal' is already net of the grant (the grant is a
+ *     line on the estimate), so the balance IS the subtotal — busAmount is never
+ *     deducted again.
+ *   - FIXED: the `if (subtotal > 0)` guard suppressed the price entirely when the grant
+ *     exceeded the quote value. A negative balance now renders.
+ *   - ADDED: "Includes £7,500 BUS grant" and, when the balance is negative,
+ *     "£694.40 refundable to you" to .system-card-price-detail.
+ *   - CHANGED: generateBUSGrantBanner() takes the applicable amount as an argument
+ *     instead of hard-coding £7,500, and is rendered only when a main heat pump quote
+ *     actually carries a grant. Where rates differ, the highest present is shown.
+ *   - CHANGED: calculateTotals() returns busTotal; the total price bar shows a
+ *     "BUS grant applied" line and renders negative aggregates correctly.
+ *   - ADDED: formatSignedCurrency() — renders "-£694.40", never "£-694.40", and never
+ *     "-£0.00" for a value that rounds to zero. Used for every figure that can go negative.
+ *   - ADDED: formatGrantAmount(), getBusAmount(), hasBusGrant(), getQuoteBalance().
+ *   - NOTE: BUS rates and the resolver itself live in the shared ./nuheat_bus_grant
+ *     module; Send Quote SL resolves the rate and passes busAmount/busRate through.
  *
  * CHANGELOG v1.6.6 (feat: Site address in Customer Information):
  *   - ADDED: loadOpportunityData() reads custbody_opp_site_adress from Opportunity
@@ -199,7 +219,7 @@ define([
 
     // ─── Constants ────────────────────────────────────────────────────────────────
 
-    var MODULE_VERSION = '1.6.6';
+    var MODULE_VERSION = '1.7.0';
 
     var GTM_CONTAINER_ID = 'GTM-5NJJSBMP';
 
@@ -801,16 +821,25 @@ define([
         h.push('      <p class="top-total-terms">This proposal is subject to our terms and conditions</p>');
         h.push('    </div>');
         h.push('    <div class="top-total-right">');
-        h.push('      <div class="top-total-amount">' + formatCurrency(totals.subtotal) + ' <span class="top-total-plus-vat">plus VAT</span></div>');
+        // v1.7.0: formatSignedCurrency — the aggregate can be negative once a BUS grant
+        // exceeds a quote's value, and it must render as "-£694.40", never "£-694.40".
+        h.push('      <div class="top-total-amount">' + formatSignedCurrency(totals.subtotal) + ' <span class="top-total-plus-vat">plus VAT</span></div>');
 
         // Breakdown
+        // v1.7.0: BUS grant line, shown whenever any main quote carries a grant.
+        if (totals.busTotal > 0) {
+            h.push('      <div class="top-total-breakdown">');
+            h.push('        <div class="top-total-breakdown-item">BUS grant applied: -' + formatCurrency(totals.busTotal) + '</div>');
+            h.push('      </div>');
+        }
+
         if (totals.discount > 0) {
             h.push('      <div class="top-total-breakdown">');
             h.push('        <div class="top-total-breakdown-item">Discount: -' + formatCurrency(totals.discount) + '</div>');
             h.push('      </div>');
         }
 
-        h.push('      <div class="top-total-inc-vat">Total inc. VAT: ' + formatCurrency(totals.totalIncVat) + '</div>');
+        h.push('      <div class="top-total-inc-vat">Total inc. VAT: ' + formatSignedCurrency(totals.totalIncVat) + '</div>');
         h.push('    </div>');
         h.push('  </div>');
         h.push('</section>');
@@ -847,17 +876,21 @@ define([
         }
 
         // v1.6.0: Render all quotes as system cards (no separators — cards have own borders)
-        var hasHeatPump = false;
+        // v1.7.0: Track the highest BUS grant across the heat pump quotes in this section,
+        // so a mix of standard and enhanced rates advertises the enhanced figure.
+        var maxBusAmount = 0;
         quotes.forEach(function (quote) {
             h.push(generateQuoteCard(quote, isMain));
-            if (quote.quoteType === 'Heat Pump') {
-                hasHeatPump = true;
+            if (hasBusGrant(quote)) {
+                maxBusAmount = Math.max(maxBusAmount, getBusAmount(quote));
             }
         });
 
-        // v1.6.0: BUS Grant banner — shown only in main quotes if a Heat Pump is present
-        if (isMain && hasHeatPump && SHOW_BUS_GRANT_BANNER) {
-            h.push(generateBUSGrantBanner());
+        // v1.7.0: BUS Grant banner — shown only in main quotes, and only when a heat pump
+        // quote actually carries a grant. A heat pump quote whose Suppak line does not
+        // qualify (busRate 'none') no longer triggers it.
+        if (isMain && maxBusAmount > 0 && SHOW_BUS_GRANT_BANNER) {
+            h.push(generateBUSGrantBanner(maxBusAmount));
         }
 
         h.push('    </div>');
@@ -928,25 +961,46 @@ define([
         var taxTotal      = parseCurrencyAmount(quote.taxTotal);
         var total         = parseCurrencyAmount(quote.amount);  // 'amount' = NS 'total' (already inc VAT)
 
+        // v1.7.0: BUS grant resolved by Send Quote SL via the shared nuheat_bus_grant module.
+        var busAmount   = getBusAmount(quote);
+        var busApplies  = hasBusGrant(quote);
+        // NS 'subtotal' is ALREADY net of the grant (the grant is a line on the estimate),
+        // so the post-grant balance IS the subtotal. Do NOT subtract busAmount again.
+        var balance     = getQuoteBalance(quote);
+        var creditDue   = busApplies ? Math.max(0, -balance) : 0;
+
         safeLog('debug', 'MasterProposal.renderQuoteCard', 'Pricing for quote ' + (quote.tranId || quote.quoteId) +
             ': subtotal=' + subtotal + ', discount=' + discountTotal +
-            ', tax=' + taxTotal + ', total(amount)=' + total);
+            ', tax=' + taxTotal + ', total(amount)=' + total +
+            ', busRate=' + (quote.busRate || 'none') + ', busAmount=' + busAmount +
+            ', balanceAfterBus=' + balance);
 
         // Price display — compact footer format
         h.push('    <div class="system-card-pricing">');
-        if (subtotal > 0) {
+        if (busApplies) {
+            // v1.7.0: Show the post-grant balance, which may be negative. The old
+            // `if (subtotal > 0)` guard suppressed the price entirely in that case.
+            h.push('      <div class="system-card-price">' + formatSignedCurrency(balance) + '</div>');
+        } else if (subtotal > 0) {
             h.push('      <div class="system-card-price">' + formatCurrency(subtotal) + '</div>');
         }
 
-        // Price detail line: discount and/or total inc VAT
+        // Price detail line: BUS grant, discount and/or total inc VAT
         var detailParts = [];
+        if (busApplies) {
+            detailParts.push('Includes ' + formatGrantAmount(busAmount) + ' BUS grant');
+            if (creditDue > 0) {
+                detailParts.push(formatCurrency(creditDue) + ' refundable to you');
+            }
+        }
         if (discountTotal !== 0) {
             var discountDisplay = Math.abs(discountTotal);
             detailParts.push('<span class="discount">Discount: -' + formatCurrency(discountDisplay) + '</span>');
         }
         var totalIncVat = total;  // v1.5.4 FIX: NS 'total' already includes VAT
-        if (totalIncVat > 0) {
-            detailParts.push('Total inc. VAT: <strong>' + formatCurrency(totalIncVat) + '</strong>');
+        // v1.7.0: `!== 0` not `> 0` — a grant-funded quote can have a negative total inc VAT.
+        if (totalIncVat !== 0) {
+            detailParts.push('Total inc. VAT: <strong>' + formatSignedCurrency(totalIncVat) + '</strong>');
         }
         if (detailParts.length > 0) {
             h.push('      <div class="system-card-price-detail">' + detailParts.join(' &middot; ') + '</div>');
@@ -991,15 +1045,19 @@ define([
      * Displayed after Heat Pump cards in the main quotes section.
      * Static informational text — not from NetSuite fields.
      */
-    function generateBUSGrantBanner() {
+    function generateBUSGrantBanner(busAmount) {
+        // v1.7.0: Amount is now passed in rather than hard-coded at £7,500, so the
+        // banner reads £9,000 on the enhanced rate. Callers must only render this
+        // when at least one main heat pump quote actually carries a grant.
+        var amountText = formatGrantAmount(busAmount).replace('£', '&pound;');
         var h = [];
         h.push('<div class="grant-highlight">');
         h.push('  <div class="grant-highlight-icon">');
         h.push('    <span style="font-size: 24px; font-weight: 700; color: white;">&pound;</span>');
         h.push('  </div>');
         h.push('  <div class="grant-highlight-content">');
-        h.push('    <div class="grant-highlight-title">Save &pound;7,500 with the Boiler Upgrade Scheme</div>');
-        h.push('    <div class="grant-highlight-desc">Your heat pump may qualify for a &pound;7,500 government grant. We handle the full application &mdash; speak to your account manager for details.</div>');
+        h.push('    <div class="grant-highlight-title">Save ' + amountText + ' with the Boiler Upgrade Scheme</div>');
+        h.push('    <div class="grant-highlight-desc">Your heat pump may qualify for a ' + amountText + ' government grant. We handle the full application &mdash; speak to your account manager for details.</div>');
         h.push('  </div>');
         h.push('</div>');
         return h.join('\n');
@@ -1591,13 +1649,27 @@ define([
         var discount = 0;
         var vat = 0;
         var total = 0;
+        var busTotal = 0;
 
+        // v1.7.0: Aggregation uses the post-grant balance for heat pump quotes so the
+        // headline total bar matches the sum of the cards.
+        //
+        // No arithmetic change is needed to achieve that: NS 'subtotal' and 'total' are
+        // ALREADY net of the grant (it is a line on the estimate), so getQuoteBalance()
+        // returns the post-grant balance and a negative balance already reduces the
+        // running total rather than being skipped. busTotal is accumulated for logging
+        // and must NOT be deducted again — that would double-count the grant.
         quotes.forEach(function (q) {
-            subtotal += parseCurrencyAmount(q.subtotal);
+            subtotal += getQuoteBalance(q);
             discount += Math.abs(parseCurrencyAmount(q.discountTotal));
             vat      += parseCurrencyAmount(q.taxTotal);
             total    += parseCurrencyAmount(q.amount);  // NS 'total' field = already inc VAT
+            busTotal += hasBusGrant(q) ? getBusAmount(q) : 0;
         });
+
+        safeLog('debug', 'MasterProposal.calculateTotals', 'v1.7.0 Aggregated ' + quotes.length +
+            ' quotes: subtotal(post-grant)=' + subtotal + ', discount=' + discount +
+            ', vat=' + vat + ', total=' + total + ', busGrantApplied=' + busTotal);
 
         // v1.5.4 FIX: NS 'total' already includes VAT — do NOT add vat again
         var totalIncVat = total;
@@ -1606,7 +1678,8 @@ define([
             subtotal:    subtotal,
             discount:    discount,
             vat:         vat,
-            totalIncVat: totalIncVat
+            totalIncVat: totalIncVat,
+            busTotal:    busTotal    // v1.7.0: total BUS grant applied across main quotes
         };
     }
 
@@ -1625,6 +1698,60 @@ define([
     function formatCurrency(amount) {
         var num = parseFloat(amount) || 0;
         return '\u00A3' + num.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+    }
+
+    /**
+     * v1.7.0: Formats a currency value with the minus sign BEFORE the symbol.
+     * formatCurrency(-694.4) yields "\u00A3-694.40"; this yields "-\u00A3694.40".
+     *
+     * The sign is taken from the value as DISPLAYED (rounded to 2dp), so a
+     * post-grant balance that should be exactly zero but arrives as a tiny
+     * negative float never renders as "-\u00A30.00".
+     */
+    function formatSignedCurrency(amount) {
+        var num = parseFloat(amount) || 0;
+        var rounded = Math.round(num * 100) / 100;
+        return (rounded < 0 ? '-' : '') + formatCurrency(Math.abs(rounded));
+    }
+
+    /**
+     * v1.7.0: Formats a BUS grant rate for display copy, e.g. 7500 => "\u00A37,500".
+     * BUS rates are whole thousands, so the trailing ".00" is noise in a headline.
+     */
+    function formatGrantAmount(amount) {
+        return formatCurrency(amount).replace(/\.00$/, '');
+    }
+
+    /**
+     * v1.7.0: Returns the BUS grant amount carried on a quote object, as a number.
+     * Send Quote SL resolves this from the estimate's Suppak line via the shared
+     * nuheat_bus_grant module and passes it through as busAmount.
+     */
+    function getBusAmount(quote) {
+        return parseFloat(quote && quote.busAmount) || 0;
+    }
+
+    /**
+     * v1.7.0: True when a BUS grant applies to this quote.
+     * Heat pump quotes only \u2014 the grant is a heat pump scheme.
+     */
+    function hasBusGrant(quote) {
+        return !!quote && quote.quoteType === 'Heat Pump' && getBusAmount(quote) > 0;
+    }
+
+    /**
+     * v1.7.0: The value this quote contributes to headline totals.
+     *
+     * For a heat pump quote with a grant this is the post-grant balance, which may
+     * be negative and must reduce the total rather than be skipped \u2014 otherwise the
+     * total bar disagrees with the sum of the cards.
+     *
+     * NOTE: NetSuite's 'subtotal' on the estimate is ALREADY net of the grant (the
+     * grant is a line on the estimate), so the balance IS the subtotal. busAmount is
+     * used only to decide what to display and label, never to deduct again.
+     */
+    function getQuoteBalance(quote) {
+        return parseCurrencyAmount(quote && quote.subtotal);
     }
 
     /**

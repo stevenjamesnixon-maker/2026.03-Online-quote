@@ -1,3 +1,108 @@
+## [Quote Suitelet v4.4.0 · Master Proposal v1.7.0 · Send Quote SL v1.6.0 · BUS Grant Module v1.0.0] — 17 August 2026
+**Status:** ⏳ Draft — pending Sandbox (472052_SB1) testing
+
+BUS (Boiler Upgrade Scheme) grant rate resolution and post-grant balance display.
+
+### Why
+Two related problems:
+1. **Bug** — when a heat pump quote was worth less than the BUS grant, the quote page rendered a
+   misleading negative heat pump price (e.g. `£-1,870.33`) next to a positive commissioning price.
+   A component price must never go negative; the *balance after BUS* is what carries the negative
+   value, and it needs explaining to the customer.
+2. **Feature** — the grant was effectively a fixed £7,500 in all customer-facing copy. It must be one
+   of three outcomes (£7,500 / £9,000 / none), driven by the Suppak line item on the Estimate, and
+   applied consistently on the quote page *and* the Master Proposal.
+
+### Added
+- **New file `nuheat_bus_grant.js` (v1.0.0)** — shared AMD module and single source of truth for BUS
+  rates. Exports `BUS_RATES`, `BUS_STANDARD_ITEMS`, `BUS_ENHANCED_ITEMS`, `SUPPAK_PREFIX`,
+  `normaliseItemName()` and `resolveBusGrant()`. Imported directly by the Quote Suitelet and the
+  Send Quote SL — never via `https.get()`, per project rules.
+- `resolveBusGrant()` returns `{ amount, rate, matchedItem, suppressedBy }` and logs a `BUS_RESOLVE`
+  audit line. Precedence: enhanced beats standard; a non-qualifying Suppak line suppresses the grant
+  only when no qualifying line is present; no Suppak line means no grant.
+- `normaliseItemName()` takes the last colon-delimited segment (NetSuite returns sub-items as
+  `"Parent : Child"`), collapses whitespace and lowercases. Matching is by **exact equality**, so
+  `Suppak BUS - Uplift` can never be caught by the `Suppak BUS` entry.
+- Quote Suitelet: `quoteData.bus` — resolved once in `loadQuoteData()` and read by every render
+  function. Carries `amount`, `rate`, `grossSubtotal`, `hpGross`, `hpDisplayPrice`, `residualGrant`,
+  `commissioningDisplay`, `balanceAfterBus` and `creditDue`.
+- Quote Suitelet: `formatSignedCurrency()` and `formatGrantAmount()` helpers.
+- Quote Suitelet: `CASCADE_GRANT_TO_COMMISSIONING` constant (default `false`) — see Open Point below.
+- Quote Suitelet: `.hp-grant-banner-refund` CSS class.
+- Master Proposal: `formatSignedCurrency()`, `formatGrantAmount()`, `getBusAmount()`,
+  `hasBusGrant()`, `getQuoteBalance()`.
+- Master Proposal: "BUS grant applied" line on the total price bar; `busTotal` returned by
+  `calculateTotals()`.
+- Send Quote SL: `extractItemNames()`; hidden sublist fields `custpage_bus_amount` and
+  `custpage_bus_rate`.
+
+### Fixed
+- **The reported bug** — the heat pump price card is now clamped at £0.00 and can never render a
+  negative figure. Previously `header.subtotal - commissioningTotal` produced `£-1,870.33`.
+- Negative currency now renders as `-£694.40`, never `£-694.40`. Applied to both total bars and the
+  Master Proposal cards and totals.
+- A balance that rounds to zero renders `£0.00`, never `-£0.00`. `formatSignedCurrency()` takes the
+  sign from the value **as displayed** (rounded to 2dp), so a floating-point residue in a sum of
+  NetSuite line amounts cannot leak a spurious minus sign.
+- Master Proposal `generateQuoteCard()`: the `if (subtotal > 0)` guard suppressed the price entirely
+  when the grant exceeded the quote value. A negative balance now renders.
+- Master Proposal: "Total inc. VAT" detail used a `> 0` guard, hiding a negative total. Now `!== 0`.
+- Quote page "Total inc VAT" lines (both bars) previously rendered `£-694.40`.
+- Solar price now derives from `grossSubtotal`, so a BUS grant on a mixed Solar + Heat Pump quote is
+  not silently absorbed into the solar figure. No change for solar-only quotes.
+
+### Changed
+- Quote page grant card is now conditional (`quoteData.bus.amount > 0`) and dynamic — reads
+  "£7,500 grant funding has been applied to this quote" or "£9,000" on the enhanced rate, with
+  "*Subject to scheme eligibility" beneath. A third line appears **only** when the grant exceeds the
+  quote value: "Any grant funding in excess of your quote value (£694.40) will be refunded to you
+  once the grant has been claimed."
+- Quote page total sections (top and bottom bars) show the post-grant balance as the headline plus
+  "System price", "BUS grant applied" and "Balance after BUS grant" breakdown lines. With no grant
+  the output is byte-identical to v4.3.69.
+- Heat Pump design package bullet no longer hard-codes £7,500; falls back to generic copy when no
+  grant applies.
+- Master Proposal `generateBUSGrantBanner()` takes the amount as an argument and renders only when a
+  main heat pump quote actually carries a grant. Where rates differ, the highest present is shown.
+- Master Proposal card price shows the post-grant balance, with "Includes £7,500 BUS grant" and,
+  when negative, "£694.40 refundable to you".
+- Send Quote CS bumped to v1.3.0 to carry the new fields into the preview payload.
+
+### Removed
+- Legacy `.grant-banner` block in `renderCategorySection()` and its CSS — dead code, both call sites
+  passed `showGrantBanner = false`. The `showGrantBanner` parameter was removed with it.
+- Legacy "This system may be eligible for a £7,500 Government grant" copy, superseded by the
+  dynamic grant card.
+
+### Important implementation note — no double-deduction
+The grant is a **line on the NetSuite Estimate**, so the standard `subtotal` field is *already net*
+of it. There was never a hard-coded 7500 subtraction in code — the only `7500` occurrences were
+display copy. All new code therefore derives `grossSubtotal = header.subtotal + busAmount` to recover
+the ex-VAT value **before** the grant, then deducts exactly once. The Master Proposal's
+`getQuoteBalance()` returns `subtotal` unchanged for the same reason — subtracting `busAmount` there
+would double-count the grant.
+
+### Testing notes
+Verified with three offline suites against the shipped source (arithmetic, Master Proposal pricing
+helpers, and emitted HTML): all 10 brief scenarios plus name-normalisation, precedence,
+negative/`-£0.00` formatting and float-residue edge cases. Sandbox verification still required —
+see `TESTING_GUIDE.md`.
+
+**Note on brief scenario 8:** the brief's expected balance of £0.00 for "HP gross exactly £7,500"
+holds only when commissioning is zero. With commissioning billed, the balance correctly retains the
+commissioning value. The `-£0.00` guard is verified separately against the whole-quote-equals-grant
+case and against float residue.
+
+### Open point for Steve — confirm before merge
+With `CASCADE_GRANT_TO_COMMISSIONING = false` (the chosen default), scenario 1 renders a heat pump
+price of £0.00 and a commissioning price of £1,175.93 while the total shows -£694.40. Those visible
+components do not sum to the total — the £1,870.33 of grant absorbed by the clamp is not shown
+anywhere. Flipping the flag to `true` makes the page add up but makes commissioning appear free.
+One-line change either way once seen rendered.
+
+---
+
 ## [Quote Suitelet v4.3.69] — 22 April 2026
 **Status:** ✅ Merged to main
 ### Changed

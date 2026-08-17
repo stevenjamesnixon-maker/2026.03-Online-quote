@@ -2,7 +2,7 @@
 
 **Purpose:** Comprehensive context for AI agents (Claude, etc.) to efficiently continue development on this project without extensive re-reading of source files. Load this document at the start of every new AI session.
 
-**Last Updated:** 31 March 2026
+**Last Updated:** 17 August 2026
 
 ---
 
@@ -155,6 +155,42 @@ A multi-component SuiteScript 2.1 solution:
 - Added contact selector dropdown to proposal email form — selecting a contact populates the To address field
 - Key NetSuite pitfalls discovered during implementation (see Section 9, pitfall #11):
 
+### Phase 8: BUS Grant Rates & Post-Grant Balance (Aug 2026)
+
+**Quote Suitelet v4.4.0 · Master Proposal v1.7.0 · Send Quote SL v1.6.0 · BUS Grant Module v1.0.0**
+
+Two related changes to how the Boiler Upgrade Scheme grant is handled.
+
+**The bug:** when a heat pump quote was worth less than the grant, the quote page rendered a
+negative heat pump price (`£-1,870.33`) alongside a positive commissioning price. A component price
+must never go negative — the *balance after BUS* carries the negative value, and the customer needs
+it explained.
+
+**The feature:** the grant was effectively fixed at £7,500 in all customer-facing copy. It is now one
+of three outcomes (£7,500 / £9,000 / none), resolved from the Suppak line item on the Estimate and
+applied consistently across the quote page and the Master Proposal.
+
+**Key discovery — the grant was never deducted in code.** Grepping for `7500` across every script
+found only display copy; there was no arithmetic anywhere. The £7,500 comes from a **line on the
+NetSuite Estimate**, so the standard `subtotal` field is *already net* of it. The reported
+`£-1,870.33` proves it: `(6805.60 − 7500) − 1175.93 = −1870.33`. All new code therefore derives
+`grossSubtotal = subtotal + busAmount` to recover the pre-grant value, then deducts exactly once.
+**Never subtract `busAmount` from `subtotal`.**
+
+**Other findings worth remembering:**
+- The Send Quote SL round-trips its quote data through a `serverWidget` sublist POST, so any new
+  per-quote value needs a hidden sublist field *and* read-back — and the **preview** path is separate
+  again, going via the client script payload. Both must carry the value or preview and sent proposal
+  disagree.
+- The quote page has **two** total bars — `renderTopTotalSection()` and `renderTotalSection()` — that
+  render the same figures and must be kept in step.
+- The legacy `.grant-banner` in `renderCategorySection()` was dead code (both call sites passed
+  `showGrantBanner = false`) and was removed along with the parameter.
+
+**Documentation:** `SECTION_LOGIC_MAPPING.md` (figure-by-figure render map) and `TESTING_GUIDE.md`
+(10-scenario table) were created in this phase — `README.md` referenced them under `docs/` but they
+had never been committed.
+
 ---
 
 ## 3. Current System State
@@ -163,14 +199,15 @@ A multi-component SuiteScript 2.1 solution:
 
 | Component | Version | File | Status |
 |-----------|---------|------|--------|
-| Quote Suitelet | v4.3.69 | `nuheat_quote_suitelet.js` | ✅ Production ready |
+| Quote Suitelet | v4.4.0 | `nuheat_quote_suitelet.js` | ⏳ Draft — pending Sandbox testing |
 | Quote UE | v4.0.9 | `nuheat_quote_ue.js` | ✅ Production ready |
 | Quote CS | v4.0.6 | `nuheat_quote_cs.js` | ✅ Production ready |
 | Quote Viewer | v1.1.0 | `nuheat_quote_viewer_sl.js` | ✅ Production ready |
 | Scheduled Script | v1.0.0 | `nuheat_quote_generator_ss.js` | ✅ Production ready |
-| Master Proposal | v1.6.6 | `nuheat_master_proposal.js` | ✅ Production ready |
-| Send Quote SL | v1.5.0 | `nuheat_send_quote_sl.js` | ✅ Production ready |
-| Send Quote CS | v1.2.0 | `nuheat_send_quote_cs.js` | ✅ Production ready |
+| Master Proposal | v1.7.0 | `nuheat_master_proposal.js` | ⏳ Draft — pending Sandbox testing |
+| Send Quote SL | v1.6.0 | `nuheat_send_quote_sl.js` | ⏳ Draft — pending Sandbox testing |
+| Send Quote CS | v1.3.0 | `nuheat_send_quote_cs.js` | ⏳ Draft — pending Sandbox testing |
+| BUS Grant Module | v1.0.0 | `nuheat_bus_grant.js` | ⏳ Draft — pending Sandbox testing |
 | Opportunity UE | v1.0.0 | `src/nuheat_opportunity_ue.js` | ✅ Production ready |
 | Opportunity CS | v1.0.0 | `src/nuheat_opportunity_cs.js` | ✅ Production ready |
 | Analytics Suitelet | v1.0.1 | `nuheat_analytics_sl.js` | ✅ Production ready |
@@ -237,6 +274,7 @@ A multi-component SuiteScript 2.1 solution:
 | **Scheduled Script** | Fallback when UE script runs low on governance (1,000 units). The SS has 10,000 units. |
 | **Master Proposal** | Business requirement to combine multiple quotes. Separated as a module (not Suitelet) so it can be called from the Send Quote SL. |
 | **Send Quote SL** | UI for selecting which quotes to include in a proposal. Needed because the user must choose Main vs Alternative. |
+| **BUS Grant Module** | Single source of truth for BUS grant rates and the Suppak-line resolver. Extracted so the Quote Suitelet and the Send Quote SL cannot drift apart on which rate applies. Imported directly (AMD) — never via `https.get()`. |
 | **Opportunity UE/CS** | Entry point for Master Proposal workflow — "Send Quote" button on Opportunity form. |
 
 ### Design Decisions and Rationale
@@ -253,7 +291,11 @@ A multi-component SuiteScript 2.1 solution:
 
 6. **File versioning (keep 5)** — Balance between audit trail and File Cabinet size. The cleanup is non-critical — if it fails, it doesn't block generation.
 
-7. **Direct module import (UE → Suitelet)** — NetSuite blocks `https.get()` from UE to Suitelet in the same account. Direct `require()` import is the supported pattern.
+7. **Shared BUS module** — BUS rates are consumed by two independent render paths (quote page and Master Proposal). Duplicating the rules would guarantee eventual drift, so the constants, `normaliseItemName()` and `resolveBusGrant()` live in one AMD module both `define()` in. Matching is exact equality, not substring, so `Suppak BUS - Uplift` can never be captured by the `Suppak BUS` entry and no longest-match ordering is needed.
+
+8. **Grant added back, never deducted twice** — the BUS grant is a line on the Estimate, so NetSuite's `subtotal` is already net of it. All code derives `grossSubtotal = subtotal + busAmount` to recover the pre-grant value and deducts exactly once. This is the single easiest thing to get wrong in this area.
+
+9. **Direct module import (UE → Suitelet)** — NetSuite blocks `https.get()` from UE to Suitelet in the same account. Direct `require()` import is the supported pattern.
 
 ---
 

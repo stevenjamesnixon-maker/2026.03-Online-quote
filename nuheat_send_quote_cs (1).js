@@ -34,7 +34,7 @@ function (currentRecord, url, log, dialog) {
 
     'use strict';
 
-    var SCRIPT_VERSION = '1.2.0';
+    var SCRIPT_VERSION = '1.3.0';
 
     /**
      * All known sublist type slugs — must match the Suitelet's QUOTE_TYPE_SLUGS values.
@@ -151,6 +151,10 @@ function (currentRecord, url, log, dialog) {
                     var discountTotal = rec.getSublistValue({ sublistId: sublistId, fieldId: 'custpage_discount_total', line: i }) || '';
                     var taxTotal     = rec.getSublistValue({ sublistId: sublistId, fieldId: 'custpage_tax_total', line: i }) || '';
                     var description  = rec.getSublistValue({ sublistId: sublistId, fieldId: 'custpage_quote_description', line: i }) || '';
+                    // v1.3.0: BUS grant fields — without these the preview would show no grant
+                    // while the sent proposal shows the resolved rate.
+                    var busAmount    = rec.getSublistValue({ sublistId: sublistId, fieldId: 'custpage_bus_amount', line: i }) || '0';
+                    var busRate      = rec.getSublistValue({ sublistId: sublistId, fieldId: 'custpage_bus_rate', line: i }) || 'none';
 
                     selected.push({
                         tranId:        tranId,
@@ -163,7 +167,9 @@ function (currentRecord, url, log, dialog) {
                         subtotal:      subtotal,         // v1.1.1
                         discountTotal: discountTotal,    // v1.1.1
                         taxTotal:      taxTotal,         // v1.1.1
-                        description:   description       // v1.1.1: custbody_quote_description for preview rendering
+                        description:   description,      // v1.1.1: custbody_quote_description for preview rendering
+                        busAmount:     busAmount,        // v1.3.0: 0 | 7500 | 9000
+                        busRate:       busRate           // v1.3.0: 'none' | 'standard' | 'enhanced'
                     });
                 }
             }
