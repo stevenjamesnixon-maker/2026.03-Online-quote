@@ -67,4 +67,48 @@ Sandbox testing** — if it appears, correct `BUS_STANDARD_ITEMS` / `BUS_ENHANCE
 
 ---
 
+## VAT — `custbody_quote_type` and its rate mapping (v4.5.0)
+
+### Estimate (Transaction Body)
+
+| Field ID | Type | Purpose |
+|---|---|---|
+| custbody_quote_type | List | Quote technology. Drives the VAT rate via `nuheat_vat_rates.js`, and the section grouping in the Master Proposal via `QUOTE_TYPE_MAPPING` in `nuheat_send_quote_sl.js`. |
+
+> ⚠️ `getText()` on this list field is unreliable (a standing project rule). The Quote Suitelet reads
+> it inside a try/catch and falls back to inferring the technology from the grouped line items,
+> logging which route was used as `VAT_QUOTE_TYPE`.
+
+### Raw list values → display name → VAT rate
+
+`VAT_RATES` in `nuheat_vat_rates.js` is keyed on the **display name**, but callers hold the **raw**
+list value. `normaliseQuoteType()` bridges the two, so either form resolves correctly.
+
+| Raw `custbody_quote_type` value | Display name | VAT |
+|---|---|---|
+| `Heat Pump`, `Heat Pump (ASHP)`, `Heat Pump (GSHP)`, `Heat Pump (EAHP)` | Heat Pump | **0%** |
+| `Solar` | Solar | **0%** ⚠️ assumed |
+| `Heat Emitter`, `Full System`, `Full System (DFD)`, `Full System (DFD/DFP)`, `Multizone (DZM)`, `Extension (DXD)`, `UFH for Heat Pump (DFHD)` | Underfloor Heating | **20%** |
+| anything unrecognised | *(unchanged)* | **20%** default + `VAT_RATE_UNMATCHED` logged |
+
+**Why 0% / 20%.** UK VAT on heat pump installations is 0% under energy-saving materials relief;
+underfloor heating is standard-rated at 20%.
+
+> ⚠️ **Solar is an assumption.** It is set to 0% on the basis that solar thermal qualifies for the
+> same relief as heat pumps. Only HP and UFH were specified. One-line change in `VAT_RATES` if wrong.
+
+> ⚠️ **Unknown types default to 20%** — never under-charging — and write `VAT_RATE_UNMATCHED` to the
+> Execution Log. If a new quote type is added to the NetSuite list, add it to **both**
+> `QUOTE_TYPE_ALIASES` in `nuheat_vat_rates.js` and `QUOTE_TYPE_MAPPING` in `nuheat_send_quote_sl.js`.
+
+### ⚠️ The tax codes are the root cause
+
+The scripts do not read the Estimate's tax codes — they derive the rate that *should* apply. Heat
+pump quotes were showing 20% because **the tax codes on those Estimate lines are wrong in NetSuite**.
+Where derived and NetSuite figures differ by more than 1p, `VAT_MISMATCH` is logged with the Estimate
+ID and both amounts. **Those entries are the work-list for fixing the source data** — until they are
+worked through, the quote page and the Estimate will disagree.
+
+---
+
 **Last Updated:** 18 August 2026

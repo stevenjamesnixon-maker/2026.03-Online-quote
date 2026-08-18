@@ -1,5 +1,32 @@
 # Version History
 
+## VAT Rates Module (`nuheat_vat_rates.js`)
+
+### v1.0.0 — 18 August 2026 ⏳ Draft — pending Sandbox testing
+
+- NEW FILE: Shared VAT rate resolution module, `@NModuleScope Public`, imported by
+  `nuheat_quote_suitelet.js` and `nuheat_send_quote_sl.js` as `'./nuheat_vat_rates'`.
+- CONTEXT: the scripts had **never** calculated VAT — there was no `0.2` multiplier anywhere in the
+  codebase. Both surfaces echoed NetSuite's `taxtotal`, and heat pump quotes were showing 20%
+  because **the tax codes on those Estimates are wrong**.
+- ⚠️ This module derives the rate that *should* apply. It is a **display stopgap** — NetSuite still
+  invoices from its own tax codes until they are corrected at source.
+- ADDED: `VAT_RATES` — Heat Pump 0%, Solar 0%, Underfloor Heating 20%, Other 20%.
+  ⚠️ Solar 0% is an assumption; only HP and UFH were specified.
+- ADDED: `DEFAULT_VAT_RATE = 0.20` — unknown types default to the standard rate (never under-charge)
+  and log `VAT_RATE_UNMATCHED`.
+- ADDED: `resolveVatRate(quoteType)` → `{rate, percent, matched, quoteType}`.
+- ADDED: `calculateVat(netAmount, rate)` — 2dp. `netAmount` is subtotal **minus discount**.
+- ADDED: `logVatMismatch(context, recordId, derivedVat, netsuiteTaxTotal, quoteType)` — audit-level
+  `VAT_MISMATCH` beyond a 1p tolerance. These entries are the work-list for fixing the tax codes.
+- ADDED: `normaliseQuoteType()` / `QUOTE_TYPE_ALIASES` — maps raw `custbody_quote_type` list values
+  onto the display names `VAT_RATES` is keyed by. **Without this, `'Heat Pump (ASHP)'` would not
+  match and would fall through to the 20% default** — charging a heat pump quote 20% VAT, silently.
+  Mirrors `QUOTE_TYPE_MAPPING` in `nuheat_send_quote_sl.js`; add new types to both.
+- ⚠️ DEPLOYMENT: upload to `SuiteScripts/NuHeat` **before** either consumer is redeployed.
+
+---
+
 ## BUS Grant Module (`nuheat_bus_grant.js`)
 
 ### v1.0.0 — 18 August 2026 ⏳ Draft — pending Sandbox testing
@@ -25,6 +52,26 @@
 ---
 
 ## Master Proposal (`nuheat_master_proposal.js`)
+
+### v1.8.0 — 18 August 2026 ⏳ Draft — pending Sandbox testing
+
+- ADDED: `getVatRate(quote)` — parses the passed-through `vatRate` after its TEXT round trip,
+  defaulting to 20% when absent so VAT is never under-stated.
+- ADDED: blended-VAT note beneath the total price bar — "The VAT amount shown is blended between the
+  underfloor heating at 20% and heat pump quote at 0%. Please see below for more information."
+  ⚠️ Gated on **a heat pump quote AND at least one 20%-rated quote**, deliberately stricter than
+  "the proposal includes a heat pump" — on a heat-pump-only proposal the note would otherwise
+  describe blending with underfloor heating that is not in the proposal. Flags derive from the
+  passed-through `vatRate` / `busRate`, not `quoteType` string matching.
+- ADDED: `.top-total-vat-note` CSS rule and its mobile centre-align override.
+- CHANGED: main quotes intro copy — "Your system covers every component needed for your project. Each
+  quote contains a full component breakdown, tailored system details and benefits, and transparent
+  pricing with no hidden extras." The "alternative options" intro is unchanged.
+- UNCHANGED (verified): `calculateTotals()` already sums each quote's own `taxTotal`, so once the
+  Send Quote SL supplies corrected per-quote figures the blend is right with no change to the
+  summing logic. `parseCurrencyAmount()` handles the derived strings.
+
+---
 
 ### v1.7.0 — 18 August 2026 ⏳ Draft — pending Sandbox testing
 
@@ -83,6 +130,31 @@
 ---
 
 ## Quote Suitelet (`nuheat_quote_suitelet.js`)
+
+### v4.5.0 — 18 August 2026 ⏳ Draft — pending Sandbox testing
+
+- ADDED: imports `'./nuheat_vat_rates'` as `vatRates`.
+- ADDED: `headerData.quoteTypeText` — `custbody_quote_type` read in `extractHeaderData()` inside a
+  try/catch, since `getText()` on a list field is unreliable.
+- ADDED: single VAT calculation block in `loadQuoteData()`, placed **before** the BUS block so the
+  corrected total can feed it. Stores `quoteData.vat` (`rate`, `percent`, `amount`, `quoteType`,
+  `rawQuoteType`, `netAmount`, `correctedTotalIncVat`, `netsuiteTaxTotal`), logged as `VAT_FIGURES`.
+- ADDED: fallback inference of the quote type from grouped items when `custbody_quote_type` comes
+  back empty (`hasHeatPump` → Heat Pump, `hasSolar` → Solar, else Underfloor Heating). The route
+  used is logged as `VAT_QUOTE_TYPE`.
+- CHANGED: both total sections render `VAT at 0%: £0.00` / `VAT at 20%: £x` from `quoteData.vat`
+  instead of `header.taxTotal`.
+- CHANGED: **Total inc VAT is recomputed.** `correctedTotalIncVat = netAmount + derivedVat` replaces
+  NetSuite's `total` for display, and `bus.totalIncVatAfterBus` is now built from it.
+  `bus.balanceAfterBus` is ex-VAT and unchanged.
+- REMOVED: `"plus VAT"` from the heat pump price card (`.hp-price-amount`) and the category cost
+  card (`.category-cost-value`). VAT is referenced only in the total system price header. The
+  `.hp-price-vat` / `.category-cost-vat` CSS rules are left in place (harmless; mobile overrides
+  reference them). The Design+ upgrade banner's "plus VAT" is not a section price card — untouched.
+- LOGGING: `VAT_MISMATCH` whenever the derived figure disagrees with NetSuite's `taxtotal` by more
+  than 1p.
+
+---
 
 ### v4.4.0 — 18 August 2026 ⏳ Draft — pending Sandbox testing
 
@@ -181,6 +253,28 @@
 ---
 
 ## Send Quote Suitelet (`nuheat_send_quote_sl.js`) & Client Script (`nuheat_send_quote_cs (1).js`)
+
+### Send Quote SL v1.7.0 / Send Quote CS v1.4.0 — 18 August 2026 ⏳ Draft — pending Sandbox testing
+
+- ADDED (SL): imports `'./nuheat_vat_rates'`. `searchRelatedQuotes()` derives the VAT rate per
+  Estimate alongside the existing BUS resolution.
+- ⚠️ CHANGED (SL): `taxTotal` and `amount` pushed to the proposal are now **derived**, not raw
+  NetSuite values. This is **not** a regression of the v1.4.9 fix — that fix was about reading
+  `subtotal` / `discounttotal` / `taxtotal` reliably via `record.load()`, and those reads are
+  unchanged. The tax figure is recalculated afterwards because the tax codes are wrong at source.
+- ADDED (SL): when `record.load()` fails, the NetSuite fallback values are still used — deriving on
+  that path would silently zero the quote's amount.
+- ⚠️ FIXED (SL): passes `quoteTypeDisplay`, **not** `rawQuoteType`, to `resolveVatRate()`.
+  `VAT_RATES` is keyed on display names; `'Heat Pump (ASHP)'` would not have matched and would have
+  fallen through to the 20% default.
+- ADDED (SL): hidden sublist fields `custpage_vat_rate` / `custpage_vat_percent`, mirrored into the
+  preview path.
+- ADDED (CS): collects both fields into the preview payload, so preview and the emailed proposal
+  show identical VAT.
+- LOGGING (SL): `SendQuoteSL.VAT` per Estimate, plus `VAT_MISMATCH` from the shared module.
+- ⚠️ DEPLOYMENT: `nuheat_vat_rates.js` must be in `SuiteScripts/NuHeat` before redeploying.
+
+---
 
 ### Send Quote SL v1.6.0 / Send Quote CS v1.3.0 — 18 August 2026 ⏳ Draft — pending Sandbox testing
 

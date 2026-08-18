@@ -1,7 +1,8 @@
-# Section Logic Mapping — BUS Grant
+# Section Logic Mapping — BUS Grant & VAT
 
 **Last Updated:** 18 August 2026
-**Applies to:** Quote Suitelet v4.4.0, Master Proposal v1.7.0, Send Quote SL v1.6.0, BUS Module v1.0.0
+**Applies to:** Quote Suitelet v4.5.0, Master Proposal v1.8.0, Send Quote SL v1.7.0,
+BUS Module v1.0.0, VAT Module v1.0.0
 
 How the BUS (Boiler Upgrade Scheme) grant is resolved, and exactly where each derived figure is
 rendered. This document exists because the pre-v4.4.0 implementation subtracted the grant at six
@@ -151,3 +152,135 @@ A value of exactly zero renders `£0.00`, never `-£0.00`.
 
 > ⚠️ `.grant-banner` (removed) and `.hp-grant-banner` (live) are different elements. Only the former
 > was dead code.
+
+---
+---
+
+# Part 2 — VAT (v4.5.0)
+
+## 7. The problem, stated once
+
+The scripts had **never** calculated VAT. There was no `0.2` multiplier anywhere in the pre-v4.5.0
+codebase — both surfaces echoed NetSuite's `taxtotal` verbatim. Heat pump quotes displayed 20%
+because **the tax codes on those Estimate lines are wrong in NetSuite**.
+
+UK VAT on heat pump installations is **0%** (energy-saving materials relief); underfloor heating is
+standard-rated at **20%**.
+
+> ⚠️ **v4.5.0 corrects the display, not the data.** NetSuite still invoices from its own tax codes.
+> A quote page showing £0.00 VAT against an Estimate that will invoice £1,200 is a commercial
+> problem, not a cosmetic one. Every disagreement over 1p writes a **`VAT_MISMATCH`** audit entry
+> naming the Estimate and both figures. **That log is the work-list for fixing the source data.**
+
+## 8. Resolution — once per quote
+
+`nuheat_vat_rates.js` → `resolveVatRate(quoteType)` returns:
+
+```js
+{ rate: 0 | 0.20, percent: '0%' | '20%', matched: Boolean, quoteType: String }
+```
+
+| Technology | Rate |
+|---|---|
+| Heat Pump | 0% |
+| Solar | 0% ⚠️ assumed — see `FIELD_REFERENCE.md` |
+| Underfloor Heating | 20% |
+| Other / unrecognised | 20% (`DEFAULT_VAT_RATE`) + `VAT_RATE_UNMATCHED` logged |
+
+**Every Estimate is single-technology**, so one rate applies to the whole quote page. The Master
+Proposal is what groups technologies. No line-level tax capture is needed and `extractLineItems()`
+deliberately does not read `taxcode` / `taxrate1`.
+
+**Quote-type normalisation.** `VAT_RATES` is keyed on display names, but callers hold raw
+`custbody_quote_type` values. `normaliseQuoteType()` maps raw → display inside the module.
+Without it, `'Heat Pump (ASHP)'` would not match and would fall through to the 20% default —
+charging a heat pump 20%, and silently, because UFH raw values default to 20% and look correct.
+
+## 9. Derived figures — one calculation block
+
+Computed once in `loadQuoteData()`, **immediately before** the BUS block so the corrected total can
+feed it. Stored on `quoteData.vat`, logged as `VAT_FIGURES`.
+
+| Figure | Formula |
+|---|---|
+| `netAmount` | `header.subtotal - header.discountTotal` — **VAT applies after discount** |
+| `amount` | `round(netAmount × rate, 2)` |
+| `correctedTotalIncVat` | `netAmount + amount` — replaces NetSuite's `total` for display |
+| `percent` | `'0%'` / `'20%'` |
+
+`header.discountTotal` is already `Math.abs()`'d, and the codebase's documented invariant is
+`total = subtotal - discount + tax`, so `subtotal` is gross of discount and the subtraction is right.
+
+### Total inc VAT must be recomputed — the easy thing to miss
+
+NetSuite's `total` already contains the **wrong** VAT. Recomputing VAT without recomputing the total
+leaves the two inconsistent, so the BUS block now reads:
+
+```js
+var totalIncVatAfterBus = correctedTotalIncVat - busAmount;   // was headerData.total - busAmount
+```
+
+`balanceAfterBus` is ex-VAT and **unchanged**. The BUS grant applies to the heat pump, which is
+0%-rated, so deducting it from an inc-VAT total remains arithmetically sound.
+
+### Quote-type source
+
+`custbody_quote_type` is read in `extractHeaderData()` inside a try/catch — `getText()` on a list
+field is unreliable. When it comes back empty, `loadQuoteData()` infers from the grouped items
+(Heat Pump → Solar → Underfloor Heating) and logs the route as `VAT_QUOTE_TYPE`.
+
+## 10. Where VAT renders — Quote page
+
+| Section | Function | Behaviour |
+|---|---|---|
+| Top total section | `renderTopTotalSection()` | `VAT at 0%: £0.00` / `VAT at 20%: £x` from `quoteData.vat`; Total inc VAT from `bus.totalIncVatAfterBus` |
+| Lower total section | `renderTotalSection()` | same (still no call site — updated for consistency) |
+| Heat pump price card | `renderHeatPumpTreeSection()` | **"plus VAT" removed** |
+| Category cost card (Solar / Commissioning) | `renderCategorySection()` | **"plus VAT" removed** |
+| Total system price headline | `renderTopTotalSection()` | **"plus VAT" KEPT** — VAT is referenced only here |
+| Design+ upgrade price (UFH upgrade banner) | `renderUFHTreeSection()` | **"plus VAT" KEPT** — not a section price card |
+
+The `.hp-price-vat` / `.category-cost-vat` CSS rules are deliberately left in `generateCSS()` —
+harmless once unused, and the mobile overrides reference them.
+
+No blended-VAT note on the quote page: each Estimate is single-technology, so there is nothing to
+blend.
+
+## 11. Where VAT renders — Master Proposal
+
+The proposal cannot resolve VAT itself. `nuheat_send_quote_sl.js` derives it per Estimate and passes
+`vatRate` / `vatPercent` through hidden sublist fields (`custpage_vat_rate`, `custpage_vat_percent`),
+and **overrides `taxTotal` and `amount`** with the derived figures.
+
+> ⚠️ `taxTotal` and `amount` reaching the proposal are **derived, not raw NetSuite values.** This is
+> not a regression of the v1.4.9 `record.load()` fix — those reads are unchanged; the tax figure is
+> recalculated afterwards. On the fallback path (when `record.load()` fails) the NetSuite values are
+> still used, since deriving there would silently zero the quote's amount.
+
+| Element | Behaviour |
+|---|---|
+| Headline total bar | `calculateTotals()` sums each quote's own `taxTotal` — **unchanged logic**, correct blend once the per-quote figures are corrected |
+| Blended-VAT note | Shown only when the main quotes contain **a heat pump quote AND at least one 20%-rated quote** |
+
+### The blended-VAT note
+
+> The VAT amount shown is blended between the underfloor heating at 20% and heat pump quote at 0%.
+> Please see below for more information.
+
+⚠️ **The gate is deliberately stricter than specified.** The brief asked for "if the proposal
+includes a heat pump", but on a heat-pump-**only** proposal that sentence describes blending with
+underfloor heating that is not in the proposal. Both flags derive from the passed-through
+`vatRate` / `busRate`, not `quoteType` string matching:
+
+- `hasHeatPumpQuote` — any main quote with `busRate !== 'none'` **or** `quoteType === 'Heat Pump'`
+- `hasStandardRatedQuote` — any main quote with `vatRate > 0`
+
+## 12. Audit log tags
+
+| Tag | Written by | Meaning |
+|---|---|---|
+| `VAT_QUOTE_TYPE` | Quote Suitelet | which route resolved the quote type |
+| `VAT_FIGURES` | Quote Suitelet | all derived VAT figures, as JSON |
+| `VAT_RATE_UNMATCHED` | VAT module | quote type not in `VAT_RATES`; defaulted to 20% |
+| `VAT_MISMATCH` | VAT module | **derived VAT disagrees with NetSuite — fix the tax codes on this Estimate** |
+| `SendQuoteSL.VAT` | Send Quote SL | per-Estimate rate, net, derived VAT and NetSuite tax total |

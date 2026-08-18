@@ -6,7 +6,7 @@
  * @description Module that generates a master proposal HTML page aggregating
  *              multiple quotes under a single Opportunity. Called by the
  *              Send Quote Suitelet after the user selects which quotes to include.
- * @version     1.7.0
+ * @version     1.8.0
  * @author      Nu-Heat Development
  *
  * CHANGELOG v1.6.6 (feat: Site address in Customer Information):
@@ -199,7 +199,7 @@ define([
 
     // ─── Constants ────────────────────────────────────────────────────────────────
 
-    var MODULE_VERSION = '1.7.0';
+    var MODULE_VERSION = '1.8.0';
 
     var GTM_CONTAINER_ID = 'GTM-5NJJSBMP';
 
@@ -799,11 +799,37 @@ define([
         var totals = calculateTotals(mainQuotes);
         var h = [];
 
+        // v1.8.0: Blended-VAT note. Each Estimate is single-technology, so the proposal total
+        // blends 0%-rated heat pump quotes with 20%-rated underfloor heating.
+        //
+        // ⚠️ DELIBERATELY STRICTER THAN ASKED. The brief said "show it if the proposal includes
+        // a heat pump", but on a heat-pump-ONLY proposal that note would describe blending with
+        // underfloor heating that is not in the proposal — inaccurate and confusing. Gated on a
+        // heat pump quote AND at least one standard-rated quote, so it only appears when there
+        // is genuinely a blend. Flagged for Steve to overrule.
+        //
+        // Flags derive from the passed-through vatRate / busRate, not quoteType string matching.
+        var hasHeatPumpQuote = false;
+        var hasStandardRatedQuote = false;
+        (mainQuotes || []).forEach(function (q) {
+            if (hasBusGrant(q) || (q && q.quoteType === 'Heat Pump')) { hasHeatPumpQuote = true; }
+            if (getVatRate(q) > 0) { hasStandardRatedQuote = true; }
+        });
+
+        safeLog('debug', 'MasterProposal.generateTotalPriceBar', 'v1.8.0 VAT note — hasHeatPumpQuote=' +
+            hasHeatPumpQuote + ', hasStandardRatedQuote=' + hasStandardRatedQuote +
+            ', note ' + ((hasHeatPumpQuote && hasStandardRatedQuote) ? 'SHOWN' : 'hidden'));
+
         h.push('<section class="top-total-section">');
         h.push('  <div class="top-total-header">');
         h.push('    <div class="top-total-left">');
         h.push('      <h1 class="top-total-title">Your total system price</h1>');
         h.push('      <p class="top-total-terms">This proposal is subject to our terms and conditions</p>');
+        if (hasHeatPumpQuote && hasStandardRatedQuote) {
+            h.push('      <p class="top-total-terms top-total-vat-note">The VAT amount shown is blended ' +
+                   'between the underfloor heating at 20% and heat pump quote at 0%. ' +
+                   'Please see below for more information.</p>');
+        }
         h.push('    </div>');
         h.push('    <div class="top-total-right">');
         h.push('      <div class="top-total-amount">' + formatSignedCurrency(totals.subtotal) + ' <span class="top-total-plus-vat">plus VAT</span></div>');
@@ -846,7 +872,7 @@ define([
         h.push('    <div class="quotes-content">');
 
         if (isMain) {
-            h.push('      <p class="quotes-intro">Your system covers every component needed for your project. Each quote contains a full component breakdown, bespoke design layouts, and detailed pricing.</p>');
+            h.push('      <p class="quotes-intro">Your system covers every component needed for your project. Each quote contains a full component breakdown, tailored system details and benefits, and transparent pricing with no hidden extras.</p>');
         } else {
             h.push('      <p class="quotes-intro">These are alternative options that may be of interest. They represent different configurations or upgrade possibilities for your project.</p>');
         }
@@ -1239,6 +1265,7 @@ define([
             '.top-total-left { text-align: left; }',
             '.top-total-title { font-size: 32px; font-weight: 700; margin: 0; }',
             '.top-total-terms { font-size: 13px; opacity: 0.7; margin: 10px 0 0 0; text-align: left; }',
+            '.top-total-vat-note { margin-top: 6px; }',
             '.top-total-right { text-align: right; }',
             '.top-total-amount { font-size: 36px; font-weight: 700; margin-bottom: 0; }',
             '.top-total-plus-vat { font-size: 20px; font-weight: 400; vertical-align: middle; }',
@@ -1387,6 +1414,7 @@ define([
             '  .top-total-title { font-size: 26px; }',
             '  .top-total-amount { font-size: 32px; }',
             '  .top-total-terms { text-align: center; }',
+            '  .top-total-vat-note { text-align: center; }',
             '',
             '  .collapsible-header { padding: 16px 20px; }',
             '  .collapsible-header h2 { font-size: 20px; }',
@@ -1702,6 +1730,22 @@ define([
     function hasBusGrant(quote) {
         if (!quote || quote.busRate === 'none') { return false; }
         return getBusAmount(quote) > 0;
+    }
+
+    /**
+     * v1.8.0: Reads the derived VAT rate off a quote entry.
+     * Round-trips through a serverWidget sublist as text, so parse it back.
+     * Defaults to the standard rate when absent — never under-state VAT.
+     *
+     * @param {Object} quote
+     * @returns {number} 0 | 0.20
+     */
+    function getVatRate(quote) {
+        if (!quote || quote.vatRate === null || quote.vatRate === undefined || quote.vatRate === '') {
+            return 0.20;
+        }
+        var n = parseFloat(quote.vatRate);
+        return isNaN(n) ? 0.20 : n;
     }
 
     /**

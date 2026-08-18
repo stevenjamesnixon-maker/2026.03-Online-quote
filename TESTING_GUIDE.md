@@ -7,9 +7,9 @@
 
 ## BUS Grant Rates & Post-Grant Balance (v4.4.0 / v1.7.0 / v1.6.0 / v1.0.0)
 
-> ⚠️ **Before testing:** upload `nuheat_bus_grant.js` to `SuiteScripts/NuHeat` **first**, then the
-> Quote Suitelet and Send Quote SL. Both consumers fail at load time if the module is not already
-> present. See `DEPLOYMENT_CHECKLIST.md`.
+> ⚠️ **Before testing:** upload **`nuheat_bus_grant.js` AND `nuheat_vat_rates.js`** to
+> `SuiteScripts/NuHeat` **first**, then the Quote Suitelet and Send Quote SL. Both consumers fail at
+> load time if either module is missing. See `DEPLOYMENT_CHECKLIST.md`.
 
 Check **both** the quote page and the Master Proposal for every scenario.
 
@@ -86,3 +86,59 @@ scenario 1 both ways before deciding:
 | Commissioning | £0.00 — **appears free** | £1,175.93 |
 | Total | −£694.40 | −£694.40 |
 | Components sum to the total? | ✅ | ❌ |
+
+---
+
+## VAT by Technology (v4.5.0 / v1.8.0 / v1.7.0 / VAT Module v1.0.0)
+
+> ⚠️ **The display fix is a stopgap.** The scripts now derive the VAT rate that *should* apply and
+> show that. NetSuite still invoices from its own tax codes, which are wrong on heat pump Estimates.
+> **Every `VAT_MISMATCH` in the Execution Log is an Estimate whose tax codes need correcting.**
+> Treat that log as the deliverable of this test pass, not just a pass/fail signal.
+
+### Scenario matrix
+
+| # | Scenario | Expected |
+|---|---|---|
+| V1 | HP-only quote page | `VAT at 0%: £0.00`; Total inc VAT = ex-VAT total; **no** "plus VAT" on the HP price card |
+| V2 | UFH-only quote page | `VAT at 20%: £x`; VAT = 20% of (subtotal − discount) |
+| V3 | HP quote whose Estimate has 20% tax codes | Page shows £0.00; `VAT_MISMATCH` logged with both figures |
+| V4 | UFH quote with a discount | VAT calculated on subtotal **minus** discount, not gross |
+| V5 | Proposal, HP + UFH | Blended VAT = 0 + (UFH × 20%); **note line shown** |
+| V6 | Proposal, HP only | Correct VAT; **note line hidden** (stricter gate — see below) |
+| V7 | Proposal, UFH only | Correct VAT; note line hidden |
+| V8 | Preview vs emailed proposal | Identical VAT figures on both |
+| V9 | Unknown/blank `custbody_quote_type` | Falls back to 20%; `VAT_RATE_UNMATCHED` logged |
+| V10 | Solar quote | 0% VAT — ⚠️ **confirm this is correct before sign-off** |
+| V11 | Re-run BUS scenarios 1–10 above | **No BUS regression** — grant figures unchanged |
+| V12 | Intro copy | New sentence on main quotes; "alternative options" line unchanged |
+
+> **Note on V6.** The note line is gated on **a heat pump quote AND at least one 20%-rated quote**,
+> deliberately stricter than "the proposal includes a heat pump" — on a heat-pump-only proposal the
+> sentence would describe blending with underfloor heating that isn't there. If you want it shown on
+> heat-pump-only proposals too, it is a one-line change in `generateTotalPriceBar()`.
+
+### Also worth checking
+
+- [ ] **Heat pump quotes of every sub-type** — `Heat Pump (ASHP)`, `(GSHP)`, `(EAHP)` — all show 0%.
+      These raw list values differ from the display name `Heat Pump`; if any shows 20%, quote-type
+      normalisation is not working.
+- [ ] **"plus VAT" appears only in the total system price header** on the quote page — not on the
+      heat pump price card and not on the Solar/Commissioning cost cards. It **should** still appear
+      on the Design+ upgrade price in the UFH upgrade banner (that is not a section price card).
+- [ ] **Total inc VAT is internally consistent** — it must equal (subtotal − discount + displayed
+      VAT), and on a BUS quote, minus the grant. If VAT changed but the total didn't, the corrected
+      total is not being used.
+- [ ] Quote pages where `record.load()` fails in the Send Quote SL still show their NetSuite
+      fallback amount rather than £0.00.
+
+### Execution Log greps
+
+| Tag | Written by | What to check |
+|---|---|---|
+| `VAT_MISMATCH` | VAT module | **the work-list.** Each entry names an Estimate whose tax codes are wrong |
+| `VAT_RATE_UNMATCHED` | VAT module | expected only in V9; anywhere else means a quote type is missing from `QUOTE_TYPE_ALIASES` |
+| `VAT_QUOTE_TYPE` | Quote Suitelet | which route resolved the type — "inferred from grouped items" means `custbody_quote_type` was unreadable |
+| `VAT_FIGURES` | Quote Suitelet | all derived VAT figures as JSON |
+| `SendQuoteSL.VAT` | Send Quote SL | per-Estimate rate, net, derived VAT, NetSuite tax total |
+| `BUS_RESOLVE` / `BUS_UNMATCHED` | BUS module | unchanged from v4.4.0 — confirm no regression |

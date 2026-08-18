@@ -77,21 +77,23 @@
 
 1. Navigate to **Documents > Files > SuiteScripts > NuHeat**
 
-> ### ⚠️ UPLOAD ORDER MATTERS (v4.4.0)
+> ### ⚠️ UPLOAD ORDER MATTERS (v4.4.0, v4.5.0)
 >
-> **`nuheat_bus_grant.js` MUST be uploaded FIRST**, before `nuheat_quote_suitelet.js` or
-> `nuheat_send_quote_sl.js` are redeployed. Both `define()` it as `'./nuheat_bus_grant'` and
-> **both fail at load time** if it is not already present in `SuiteScripts/NuHeat`.
+> **`nuheat_bus_grant.js` AND `nuheat_vat_rates.js` MUST be uploaded FIRST**, before
+> `nuheat_quote_suitelet.js` or `nuheat_send_quote_sl.js` are redeployed. Both consumers
+> `define()` them as `'./nuheat_bus_grant'` and `'./nuheat_vat_rates'`, and **both fail at load
+> time** if either module is not already present in `SuiteScripts/NuHeat`.
 >
-> `nuheat_bus_grant.js` is a shared custom module — it needs **no script record and no script
-> deployment record**, only the File Cabinet upload. The relative path resolves against the
-> calling script's own folder, so all files must sit in the same `SuiteScripts/NuHeat` folder.
+> Both are shared custom modules — they need **no script record and no script deployment record**,
+> only the File Cabinet upload. The relative path resolves against the calling script's own folder,
+> so all files must sit in the same `SuiteScripts/NuHeat` folder.
 >
-> If you have already redeployed a consumer and it is erroring on load, upload
-> `nuheat_bus_grant.js` and the error clears — no redeploy of the consumer is needed.
+> If you have already redeployed a consumer and it is erroring on load, upload the missing module
+> and the error clears — no redeploy of the consumer is needed.
 
 2. Upload the scripts (all files live at the **repository root** — there is no `src/` directory):
-   - **`nuheat_bus_grant.js`** ← **upload this one FIRST** (shared module, no script record needed)
+   - **`nuheat_bus_grant.js`** ← **upload FIRST** (shared module, no script record needed)
+   - **`nuheat_vat_rates.js`** ← **upload FIRST** (shared module, no script record needed)
    - `nuheat_quote_suitelet.js`
    - `nuheat_quote_ue.js`
    - `nuheat_quote_cs.js`

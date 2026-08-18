@@ -196,6 +196,40 @@ line) became three outcomes resolved from the **Suppak line item**, which is aut
 - Removed both `HP_GRANT_AMOUNT` constants and the dead `.grant-banner` code (unreachable since
   both call sites passed `showGrantBanner = false`). `.hp-grant-banner` is the live card.
 
+### Phase 10: VAT by Technology & Proposal Copy (18 August 2026, v4.5.0 / v1.8.0 / v1.7.0 / v1.0.0)
+
+**The scripts had never calculated VAT.** There was no `0.2` multiplier anywhere in the codebase —
+both surfaces echoed NetSuite's `taxtotal` verbatim. Heat pump quotes were displaying 20% because
+**the tax codes on those Estimate lines are wrong in NetSuite**. UK VAT on heat pump installations is
+0% under energy-saving materials relief; underfloor heating is standard-rated at 20%.
+
+**⚠️ The fix is a display stopgap, not a cure.** The customer-facing figure is now correct, but
+NetSuite will still invoice from its own (wrong) tax codes. Every disagreement over 1p writes a
+`VAT_MISMATCH` audit entry naming the Estimate and both figures — **that log is the work-list for
+correcting the source data.** Until it is worked through, the quote page and the Estimate disagree.
+
+**Key decisions:**
+- **New shared module `nuheat_vat_rates.js`**, following the `nuheat_bus_grant.js` pattern from
+  Phase 9 — File Cabinet upload only, no deployment record, imported by relative path.
+- **No line-level tax capture.** Every Estimate is single-technology (the Master Proposal is what
+  groups technologies), so one rate applies per quote and `extractLineItems()` was left alone.
+- **VAT applies after discount** — `netAmount = subtotal - discount`, consistent with the codebase's
+  documented invariant `total = subtotal - discount + tax`.
+- **Total inc VAT is recomputed.** NetSuite's `total` carries the wrong VAT, so recomputing VAT
+  without recomputing the total would have left the two inconsistent. `balanceAfterBus` is ex-VAT
+  and unchanged; the BUS grant applies to the 0%-rated heat pump, so deducting it from an inc-VAT
+  total stays sound.
+- **Raw list values are normalised inside the module.** `VAT_RATES` is keyed on display names but
+  callers hold raw values like `'Heat Pump (ASHP)'`. Without normalisation those fall through to the
+  20% default — charging a heat pump 20%, silently, because `'Heat Emitter'` defaults to 20% too and
+  looks right.
+- **Unknown types default to 20%**, never under-charging, and log `VAT_RATE_UNMATCHED`.
+- **"plus VAT" removed from the section price cards** — VAT is referenced only in the total system
+  price header.
+- **Blended-VAT note** on the Master Proposal, gated on a heat pump quote **and** a 20%-rated quote,
+  so it never claims a blend that isn't there.
+- **⚠️ Solar assumed 0%** — only HP and UFH were specified. One-line change in `VAT_RATES` if wrong.
+
 ---
 
 ## 3. Current System State
@@ -204,26 +238,28 @@ line) became three outcomes resolved from the **Suppak line item**, which is aut
 
 | Component | Version | File | Status |
 |-----------|---------|------|--------|
-| Quote Suitelet | v4.4.0 | `nuheat_quote_suitelet.js` | ⏳ Pending Sandbox testing |
+| Quote Suitelet | v4.5.0 | `nuheat_quote_suitelet.js` | ⏳ Pending Sandbox testing |
 | Quote UE | v4.0.9 | `nuheat_quote_ue.js` | ✅ Production ready |
 | Quote CS | v4.0.6 | `nuheat_quote_cs.js` | ✅ Production ready |
 | Quote Viewer | v1.1.0 | `nuheat_quote_viewer_sl.js` | ✅ Production ready |
 | Scheduled Script | v1.0.0 | `nuheat_quote_generator_ss.js` | ✅ Production ready |
-| Master Proposal | v1.7.0 | `nuheat_master_proposal.js` | ⏳ Pending Sandbox testing |
-| Send Quote SL | v1.6.0 | `nuheat_send_quote_sl.js` | ⏳ Pending Sandbox testing |
-| Send Quote CS | v1.3.0 | `nuheat_send_quote_cs (1).js` | ⏳ Pending Sandbox testing |
+| Master Proposal | v1.8.0 | `nuheat_master_proposal.js` | ⏳ Pending Sandbox testing |
+| Send Quote SL | v1.7.0 | `nuheat_send_quote_sl.js` | ⏳ Pending Sandbox testing |
+| Send Quote CS | v1.4.0 | `nuheat_send_quote_cs (1).js` | ⏳ Pending Sandbox testing |
 | Opportunity UE | v1.0.0 | `nuheat_opportunity_ue.js` | ✅ Production ready |
 | Opportunity CS | v1.0.0 | `nuheat_opportunity_cs.js` | ✅ Production ready |
 | Analytics Suitelet | v1.0.1 | `nuheat_analytics_sl.js` | ✅ Production ready |
 | **BUS Grant Module** | **v1.0.0** | **`nuheat_bus_grant.js`** | ⏳ Pending Sandbox testing |
+| **VAT Rates Module** | **v1.0.0** | **`nuheat_vat_rates.js`** | ⏳ Pending Sandbox testing |
 
 > **All scripts live at the repository root — there is no `src/` directory.** Older documentation
 > cited `src/…` paths that have not existed for some time; those references are being corrected
 > as sections are touched.
 
-> ⚠️ **`nuheat_bus_grant.js` is a shared custom module.** It needs no script deployment record,
-> only a File Cabinet upload — but it must be uploaded to `SuiteScripts/NuHeat` **before** the
-> Quote Suitelet or the Send Quote SL is redeployed, or both fail at load time.
+> ⚠️ **`nuheat_bus_grant.js` and `nuheat_vat_rates.js` are shared custom modules.** Neither needs a
+> script deployment record, only a File Cabinet upload — but **both** must be uploaded to
+> `SuiteScripts/NuHeat` **before** the Quote Suitelet or the Send Quote SL is redeployed, or both
+> consumers fail at load time.
 
 ### Current Configuration
 
@@ -320,6 +356,13 @@ line) became three outcomes resolved from the **Suppak line item**, which is aut
 │   ├── BUS_ENHANCED_ITEMS       # Suppak BUS - Uplift
 │   ├── normaliseItemName()      # Strips "Parent : Child", collapses ws, lowercases
 │   └── resolveBusGrant()        # -> {amount, rate, matchedItem, suppressedBy}
+│
+├── nuheat_vat_rates.js         # Shared VAT rate resolution (v1.0.0)
+│   ├── VAT_RATES                # HP 0% / Solar 0% / UFH 20% / Other 20%
+│   ├── QUOTE_TYPE_ALIASES       # Raw custbody_quote_type values -> display names
+│   ├── resolveVatRate()         # -> {rate, percent, matched, quoteType}
+│   ├── calculateVat()           # VAT on (subtotal - discount), 2dp
+│   └── logVatMismatch()         # VAT_MISMATCH when derived != NetSuite taxtotal
 │
 ├── nuheat_quote_suitelet.js    # ~4,500 lines — the big one
 │   ├── Constants & Config       # BRAND, PRODUCT_TYPE_ID_MAP, etc.

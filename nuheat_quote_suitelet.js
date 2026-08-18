@@ -9,7 +9,7 @@
  * accessible via public URL with print-to-PDF functionality.
  * 
  * Author: Nu-Heat Development Team
- * @version 4.4.0
+ * @version 4.5.0
  * Created: February 2026
  * Updated: 28 March 2026 - v4.3.49: Suitelet Proxy for stable URLs, timestamped filenames, file cleanup
  * Updated: 28 March 2026 - v4.3.50: Removed invalid search.lookupFields() for pricing, simplified data priority
@@ -27,17 +27,20 @@
  * Updated: 18 August 2026 - v4.4.0: BUS grant rate resolution (£7,500 / £9,000 / none) from the Suppak line item via
  *          ./nuheat_bus_grant, HP price clamped at £0.00, un-clamped post-grant balance in both total sections,
  *          grant cascade to commissioning, refundable-excess line, removed dead .grant-banner code
+ * Updated: 18 August 2026 - v4.5.0: VAT derived by technology via ./nuheat_vat_rates (HP/Solar 0%, UFH 20%) instead of
+ *          echoing NetSuite's taxtotal, corrected Total inc VAT, VAT_MISMATCH audit logging, removed "plus VAT" from
+ *          the section price cards (VAT is now referenced only in the total system price header)
  *
  * For detailed version history, see CHANGELOG.md
  */
 
-define(['N/record', 'N/search', 'N/log', 'N/format', 'N/error', 'N/runtime', 'N/file', 'N/url', './nuheat_bus_grant'],
-    function(record, search, log, format, error, runtime, file, url, busGrant) {
+define(['N/record', 'N/search', 'N/log', 'N/format', 'N/error', 'N/runtime', 'N/file', 'N/url', './nuheat_bus_grant', './nuheat_vat_rates'],
+    function(record, search, log, format, error, runtime, file, url, busGrant, vatRates) {
 
         // =====================================================================
         // SCRIPT VERSION
         // =====================================================================
-        var SCRIPT_VERSION = '4.4.0';
+        var SCRIPT_VERSION = '4.5.0';
 
         // =====================================================================
         // GTM CONFIGURATION (v4.3.68)
@@ -1738,6 +1741,63 @@ function loadQuoteData(quoteId, debugLog, pricingOverrides) {
             const categoryTotals = calculateCategoryTotals(groupedItems, headerData.currencySymbol, estimate);
 
             // =====================================================================
+            // VAT — SINGLE CALCULATION BLOCK (v4.5.0)
+            // =====================================================================
+            // The scripts have never calculated VAT — both surfaces echoed NetSuite's
+            // 'taxtotal' verbatim. Heat pump quotes were showing 20% because the TAX CODES
+            // ON THOSE ESTIMATES ARE WRONG. This derives the rate that should apply from the
+            // quote's technology and displays that instead.
+            //
+            // ⚠️ This is a DISPLAY STOPGAP, not a fix. Where the derived figure disagrees
+            // with NetSuite, VAT_MISMATCH is logged at audit level — those entries are the
+            // work-list for correcting the tax codes at source. Until that happens the quote
+            // page and the Estimate will disagree.
+            //
+            // Every Estimate is single-technology, so one rate applies to the whole quote and
+            // no line-level tax capture is needed.
+            var quoteTypeText = headerData.quoteTypeText || '';
+            var quoteTypeSource = 'custbody_quote_type';
+            if (!quoteTypeText) {
+                // getText() on a list field is unreliable — infer from what is actually on the quote.
+                if (groupedItems['Heat Pump'].length > 0) {
+                    quoteTypeText = 'Heat Pump';
+                } else if (groupedItems['Solar thermal'].length > 0) {
+                    quoteTypeText = 'Solar';
+                } else {
+                    quoteTypeText = 'Underfloor Heating';
+                }
+                quoteTypeSource = 'inferred from grouped items';
+            }
+            log.audit('VAT_QUOTE_TYPE', 'Quote ' + quoteId + ' type="' + quoteTypeText +
+                '" (source: ' + quoteTypeSource + ')');
+
+            var vatInfo = vatRates.resolveVatRate(quoteTypeText);
+            // VAT applies AFTER discount. headerData.discountTotal is already Math.abs()'d,
+            // and the codebase's documented invariant is total = subtotal - discount + tax,
+            // so subtotal is gross of discount and this subtraction is correct.
+            var netAmount  = headerData.subtotal - headerData.discountTotal;
+            var derivedVat = vatRates.calculateVat(netAmount, vatInfo.rate);
+
+            vatRates.logVatMismatch('QuoteSuitelet', quoteId, derivedVat, headerData.taxTotal, quoteTypeText);
+
+            // Replaces headerData.total for display. NetSuite's 'total' already contains the
+            // WRONG VAT — recomputing VAT without recomputing the total leaves them inconsistent.
+            var correctedTotalIncVat = netAmount + derivedVat;
+
+            var vatFigures = {
+                rate:       vatInfo.rate,
+                percent:    vatInfo.percent,       // '0%' | '20%'
+                amount:     derivedVat,
+                quoteType:  vatInfo.quoteType,     // normalised display name
+                rawQuoteType: quoteTypeText,
+                netAmount:  netAmount,
+                correctedTotalIncVat: correctedTotalIncVat,
+                netsuiteTaxTotal: headerData.taxTotal   // kept for comparison/debugging
+            };
+
+            log.audit('VAT_FIGURES', JSON.stringify(vatFigures));
+
+            // =====================================================================
             // BUS GRANT — SINGLE CALCULATION BLOCK (v4.4.0)
             // =====================================================================
             // Resolve ONCE here and store on quoteData.bus so every render function
@@ -1756,8 +1816,11 @@ function loadQuoteData(quoteId, debugLog, pricingOverrides) {
                                         ? Math.max(0, commissioningTotal - residualGrant)
                                         : commissioningTotal;
 
-            var balanceAfterBus     = grossSubtotal - busAmount;           // MAY BE NEGATIVE
-            var totalIncVatAfterBus = headerData.total - busAmount;        // MAY BE NEGATIVE
+            var balanceAfterBus     = grossSubtotal - busAmount;           // MAY BE NEGATIVE (ex-VAT, unchanged)
+            // v4.5.0: built from the CORRECTED total, not NetSuite's (which holds the wrong VAT).
+            // The BUS grant applies to the heat pump, which is 0%-rated, so deducting it from an
+            // inc-VAT total remains arithmetically sound.
+            var totalIncVatAfterBus = correctedTotalIncVat - busAmount;    // MAY BE NEGATIVE
             var creditDue           = Math.max(0, -balanceAfterBus);       // refundable amount
 
             var busFigures = {
@@ -1809,6 +1872,7 @@ function loadQuoteData(quoteId, debugLog, pricingOverrides) {
                 groupedItems: groupedItems,
                 categoryTotals: categoryTotals,
                 bus: busFigures,               // v4.4.0 - Resolved BUS grant + all derived display figures
+                vat: vatFigures,               // v4.5.0 - Derived VAT by technology (NOT NetSuite's taxtotal)
                 systemInfo: systemInfo,
                 roomsList: roomsList,  // v3.8.0 - New parsed rooms array
                 roomsHtml: roomsHtml,  // Legacy HTML fallback
@@ -1868,6 +1932,16 @@ function loadQuoteData(quoteId, debugLog, pricingOverrides) {
             const tranId = estimate.getValue({ fieldId: 'tranid' }) || '';
             const tranDate = estimate.getValue({ fieldId: 'trandate' });
             const formattedDate = tranDate ? formatDate(tranDate) : '';
+
+            // v4.5.0: Quote type drives the VAT rate (see ./nuheat_vat_rates).
+            // Per project rules getText() on a list field is unreliable, so this is defensive —
+            // loadQuoteData() infers from the grouped items when it comes back empty.
+            var quoteTypeText = '';
+            try {
+                quoteTypeText = estimate.getText({ fieldId: 'custbody_quote_type' }) || '';
+            } catch (qtErr) {
+                log.audit('extractHeaderData', 'v4.5.0 Could not read custbody_quote_type: ' + qtErr.message);
+            }
             
             // v4.3.50: STALE DATA FIX - prefer client script overrides over record.load()
             // record.load() values may be cached in the same execution context
@@ -1964,8 +2038,9 @@ function loadQuoteData(quoteId, debugLog, pricingOverrides) {
                 rawTranDate: tranDate,
                 expiryDate: expiryDate ? formatDate(expiryDate) : '',
                 subtotal: subtotal,
-                taxTotal: taxTotal,
-                total: total,
+                taxTotal: taxTotal,          // NetSuite's figure — v4.5.0 displays a DERIVED VAT instead
+                total: total,                // NetSuite's figure — contains the wrong VAT; see quoteData.vat
+                quoteTypeText: quoteTypeText, // v4.5.0 - raw custbody_quote_type ('' when unreadable)
                 discountTotal: Math.abs(discountTotal),
                 hasDiscount: discountTotal !== 0,
                 projectName: projectName,
@@ -4020,7 +4095,7 @@ function loadQuoteData(quoteId, debugLog, pricingOverrides) {
 '            <div class="top-total-breakdown">\n' +
                  busHtml +
                  discountHtml +
-'                <div class="top-total-breakdown-item">VAT: ' + symbol + formatNumber(header.taxTotal) + '</div>\n' +
+'                <div class="top-total-breakdown-item">VAT at ' + quoteData.vat.percent + ': ' + symbol + formatNumber(quoteData.vat.amount) + '</div>\n' +
 '                <div class="top-total-breakdown-item top-total-inc-vat">Total inc VAT: ' + formatSignedCurrency(displayTotal, symbol) + '</div>\n' +
 '            </div>\n' +
 '        </div>\n' +
@@ -4302,7 +4377,7 @@ function loadQuoteData(quoteId, debugLog, pricingOverrides) {
             html += '    <div class="hp-price-card">\n' +
 '        <div class="hp-price-row">\n' +
 '            <span class="hp-price-label">Your heat pump price (On-site commissioning priced below):</span>\n' +
-'            <span class="hp-price-amount">' + symbol + formatNumber(bus.hpDisplayPrice) + ' <span class="hp-price-vat">plus VAT</span></span>\n' +
+'            <span class="hp-price-amount">' + symbol + formatNumber(bus.hpDisplayPrice) + '</span>\n' +
 '        </div>\n' +
 '    </div>\n';
 
@@ -4668,7 +4743,7 @@ function loadQuoteData(quoteId, debugLog, pricingOverrides) {
 '    <div class="category-cost-card">\n' +
 '        <div class="category-cost-row">\n' +
 '            <div class="category-cost-label">' + escapeHtml(costLabel) + (header.hasDiscount ? '<small>This includes your discount of ' + symbol + formatNumber(header.discountTotal) + '</small>' : '') + '</div>\n' +
-'            <div class="category-cost-value">' + totals.formatted + ' <span class="category-cost-vat">plus VAT</span></div>\n' +
+'            <div class="category-cost-value">' + totals.formatted + '</div>\n' +
 '        </div>\n' +
 '    </div>\n' +
     breakdownHtml +
@@ -4711,7 +4786,7 @@ function loadQuoteData(quoteId, debugLog, pricingOverrides) {
 '            <div class="total-breakdown-list">\n' +
                  busHtml +
                  discountHtml +
-'                <div class="total-breakdown-item">VAT: ' + symbol + formatNumber(header.taxTotal) + '</div>\n' +
+'                <div class="total-breakdown-item">VAT at ' + quoteData.vat.percent + ': ' + symbol + formatNumber(quoteData.vat.amount) + '</div>\n' +
 '                <div class="total-breakdown-item total-inc-vat">Total inc VAT: ' + formatSignedCurrency(displayTotal, symbol) + '</div>\n' +
 '            </div>\n' +
 '        </div>\n' +
