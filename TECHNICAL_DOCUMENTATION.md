@@ -168,7 +168,7 @@ EXTERNAL ACCESS:
 | Quote Client Script | `nuheat_quote_cs.js` | v4.0.6 | ClientScript | Handles "Regen quote" button click; saves record first, passes fresh pricing |
 | Quote Viewer | `nuheat_quote_viewer_sl.js` | v1.1.0 | Suitelet | Proxy that serves latest quote HTML via stable URL |
 | Scheduled Script | `nuheat_quote_generator_ss.js` | v1.0.0 | ScheduledScript | Fallback for governance-limited UE contexts |
-| Master Proposal | `nuheat_master_proposal.js` | v1.8.1 | Module | Generates multi-quote master proposals |
+| Master Proposal | `nuheat_master_proposal.js` | v1.8.2 | Module | Generates multi-quote master proposals |
 | Send Quote SL | `nuheat_send_quote_sl.js` | v1.7.0 | Suitelet | Quote selection UI for proposal generation |
 | Send Quote CS | `nuheat_send_quote_cs (1).js` | v1.4.0 | ClientScript | Handles Send Quote form interactions |
 | Opportunity UE | `nuheat_opportunity_ue.js` | v1.0.0 | UserEventScript | Adds "Send Quote" button to Opportunity form |

@@ -6,7 +6,7 @@
  * @description Module that generates a master proposal HTML page aggregating
  *              multiple quotes under a single Opportunity. Called by the
  *              Send Quote Suitelet after the user selects which quotes to include.
- * @version     1.8.1
+ * @version     1.8.2
  * @author      Nu-Heat Development
  *
  * CHANGELOG v1.6.6 (feat: Site address in Customer Information):
@@ -199,7 +199,7 @@ define([
 
     // ─── Constants ────────────────────────────────────────────────────────────────
 
-    var MODULE_VERSION = '1.8.1';
+    var MODULE_VERSION = '1.8.2';
 
     var GTM_CONTAINER_ID = 'GTM-5NJJSBMP';
 
@@ -1279,7 +1279,7 @@ define([
             '.top-total-vat-note { margin-top: 6px; }',
             '.top-total-right { text-align: right; }',
             '.top-total-amount { font-size: 36px; font-weight: 700; margin-bottom: 0; }',
-            '.top-total-plus-vat { font-size: 20px; font-weight: 400; vertical-align: middle; }',
+            '.top-total-plus-vat { display: block; font-size: 20px; font-weight: 400; margin-top: 6px; }',
             '.top-total-breakdown { font-size: 14px; opacity: 0.9; margin-top: 6px; }',
             '.top-total-breakdown-item { margin-bottom: 5px; }',
             '.top-total-inc-vat { font-size: 16px; font-weight: 700; margin-top: 10px; padding-top: 10px; border-top: 1px solid rgba(255,255,255,0.3); }',

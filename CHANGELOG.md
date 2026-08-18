@@ -1,3 +1,56 @@
+## [Master Proposal v1.8.2] — 18 August 2026
+**Status:** ⏳ Draft — pending Sandbox testing
+**Component:** `nuheat_master_proposal.js`
+
+**One CSS rule.** No JavaScript, no HTML restructuring, no other file. Everything else in this PR has
+passed Sandbox testing and is untouched.
+
+### Fixed
+Appending the blended VAT amount in v1.8.1 made `.top-total-plus-vat` long enough to wrap, and
+because it was an inline span it broke mid-phrase — orphaning "plus" beside the price:
+
+```
+£10,603.12 plus            →    £10,603.12
+VAT £1,057.71                   plus VAT £1,057.71
+─────────────────────           ─────────────────────
+Total inc. VAT: £11,660.83      Total inc. VAT: £11,660.83
+```
+
+```diff
+- '.top-total-plus-vat { font-size: 20px; font-weight: 400; vertical-align: middle; }',
++ '.top-total-plus-vat { display: block; font-size: 20px; font-weight: 400; margin-top: 6px; }',
+```
+
+- `display: block` puts the whole phrase on its own line, so it can never split mid-sentence however
+  large the VAT figure gets.
+- `vertical-align: middle` dropped — a no-op on a block element, meaningful only while inline.
+- `margin-top: 6px` separates it from the 36px price without opening a gap that fights the
+  `border-top` on `.top-total-inc-vat` below.
+
+**No HTML change** — the markup was already correct; this is purely how the existing span displays.
+
+**No mobile override added, and none needed.** There is no `.top-total-plus-vat` rule in the
+`max-width: 768px` block, and `.top-total-right { text-align: center; }` already applies there, so
+the block span centres under the price on mobile exactly as it right-aligns on desktop. Adding a rule
+would be redundant and risk drift.
+
+**Font size left at 20px.** Dropping to 18px would read as more clearly secondary now the line stands
+alone, but only the line break was asked for and an unrequested size change is harder to spot in
+review than to make. Rendering confirms it does not visibly compete with the 36px price.
+
+### Deliberately not changed — the quote page
+`nuheat_quote_suitelet.js` has its own `.top-total-plus-vat` class, but it renders the bare words
+"plus VAT" with no amount appended, so it is far too short to wrap. Applying the same change there
+would alter a layout that is already signed off, for no benefit. Left alone.
+
+### Testing notes
+E1–E7 in `TESTING_GUIDE.md`. Verified by rendering the shipped CSS in Chromium at 1280px and 420px:
+the span computes to `display: block` at 23px tall (a wrapped span would be ~46px) and sits below the
+price in every case, including a £12,345.67 VAT figure. The `@media print` block contains no
+`top-total` rules, so print inherits the same behaviour.
+
+---
+
 ## [Quote Suitelet v4.5.1 / Master Proposal v1.8.1] — 18 August 2026
 **Status:** ⏳ Draft — pending Sandbox testing
 **Components:** `nuheat_quote_suitelet.js`, `nuheat_master_proposal.js`

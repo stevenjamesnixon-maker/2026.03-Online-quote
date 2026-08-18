@@ -53,6 +53,28 @@
 
 ## Master Proposal (`nuheat_master_proposal.js`)
 
+### v1.8.2 — 18 August 2026 ⏳ Draft — pending Sandbox testing
+
+**One CSS rule — no JavaScript, no HTML, no other file.**
+
+- FIXED: `.top-total-plus-vat` wrapped mid-phrase once v1.8.1 appended the VAT amount, orphaning
+  "plus" beside the price (`£10,603.12 plus` / `VAT £1,057.71`). Now `display: block`, so the whole
+  phrase takes its own line and can never split however large the figure gets.
+- REMOVED: `vertical-align: middle` — a no-op on a block element, meaningful only while inline.
+- ADDED: `margin-top: 6px` — separates it from the 36px price without opening a gap that fights the
+  `border-top` on `.top-total-inc-vat` below.
+- UNCHANGED: the HTML at `generateTotalPriceBar()` — the markup was already correct.
+- UNCHANGED: no mobile override added. There is no `.top-total-plus-vat` rule in the
+  `max-width: 768px` block and none is needed — `.top-total-right { text-align: center; }` already
+  centres the block span under the price there.
+- Font size left at 20px; only the line break was requested.
+
+> **Quote page deliberately untouched.** `nuheat_quote_suitelet.js` has its own
+> `.top-total-plus-vat` class, but it renders the bare words "plus VAT" with no amount, so it is far
+> too short to wrap. Changing it would alter a signed-off layout for no benefit.
+
+---
+
 ### v1.8.1 — 18 August 2026 ⏳ Draft — pending Sandbox testing
 
 **Presentation only — no calculation logic changed.**

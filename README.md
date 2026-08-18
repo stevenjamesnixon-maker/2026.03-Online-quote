@@ -217,7 +217,7 @@ See [Configuration Checklist](docs/CONFIGURATION_CHECKLIST.md) for the full list
 | Quote UE Script | v4.0.9 | 28 Mar 2026 |
 | Quote Client Script | v4.0.6 | 28 Mar 2026 |
 | Quote Viewer | v1.1.0 | 28 Mar 2026 |
-| Master Proposal | v1.8.1 | 18 Aug 2026 |
+| Master Proposal | v1.8.2 | 18 Aug 2026 |
 | Send Quote Suitelet | v1.7.0 | 18 Aug 2026 |
 | Send Quote CS | v1.4.0 | 18 Aug 2026 |
 | Opportunity UE | v1.0.0 | 28 Mar 2026 |

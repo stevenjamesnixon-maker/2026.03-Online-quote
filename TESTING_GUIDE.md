@@ -187,3 +187,25 @@ above must be identical — D14 exists to confirm that.
 - [ ] Proposal cards no longer say "Includes £7,500.00 BUS grant" — but the `.grant-highlight` banner
       below the cards still does.
 - [ ] The refund label reads as a label, not a second figure — smaller and lighter than the price.
+
+---
+
+## Proposal "plus VAT" on its own line (v1.8.2)
+
+One CSS rule in `nuheat_master_proposal.js`. No logic, no HTML, no other file — everything else in
+this PR is unaffected.
+
+| # | Scenario | Expected |
+|---|---|---|
+| E1 | Proposal, HP + UFH, desktop | `plus VAT £1,057.71` on its own line, right-aligned under the price, never split |
+| E2 | Proposal, large VAT figure (e.g. £12,345.67) | Still one unbroken line |
+| E3 | Proposal, HP only | `plus VAT £0.00` on its own line |
+| E4 | Mobile 768px | VAT line centred under the price, consistent with the rest of the block |
+| E5 | Print / PDF | Renders on its own line, no clipping |
+| E6 | Spacing | Clean gap above the `Total inc. VAT` border — not cramped, not floating |
+| E7 | Quote page total sections | **Unchanged** — confirm no regression |
+
+> **E7 — why the quote page is excluded.** `nuheat_quote_suitelet.js` has a `.top-total-plus-vat`
+> class of its own, but it renders the bare words "plus VAT" with no amount appended, so it is far
+> too short to wrap. It was deliberately left alone; if it looks any different from before, something
+> unintended has changed.
