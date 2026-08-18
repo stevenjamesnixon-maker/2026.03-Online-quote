@@ -6,7 +6,7 @@
  * @description Module that generates a master proposal HTML page aggregating
  *              multiple quotes under a single Opportunity. Called by the
  *              Send Quote Suitelet after the user selects which quotes to include.
- * @version     1.8.0
+ * @version     1.8.1
  * @author      Nu-Heat Development
  *
  * CHANGELOG v1.6.6 (feat: Site address in Customer Information):
@@ -199,7 +199,7 @@ define([
 
     // ─── Constants ────────────────────────────────────────────────────────────────
 
-    var MODULE_VERSION = '1.8.0';
+    var MODULE_VERSION = '1.8.1';
 
     var GTM_CONTAINER_ID = 'GTM-5NJJSBMP';
 
@@ -832,7 +832,11 @@ define([
         }
         h.push('    </div>');
         h.push('    <div class="top-total-right">');
-        h.push('      <div class="top-total-amount">' + formatSignedCurrency(totals.subtotal) + ' <span class="top-total-plus-vat">plus VAT</span></div>');
+        // v1.8.1: show the blended VAT figure — "plus VAT" alone left the amount invisible
+        // unless the reader subtracted. totals.vat already sums each quote's own VAT
+        // (UFH at 20% + HP at 0%), so this is display only — no new calculation.
+        h.push('      <div class="top-total-amount">' + formatSignedCurrency(totals.subtotal) +
+               ' <span class="top-total-plus-vat">plus VAT ' + formatCurrency(totals.vat) + '</span></div>');
 
         // Breakdown
         if (totals.discount > 0) {
@@ -978,27 +982,34 @@ define([
             ': rate=' + (quote.busRate || 'none') + ', amount=' + busAmount +
             ', balanceAfterBus=' + displaySubtotal);
 
+        // v1.8.1: The refund is now a label ON the price line rather than a third chained
+        // clause in the detail line — three middot-separated clauses were hard to scan.
+        //
+        // ⚠️ Gated on totalIncVat, NOT displaySubtotal. The refundable amount is what the
+        // customer actually receives, which is the VAT-inclusive balance. Identical today
+        // (the BUS grant only applies to heat pumps, which are 0%-rated) but correct rather
+        // than coincidentally correct, and it will not silently break if VAT rules change.
+        var refundLabel = '';
+        if (totalIncVat < 0) {
+            refundLabel = ' <span class="system-card-refund">Refundable to you on completion</span>';
+        }
+
         h.push('    <div class="system-card-pricing">');
         // v1.7.0 FIX: was `if (displaySubtotal > 0)` — a negative balance must still render.
         if (displaySubtotal !== 0 || quoteHasBus) {
-            h.push('      <div class="system-card-price">' + formatSignedCurrency(displaySubtotal) + '</div>');
+            h.push('      <div class="system-card-price">' + formatSignedCurrency(displaySubtotal) + refundLabel + '</div>');
         }
 
-        // Price detail line: BUS grant, discount and/or total inc VAT
+        // Price detail line: discount and/or total inc VAT.
+        // v1.8.1: the "Includes £x BUS grant" clause was removed — the grant is already
+        // announced by the .grant-highlight banner below the cards, so it was redundant.
         var detailParts = [];
-        if (quoteHasBus) {
-            detailParts.push('Includes ' + formatCurrency(busAmount) + ' BUS grant');
-        }
         if (discountTotal !== 0) {
             var discountDisplay = Math.abs(discountTotal);
             detailParts.push('<span class="discount">Discount: -' + formatCurrency(discountDisplay) + '</span>');
         }
         if (totalIncVat !== 0 || quoteHasBus) {
             detailParts.push('Total inc. VAT: <strong>' + formatSignedCurrency(totalIncVat) + '</strong>');
-        }
-        // v1.7.0: When the grant exceeds the quote value, say what is owed back.
-        if (displaySubtotal < 0) {
-            detailParts.push(formatCurrency(Math.abs(displaySubtotal)) + ' refundable to you');
         }
         if (detailParts.length > 0) {
             h.push('      <div class="system-card-price-detail">' + detailParts.join(' &middot; ') + '</div>');
@@ -1322,6 +1333,7 @@ define([
             // System Card Footer
             '.system-card-footer { display: flex; justify-content: space-between; align-items: center; padding: 16px 24px; background: #f9f9f9; border-top: 1px solid #eee; }',
             '.system-card-price { font-size: 22px; font-weight: 700; color: #333; }',
+            '.system-card-refund { font-size: 13px; font-weight: 500; color: var(--color-primary); margin-left: 8px; white-space: nowrap; }',
             '.system-card-price-detail { font-size: 13px; color: #999; margin-top: 2px; }',
             '.system-card-price-detail .discount { color: var(--color-primary); font-weight: 500; }',
 
@@ -1423,6 +1435,7 @@ define([
             '',
             // ── System Cards (mobile) ──
             '  .system-card-footer { flex-direction: column; gap: 16px; align-items: stretch; text-align: center; }',
+            '  .system-card-refund { display: block; margin-left: 0; margin-top: 4px; white-space: normal; }',
             '  .system-card-cta { justify-content: center; }',
             '  .system-benefits { gap: 8px 16px; }',
             '  .system-benefit { flex: 0 0 calc(50% - 10px); }',

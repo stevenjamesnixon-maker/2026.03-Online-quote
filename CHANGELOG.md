@@ -1,3 +1,96 @@
+## [Quote Suitelet v4.5.1 / Master Proposal v1.8.1] — 18 August 2026
+**Status:** ⏳ Draft — pending Sandbox testing
+**Components:** `nuheat_quote_suitelet.js`, `nuheat_master_proposal.js`
+
+**Presentation only.** No calculation logic was touched. Every figure rendered here already existed
+on `quoteData.bus`, `quoteData.vat` or the proposal's `totals`. Sandbox testing of v4.4.0/v4.5.0 has
+passed and none of those figures change.
+
+No changes to `nuheat_bus_grant.js`, `nuheat_vat_rates.js`, `nuheat_send_quote_sl.js` or
+`nuheat_send_quote_cs (1).js` — and therefore **no new File Cabinet upload ordering concerns beyond
+those already documented for v4.4.0/v4.5.0**.
+
+### Changed — Master Proposal quote card pricing
+Three middot-chained clauses were cluttered and hard to scan:
+
+```
+-£2,351.88
+Includes £7,500.00 BUS grant · Total inc. VAT: -£2,351.88 · £2,351.88 refundable to you
+```
+
+now reads:
+
+```
+-£2,351.88  Refundable to you on completion
+Total inc. VAT: -£2,351.88
+```
+
+- **REMOVED:** the `Includes £x BUS grant` clause. The grant is already announced by the
+  `.grant-highlight` banner below the cards, so it was redundant.
+- **REMOVED:** the `£x refundable to you` clause from the detail line.
+- **ADDED:** a `Refundable to you on completion` label appended to the main price line, shown only
+  when the balance is negative.
+- The discount clause and the `Total inc. VAT:` clause are untouched.
+- ⚠️ **Gated on `totalIncVat`, not `displaySubtotal`.** The refundable amount is what the customer
+  actually receives, which is the VAT-inclusive balance. Identical today — the BUS grant only applies
+  to heat pumps, which are 0%-rated — but correct rather than coincidentally correct, and it will not
+  silently break if the VAT rules change.
+
+### Changed — Master Proposal total header
+`plus VAT` dangled with no figure, so the blended amount was invisible unless the reader subtracted:
+
+```
+£2,936.67 plus VAT                 →    £2,936.67 plus VAT £1,057.71
+─────────────────────                   ─────────────────────
+Total inc. VAT: £3,994.38               Total inc. VAT: £3,994.38
+```
+
+`calculateTotals()` already returns `totals.vat` — the sum of every selected quote's VAT, which is
+exactly the blended figure (UFH at 20% + HP at 0%). No new calculation, no CSS change:
+`.top-total-plus-vat` already styles the span.
+
+### Added — Quote page refundable line
+Both total sections now show a `Refundable amount` line between the VAT line and `Total inc VAT`,
+when the balance after BUS is negative:
+
+```
+System price: £5,148.12
+BUS grant applied: -£7,500.00
+VAT at 0%: £0.00
+Refundable amount: £2,351.88     ← new
+─────────────────────
+Total inc VAT: -£2,351.88
+```
+
+- Added to **both** `renderTopTotalSection()` and `renderTotalSection()` — they render the same
+  figures at the top and bottom of the page and would look broken if only one changed.
+- Shown as a **positive** figure — it is money coming back. `Math.max(0, -x)` also guarantees no
+  `£0.00` row and no `-£0.00`.
+- ⚠️ Derived from `bus.totalIncVatAfterBus`, **not** `bus.creditDue`. `creditDue` is ex-VAT; the
+  refundable amount is VAT-inclusive. Identical today, correct in principle.
+- The `Total inc VAT` line and its top border are unchanged.
+
+### Added — CSS
+- `.system-card-refund` — 13px, weight 500, primary colour, `margin-left: 8px`, `white-space: nowrap`.
+  Smaller and lighter than the price so it reads as a label, not a second figure.
+- Mobile (`max-width: 768px`) — `display: block` so it wraps onto its own line rather than squashing
+  the price.
+
+### Note on the Change B sanity check
+The brief asked to verify `plus VAT` equals `Total inc. VAT − subtotal`, and to report a divergence
+as a real defect rather than paper over it. **They have not diverged**, but the check only holds when
+there is no discount. With one present, `totalIncVat − subtotal = vat − discount`, because the
+headline subtotal is gross of discount and the discount is shown as its own breakdown line. The
+displayed arithmetic is right in both cases — `subtotal − discount + VAT = Total inc. VAT` —
+and `totals.vat` is the correct figure to render. Verified numerically both ways.
+
+### Testing notes
+- D1–D14 in `TESTING_GUIDE.md`, including a re-run of the Phase 2–3 BUS and VAT scenarios (D14).
+- Check the refundable line appears in **both** total sections, never at £0.00 or −£0.00.
+- Check the refund label wraps below the price at 768px rather than squashing it.
+
+---
+
 ## [Quote Suitelet v4.5.0 / Master Proposal v1.8.0 / Send Quote SL v1.7.0 / VAT Module v1.0.0] — 18 August 2026
 **Status:** ⏳ Draft — pending Sandbox testing
 **Components:** `nuheat_vat_rates.js` (NEW), `nuheat_quote_suitelet.js`, `nuheat_master_proposal.js`, `nuheat_send_quote_sl.js`, `nuheat_send_quote_cs (1).js`

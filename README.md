@@ -58,7 +58,7 @@ nuheat_netsuite_suitelet/
 │
 │   ├── nuheat_bus_grant.js            # Shared BUS grant resolution module (v1.0.0)
 │   ├── nuheat_vat_rates.js            # Shared VAT rate resolution module (v1.0.0)
-│   ├── nuheat_quote_suitelet.js       # Core quote HTML generation engine (v4.5.0)
+│   ├── nuheat_quote_suitelet.js       # Core quote HTML generation engine (v4.5.1)
 │   ├── nuheat_quote_ue.js             # User Event — auto-gen + "Regen quote" button (v4.0.9)
 │   ├── nuheat_quote_cs.js             # Client Script — button handler (v4.0.6)
 │   ├── nuheat_quote_viewer_sl.js      # Proxy Suitelet for stable URLs (v1.1.0)
@@ -213,11 +213,11 @@ See [Configuration Checklist](docs/CONFIGURATION_CHECKLIST.md) for the full list
 
 | Component | Current Version | Last Updated |
 |-----------|----------------|--------------|
-| Quote Suitelet | v4.5.0 | 18 Aug 2026 |
+| Quote Suitelet | v4.5.1 | 18 Aug 2026 |
 | Quote UE Script | v4.0.9 | 28 Mar 2026 |
 | Quote Client Script | v4.0.6 | 28 Mar 2026 |
 | Quote Viewer | v1.1.0 | 28 Mar 2026 |
-| Master Proposal | v1.8.0 | 18 Aug 2026 |
+| Master Proposal | v1.8.1 | 18 Aug 2026 |
 | Send Quote Suitelet | v1.7.0 | 18 Aug 2026 |
 | Send Quote CS | v1.4.0 | 18 Aug 2026 |
 | Opportunity UE | v1.0.0 | 28 Mar 2026 |

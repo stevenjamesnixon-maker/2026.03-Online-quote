@@ -53,6 +53,32 @@
 
 ## Master Proposal (`nuheat_master_proposal.js`)
 
+### v1.8.1 — 18 August 2026 ⏳ Draft — pending Sandbox testing
+
+**Presentation only — no calculation logic changed.**
+
+- CHANGED: `generateQuoteCard()` price line now carries a `Refundable to you on completion` label
+  when the balance is negative, replacing the third middot-chained clause in the detail line.
+  ⚠️ Gated on `totalIncVat`, **not** `displaySubtotal` — the refundable amount is the VAT-inclusive
+  balance. Identical today, correct in principle.
+- REMOVED: the `Includes £x BUS grant` clause from the detail line — the grant is already announced
+  by the `.grant-highlight` banner below the cards.
+- REMOVED: the `£x refundable to you` clause from the detail line (replaced by the label above).
+- UNCHANGED: the discount clause and the `Total inc. VAT:` clause.
+- CHANGED: the total header now reads `plus VAT £1,057.71` rather than a bare `plus VAT`, which left
+  the blended amount invisible unless the reader subtracted. `calculateTotals()` already returns
+  `totals.vat`, so this is display only. No CSS change — `.top-total-plus-vat` already styles it.
+- ADDED: `.system-card-refund` CSS (13px, weight 500, primary colour) plus a `max-width: 768px` rule
+  so the label wraps onto its own line rather than squashing the price.
+
+> **On the `plus VAT` sanity check.** `totals.vat` and `totals.totalIncVat` have **not** diverged.
+> The check `vat === totalIncVat − subtotal` holds only without a discount; with one,
+> `totalIncVat − subtotal = vat − discount`, because the headline subtotal is gross of discount and
+> the discount is its own breakdown line. The displayed arithmetic is correct either way —
+> `subtotal − discount + VAT = Total inc. VAT`.
+
+---
+
 ### v1.8.0 — 18 August 2026 ⏳ Draft — pending Sandbox testing
 
 - ADDED: `getVatRate(quote)` — parses the passed-through `vatRate` after its TEXT round trip,
@@ -130,6 +156,22 @@
 ---
 
 ## Quote Suitelet (`nuheat_quote_suitelet.js`)
+
+### v4.5.1 — 18 August 2026 ⏳ Draft — pending Sandbox testing
+
+**Presentation only — no calculation logic changed.**
+
+- ADDED: `Refundable amount: £x` line in **both** total sections, between the VAT line and
+  `Total inc VAT`, shown only when the balance after BUS is negative. Both sections render the same
+  figures at the top and bottom of the page and would look broken if only one changed.
+- Rendered as a **positive** figure — it is money coming back to the customer.
+  `Math.max(0, -bus.totalIncVatAfterBus)` also guarantees no `£0.00` row and no `-£0.00`.
+- ⚠️ Derived from `bus.totalIncVatAfterBus`, **not** `bus.creditDue`. `creditDue` is ex-VAT, while
+  the refundable amount is what the customer actually receives, which is VAT-inclusive. Identical
+  today (heat pumps are 0%-rated) but correct rather than coincidental.
+- UNCHANGED: the `Total inc VAT` line and its top border; all v4.4.0/v4.5.0 figures.
+
+---
 
 ### v4.5.0 — 18 August 2026 ⏳ Draft — pending Sandbox testing
 

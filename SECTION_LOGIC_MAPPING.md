@@ -1,7 +1,7 @@
 # Section Logic Mapping — BUS Grant & VAT
 
 **Last Updated:** 18 August 2026
-**Applies to:** Quote Suitelet v4.5.0, Master Proposal v1.8.0, Send Quote SL v1.7.0,
+**Applies to:** Quote Suitelet v4.5.1, Master Proposal v1.8.1, Send Quote SL v1.7.0,
 BUS Module v1.0.0, VAT Module v1.0.0
 
 How the BUS (Boiler Upgrade Scheme) grant is resolved, and exactly where each derived figure is
@@ -284,3 +284,70 @@ underfloor heating that is not in the proposal. Both flags derive from the passe
 | `VAT_RATE_UNMATCHED` | VAT module | quote type not in `VAT_RATES`; defaulted to 20% |
 | `VAT_MISMATCH` | VAT module | **derived VAT disagrees with NetSuite — fix the tax codes on this Estimate** |
 | `SendQuoteSL.VAT` | Send Quote SL | per-Estimate rate, net, derived VAT and NetSuite tax total |
+
+---
+---
+
+# Part 3 — Refund presentation (v4.5.1)
+
+Presentation only. Every figure below already existed on `quoteData.bus`, `quoteData.vat` or the
+proposal's `totals` — v4.5.1 changed **where and how** they render, not what they are.
+
+## 13. The refundable amount — one rule
+
+> The refundable amount is **`Math.max(0, -totalIncVatAfterBus)`** — the VAT-INCLUSIVE balance,
+> shown as a POSITIVE figure, and only when it is greater than zero.
+
+⚠️ **Not `bus.creditDue`.** `creditDue` is ex-VAT; what the customer actually receives back is
+VAT-inclusive. The two are identical today because the BUS grant only applies to heat pumps, which
+are 0%-rated — but the inc-VAT figure is correct rather than coincidentally correct, and will not
+silently break if the VAT rules change.
+
+`Math.max(0, -x)` does three jobs at once: forces a positive display, suppresses the row entirely at
+a zero or positive balance, and rules out `-£0.00`.
+
+## 14. Where the refund renders
+
+| Surface | Element | Gate | Shows |
+|---|---|---|---|
+| Quote page — top total | `renderTopTotalSection()`, `.top-total-breakdown-item` | `refundableAmount > 0` | `Refundable amount: £2,351.88` |
+| Quote page — lower total | `renderTotalSection()`, `.total-breakdown-item` | same | same |
+| Proposal — quote card | `generateQuoteCard()`, `.system-card-refund` | `totalIncVat < 0` | `Refundable to you on completion` (label, no figure) |
+
+⚠️ **Both quote-page total sections must stay in step.** They render the same figures at the top and
+bottom of the page and look broken if only one changes.
+
+On the quote page the line sits **between** the VAT line and `Total inc VAT`. The `Total inc VAT`
+line and its top border are unchanged.
+
+The proposal card carries a **label with no figure** — the amount is already the price line it sits
+beside and the `Total inc. VAT:` clause below it.
+
+## 15. Proposal card detail line — what remains
+
+`detailParts` now holds at most two clauses:
+
+| Clause | When |
+|---|---|
+| `Discount: -£x` | `discountTotal !== 0` |
+| `Total inc. VAT: £x` | `totalIncVat !== 0 \|\| quoteHasBus` |
+
+**Removed in v4.5.1:** `Includes £x BUS grant` (redundant — the `.grant-highlight` banner below the
+cards already announces it) and `£x refundable to you` (promoted to the price-line label).
+
+## 16. Proposal total header — blended VAT
+
+```
+£2,936.67 plus VAT £1,057.71
+─────────────────────
+Total inc. VAT: £3,994.38
+```
+
+`totals.vat` from `calculateTotals()` is the sum of every selected quote's own VAT — already the
+blended figure (UFH at 20% + HP at 0%). No new calculation.
+
+> ⚠️ **`plus VAT` does not always equal `Total inc. VAT − subtotal`.** That identity holds only when
+> there is no discount. With one, `totalIncVat − subtotal = vat − discount`, because the headline
+> subtotal is gross of discount and the discount is shown as its own breakdown line. This is not a
+> divergence between `totals.vat` and `totals.totalIncVat` — the displayed arithmetic is correct
+> either way: `subtotal − discount + VAT = Total inc. VAT`.

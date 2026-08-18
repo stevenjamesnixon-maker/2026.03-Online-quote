@@ -238,12 +238,12 @@ correcting the source data.** Until it is worked through, the quote page and the
 
 | Component | Version | File | Status |
 |-----------|---------|------|--------|
-| Quote Suitelet | v4.5.0 | `nuheat_quote_suitelet.js` | ⏳ Pending Sandbox testing |
+| Quote Suitelet | v4.5.1 | `nuheat_quote_suitelet.js` | ⏳ Pending Sandbox testing |
 | Quote UE | v4.0.9 | `nuheat_quote_ue.js` | ✅ Production ready |
 | Quote CS | v4.0.6 | `nuheat_quote_cs.js` | ✅ Production ready |
 | Quote Viewer | v1.1.0 | `nuheat_quote_viewer_sl.js` | ✅ Production ready |
 | Scheduled Script | v1.0.0 | `nuheat_quote_generator_ss.js` | ✅ Production ready |
-| Master Proposal | v1.8.0 | `nuheat_master_proposal.js` | ⏳ Pending Sandbox testing |
+| Master Proposal | v1.8.1 | `nuheat_master_proposal.js` | ⏳ Pending Sandbox testing |
 | Send Quote SL | v1.7.0 | `nuheat_send_quote_sl.js` | ⏳ Pending Sandbox testing |
 | Send Quote CS | v1.4.0 | `nuheat_send_quote_cs (1).js` | ⏳ Pending Sandbox testing |
 | Opportunity UE | v1.0.0 | `nuheat_opportunity_ue.js` | ✅ Production ready |

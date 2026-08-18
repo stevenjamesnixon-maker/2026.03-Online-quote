@@ -9,7 +9,7 @@
  * accessible via public URL with print-to-PDF functionality.
  * 
  * Author: Nu-Heat Development Team
- * @version 4.5.0
+ * @version 4.5.1
  * Created: February 2026
  * Updated: 28 March 2026 - v4.3.49: Suitelet Proxy for stable URLs, timestamped filenames, file cleanup
  * Updated: 28 March 2026 - v4.3.50: Removed invalid search.lookupFields() for pricing, simplified data priority
@@ -30,6 +30,8 @@
  * Updated: 18 August 2026 - v4.5.0: VAT derived by technology via ./nuheat_vat_rates (HP/Solar 0%, UFH 20%) instead of
  *          echoing NetSuite's taxtotal, corrected Total inc VAT, VAT_MISMATCH audit logging, removed "plus VAT" from
  *          the section price cards (VAT is now referenced only in the total system price header)
+ * Updated: 18 August 2026 - v4.5.1: Presentation refinements — "Refundable amount" line in both total sections when the
+ *          balance after BUS is negative (display only, no calculation changes)
  *
  * For detailed version history, see CHANGELOG.md
  */
@@ -40,7 +42,7 @@ define(['N/record', 'N/search', 'N/log', 'N/format', 'N/error', 'N/runtime', 'N/
         // =====================================================================
         // SCRIPT VERSION
         // =====================================================================
-        var SCRIPT_VERSION = '4.5.0';
+        var SCRIPT_VERSION = '4.5.1';
 
         // =====================================================================
         // GTM CONFIGURATION (v4.3.68)
@@ -4083,6 +4085,19 @@ function loadQuoteData(quoteId, debugLog, pricingOverrides) {
 '                <div class="top-total-breakdown-item">BUS grant applied: -' + symbol + formatNumber(bus.amount) + '</div>\n';
             }
 
+            // v4.5.1: Refundable amount, shown only when the balance after BUS is negative.
+            // Rendered as a POSITIVE figure — it is money coming back to the customer.
+            // ⚠️ Derived from totalIncVatAfterBus, NOT bus.creditDue: creditDue is ex-VAT,
+            // while what the customer actually receives is the VAT-inclusive balance.
+            // Identical today (heat pumps are 0%-rated) but correct rather than coincidental.
+            // Math.max(0, -x) also guarantees no '£0.00' row and no '-£0.00'.
+            var refundableAmount = Math.max(0, -(bus.totalIncVatAfterBus));
+            var refundHtml = '';
+            if (refundableAmount > 0) {
+                refundHtml = '                <div class="top-total-breakdown-item">Refundable amount: ' +
+                             symbol + formatNumber(refundableAmount) + '</div>\n';
+            }
+
             return '\n' +
 '<section class="top-total-section">\n' +
 '    <div class="top-total-header">\n' +
@@ -4096,6 +4111,7 @@ function loadQuoteData(quoteId, debugLog, pricingOverrides) {
                  busHtml +
                  discountHtml +
 '                <div class="top-total-breakdown-item">VAT at ' + quoteData.vat.percent + ': ' + symbol + formatNumber(quoteData.vat.amount) + '</div>\n' +
+                 refundHtml +
 '                <div class="top-total-breakdown-item top-total-inc-vat">Total inc VAT: ' + formatSignedCurrency(displayTotal, symbol) + '</div>\n' +
 '            </div>\n' +
 '        </div>\n' +
@@ -4774,6 +4790,15 @@ function loadQuoteData(quoteId, debugLog, pricingOverrides) {
 '                <div class="total-breakdown-item">BUS grant applied: -' + symbol + formatNumber(bus.amount) + '</div>\n';
             }
 
+            // v4.5.1: Refundable amount — see renderTopTotalSection() for the full rationale.
+            // Both total sections render the same figures and must stay in step.
+            var refundableAmount = Math.max(0, -(bus.totalIncVatAfterBus));
+            var refundHtml = '';
+            if (refundableAmount > 0) {
+                refundHtml = '                <div class="total-breakdown-item">Refundable amount: ' +
+                             symbol + formatNumber(refundableAmount) + '</div>\n';
+            }
+
             return '\n' +
 '<section class="total-section">\n' +
 '    <div class="total-header">\n' +
@@ -4787,6 +4812,7 @@ function loadQuoteData(quoteId, debugLog, pricingOverrides) {
                  busHtml +
                  discountHtml +
 '                <div class="total-breakdown-item">VAT at ' + quoteData.vat.percent + ': ' + symbol + formatNumber(quoteData.vat.amount) + '</div>\n' +
+                 refundHtml +
 '                <div class="total-breakdown-item total-inc-vat">Total inc VAT: ' + formatSignedCurrency(displayTotal, symbol) + '</div>\n' +
 '            </div>\n' +
 '        </div>\n' +

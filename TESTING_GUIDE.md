@@ -142,3 +142,48 @@ scenario 1 both ways before deciding:
 | `VAT_FIGURES` | Quote Suitelet | all derived VAT figures as JSON |
 | `SendQuoteSL.VAT` | Send Quote SL | per-Estimate rate, net, derived VAT, NetSuite tax total |
 | `BUS_RESOLVE` / `BUS_UNMATCHED` | BUS module | unchanged from v4.4.0 — confirm no regression |
+
+---
+
+## Refund & VAT presentation (v4.5.1 / v1.8.1)
+
+**Presentation only.** No calculation logic changed, so every figure from the BUS and VAT scenarios
+above must be identical — D14 exists to confirm that.
+
+> No new File Cabinet upload ordering concerns: only `nuheat_quote_suitelet.js` and
+> `nuheat_master_proposal.js` changed. The two shared modules are untouched.
+
+| # | Scenario | Expected |
+|---|---|---|
+| D1 | Proposal card, HP with negative balance | `-£2,351.88 Refundable to you on completion` on the price line; detail line reads only `Total inc. VAT: -£2,351.88`; **no** "Includes £7,500.00 BUS grant" |
+| D2 | Proposal card, HP with positive balance | No refund label; detail line unchanged |
+| D3 | Proposal card, UFH quote | Completely unchanged from today |
+| D4 | Proposal card with a discount | Discount clause still present in the detail line |
+| D5 | Proposal total header, HP + UFH | `plus VAT £1,057.71` — see the note below on the arithmetic |
+| D6 | Proposal total header, UFH only | `plus VAT £x` where x = 20% of net |
+| D7 | Proposal total header, HP only | `plus VAT £0.00` |
+| D8 | Quote page, HP negative balance | `Refundable amount: £2,351.88` (positive) below the VAT line, in **both** total sections |
+| D9 | Quote page, HP positive balance | No refundable line anywhere |
+| D10 | Quote page, balance exactly £0.00 | No refundable line, and no `-£0.00` |
+| D11 | Quote page, UFH only | Unchanged |
+| D12 | Mobile 768px | Refund label wraps below the price rather than squashing it |
+| D13 | Print / PDF | Both total sections render correctly |
+| D14 | Re-run BUS + VAT scenarios from above | **No regression in any figure** |
+
+> **D5 — on the `plus VAT` arithmetic.** With no discount, `plus VAT` equals
+> `Total inc. VAT − subtotal` (£3,994.38 − £2,936.67 = £1,057.71). **With a discount it does not**,
+> and that is correct, not a defect: the headline subtotal is gross of discount and the discount is
+> shown as its own breakdown line, so the relationship is
+> `subtotal − discount + VAT = Total inc. VAT`. Check that identity rather than the simple
+> subtraction on any discounted proposal.
+
+### Specific things to eyeball
+
+- [ ] **Both** quote-page total sections show the refundable line — top and bottom. If only one does,
+      the page will look broken to anyone scrolling.
+- [ ] Refundable amount is **positive** — `£2,351.88`, never `-£2,351.88`.
+- [ ] No `Refundable amount: £0.00` row at a zero balance, and no `-£0.00` anywhere.
+- [ ] The `Total inc VAT` line and its top border are unchanged.
+- [ ] Proposal cards no longer say "Includes £7,500.00 BUS grant" — but the `.grant-highlight` banner
+      below the cards still does.
+- [ ] The refund label reads as a label, not a second figure — smaller and lighter than the price.
