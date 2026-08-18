@@ -9,7 +9,7 @@
  * accessible via public URL with print-to-PDF functionality.
  * 
  * Author: Nu-Heat Development Team
- * Version: 4.3.67
+ * @version 4.4.0
  * Created: February 2026
  * Updated: 28 March 2026 - v4.3.49: Suitelet Proxy for stable URLs, timestamped filenames, file cleanup
  * Updated: 28 March 2026 - v4.3.50: Removed invalid search.lookupFields() for pricing, simplified data priority
@@ -24,17 +24,20 @@
  * Updated: 31 March 2026 - v4.3.65: Show Design+ upgrade price in UFH upgrade banner from custbody_upgrades_optiontype/custbody_upgrades_itemprice fields
  * Updated: 31 March 2026 - v4.3.66: Style Design+ upgrade price to match pink CTA button styling
  * Updated: 31 March 2026 - v4.3.67: Prepend £ symbol to Design+ upgrade price in UFH upgrade banner
+ * Updated: 18 August 2026 - v4.4.0: BUS grant rate resolution (£7,500 / £9,000 / none) from the Suppak line item via
+ *          ./nuheat_bus_grant, HP price clamped at £0.00, un-clamped post-grant balance in both total sections,
+ *          grant cascade to commissioning, refundable-excess line, removed dead .grant-banner code
  *
  * For detailed version history, see CHANGELOG.md
  */
 
-define(['N/record', 'N/search', 'N/log', 'N/format', 'N/error', 'N/runtime', 'N/file', 'N/url'],
-    function(record, search, log, format, error, runtime, file, url) {
+define(['N/record', 'N/search', 'N/log', 'N/format', 'N/error', 'N/runtime', 'N/file', 'N/url', './nuheat_bus_grant'],
+    function(record, search, log, format, error, runtime, file, url, busGrant) {
 
         // =====================================================================
         // SCRIPT VERSION
         // =====================================================================
-        var SCRIPT_VERSION = '4.3.70';
+        var SCRIPT_VERSION = '4.4.0';
 
         // =====================================================================
         // GTM CONFIGURATION (v4.3.68)
@@ -369,11 +372,22 @@ define(['N/record', 'N/search', 'N/log', 'N/format', 'N/error', 'N/runtime', 'N/
         };
 
         // =====================================================================
-        // BUS GRANT CONFIGURATION (v4.3.70)
+        // BUS GRANT CONFIGURATION (v4.4.0)
         // =====================================================================
-        // v4.3.70: BUS grant amount deducted from HP display price.
-        // Blanket deduction applied to all HP quotes — make conditional on a NetSuite field in future if needed.
-        var HP_GRANT_AMOUNT = 7500;
+        // Rates and Suppak matching now live in ./nuheat_bus_grant.js.
+        // v4.4.0 replaced the blanket hard-coded HP_GRANT_AMOUNT = 7500 (applied to
+        // any quote containing a Heat Pump line) with a rate resolved from the
+        // Suppak line item, which is authoritative.
+        //
+        // CASCADE_GRANT_TO_COMMISSIONING:
+        //   true  (default): grant left over after the heat pump price reaches £0
+        //                    also reduces the displayed commissioning price, so the
+        //                    page reconciles — components total £0 and the refund
+        //                    line explains the £694.40 owed back.
+        //   false:           commissioning always shows its own price. Simpler, but
+        //                    the visible components no longer sum to the balance in
+        //                    "Your total system price".
+        var CASCADE_GRANT_TO_COMMISSIONING = true;
 
         // Design package product card images (hosted in NetSuite File Cabinet)
         // v4.3.38: Corrected design package image URLs to use NetSuite File Cabinet
@@ -1723,6 +1737,45 @@ function loadQuoteData(quoteId, debugLog, pricingOverrides) {
             
             const categoryTotals = calculateCategoryTotals(groupedItems, headerData.currencySymbol, estimate);
 
+            // =====================================================================
+            // BUS GRANT — SINGLE CALCULATION BLOCK (v4.4.0)
+            // =====================================================================
+            // Resolve ONCE here and store on quoteData.bus so every render function
+            // reads the same figures. Do NOT re-resolve per section — that is how
+            // the pre-v4.4.0 six-site duplication (and the -£1,870.33 bug) arose.
+            var busResult = busGrant.resolveBusGrant(lineItems);
+            var busAmount          = busResult.amount;
+            var grossSubtotal      = headerData.subtotal;              // gross — no grant line on the Estimate
+            var commissioningTotal = (categoryTotals['Commissioning'] &&
+                                      categoryTotals['Commissioning'].total) || 0;
+            var hpGross            = grossSubtotal - commissioningTotal;
+
+            var hpDisplayPrice       = Math.max(0, hpGross - busAmount);   // clamped, never negative
+            var residualGrant        = Math.max(0, busAmount - hpGross);   // grant left over
+            var commissioningDisplay = CASCADE_GRANT_TO_COMMISSIONING
+                                        ? Math.max(0, commissioningTotal - residualGrant)
+                                        : commissioningTotal;
+
+            var balanceAfterBus     = grossSubtotal - busAmount;           // MAY BE NEGATIVE
+            var totalIncVatAfterBus = headerData.total - busAmount;        // MAY BE NEGATIVE
+            var creditDue           = Math.max(0, -balanceAfterBus);       // refundable amount
+
+            var busFigures = {
+                amount:               busAmount,
+                rate:                 busResult.rate,
+                matchedItem:          busResult.matchedItem,
+                hpGross:              hpGross,
+                hpDisplayPrice:       hpDisplayPrice,
+                residualGrant:        residualGrant,
+                commissioningDisplay: commissioningDisplay,
+                balanceAfterBus:      balanceAfterBus,
+                totalIncVatAfterBus:  totalIncVatAfterBus,
+                creditDue:            creditDue,
+                hasGrant:             busAmount > 0
+            };
+
+            log.audit('BUS_FIGURES', JSON.stringify(busFigures));
+
             // Determine if we have rooms data (prefer new delimited format, fallback to legacy HTML)
             var hasRoomsData = roomsList.length > 0 || (roomsHtml && roomsHtml.trim().length > 0);
             
@@ -1755,6 +1808,7 @@ function loadQuoteData(quoteId, debugLog, pricingOverrides) {
                 lineItems: lineItems,
                 groupedItems: groupedItems,
                 categoryTotals: categoryTotals,
+                bus: busFigures,               // v4.4.0 - Resolved BUS grant + all derived display figures
                 systemInfo: systemInfo,
                 roomsList: roomsList,  // v3.8.0 - New parsed rooms array
                 roomsHtml: roomsHtml,  // Legacy HTML fallback
@@ -3060,6 +3114,7 @@ function loadQuoteData(quoteId, debugLog, pricingOverrides) {
 '.hp-grant-banner-text strong { display: block; color: var(--color-primary); margin-bottom: 4px; }\n' +
 '.hp-grant-banner-text span { color: #666; font-size: 14px; }\n' +
 '.hp-grant-banner-text .hp-grant-banner-asterisk { font-size: 11px; opacity: 0.8; font-style: italic; margin-top: 4px; display: block; }\n' +
+'.hp-grant-banner-text .hp-grant-banner-refund { font-size: 13px; color: #666; margin-top: 6px; display: block; }\n' +
 
 // Component Breakdown (v3.6.1 - collapsible with all items) - v3.7.9: reduced margins
 '.component-breakdown { margin-top: 20px; }\n' +
@@ -3226,11 +3281,6 @@ function loadQuoteData(quoteId, debugLog, pricingOverrides) {
 '.price-breakdown-table td.text-right, .price-breakdown-table th.text-right { text-align: right; }\n' +
 
 // Grant banner (for Heat Pump)
-'.grant-banner { background: var(--color-success); color: var(--color-white); padding: 16px 20px; border-radius: var(--radius-md); margin-top: 16px; display: flex; align-items: center; gap: 12px; }\n' +
-'.grant-banner-icon { width: 40px; height: 40px; background: rgba(255,255,255,0.2); border-radius: 50%; display: flex; align-items: center; justify-content: center; }\n' +
-'.grant-banner-text { flex: 1; }\n' +
-'.grant-banner-text strong { font-size: 16px; display: block; margin-bottom: 2px; }\n' +
-'.grant-banner-text span { font-size: 13px; opacity: 0.9; }\n' +
 
 // Total section - v4.1.5: Horizontal layout for desktop, centered/stacked on mobile
 '.total-section { background: #00857D; color: var(--color-white); padding: 25px 40px; border-radius: var(--radius-xl); margin: 30px 0; }\n' +
@@ -3937,14 +3987,25 @@ function loadQuoteData(quoteId, debugLog, pricingOverrides) {
             var header = quoteData.header;
             var symbol = header.currencySymbol;
 
-            // v4.3.70: Deduct BUS grant from displayed totals for HP quotes
-            var grantDeduction = quoteData.hasHeatPump ? HP_GRANT_AMOUNT : 0;
-            var displaySubtotal = Math.max(0, header.subtotal - grantDeduction);
-            var displayTotal = Math.max(0, header.total - grantDeduction);
+            // v4.4.0: Balance after BUS — the Math.max(0, ...) clamps are deliberately GONE.
+            // A grant larger than the quote must show its true negative value here; the
+            // heat pump price card is the figure that is clamped at £0.00 instead.
+            var bus = quoteData.bus;
+            var displaySubtotal = bus.balanceAfterBus;      // may be negative
+            var displayTotal = bus.totalIncVatAfterBus;     // may be negative
 
             var discountHtml = '';
             if (header.hasDiscount && header.discountTotal > 0) {
+                // header.discountTotal is Math.abs()'d in extractHeaderData() — this line
+                // hand-rolls its own '-', so do NOT swap it for formatSignedCurrency().
                 discountHtml = '        <div class="top-total-breakdown-item">Discount: -' + symbol + formatNumber(header.discountTotal) + '</div>\n';
+            }
+
+            // v4.4.0: BUS breakdown lines, only when a grant applies
+            var busHtml = '';
+            if (bus.hasGrant) {
+                busHtml = '                <div class="top-total-breakdown-item">System price: ' + symbol + formatNumber(header.subtotal) + '</div>\n' +
+'                <div class="top-total-breakdown-item">BUS grant applied: -' + symbol + formatNumber(bus.amount) + '</div>\n';
             }
 
             return '\n' +
@@ -3955,11 +4016,12 @@ function loadQuoteData(quoteId, debugLog, pricingOverrides) {
 '            <p class="top-total-terms">This quotation is subject to our terms and conditions</p>\n' +
 '        </div>\n' +
 '        <div class="top-total-right">\n' +
-'            <div class="top-total-amount">' + symbol + formatNumber(displaySubtotal) + ' <span class="top-total-plus-vat">plus VAT</span></div>\n' +
+'            <div class="top-total-amount">' + formatSignedCurrency(displaySubtotal, symbol) + ' <span class="top-total-plus-vat">plus VAT</span></div>\n' +
 '            <div class="top-total-breakdown">\n' +
+                 busHtml +
                  discountHtml +
 '                <div class="top-total-breakdown-item">VAT: ' + symbol + formatNumber(header.taxTotal) + '</div>\n' +
-'                <div class="top-total-breakdown-item top-total-inc-vat">Total inc VAT: ' + symbol + formatNumber(displayTotal) + '</div>\n' +
+'                <div class="top-total-breakdown-item top-total-inc-vat">Total inc VAT: ' + formatSignedCurrency(displayTotal, symbol) + '</div>\n' +
 '            </div>\n' +
 '        </div>\n' +
 '    </div>\n' +
@@ -4036,16 +4098,23 @@ function loadQuoteData(quoteId, debugLog, pricingOverrides) {
                 var solarTotalsOverride = { count: categoryTotals['Solar thermal'].count, total: solarDisplayPrice, formatted: symbol + formatNumber(solarDisplayPrice) };
                 html += renderCategorySection('solar-section', 'Solar thermal',
                     'Nu-Heat solar thermal systems arrive as complete, ready-to-install packages. From collectors and cylinders to bespoke layouts and heat-losses, everything needed for a simple install is included. For the full item list, see your Component Breakdown.',
-                    solarItems, solarTotalsOverride, symbol, 'Your solar price', header, false, false);
+                    solarItems, solarTotalsOverride, symbol, 'Your solar price', header, false);
             }
 
 
             // Commissioning (v4.3.42: consolidated filtering via filterForRender)
             var commissioningItems = filterForRender(groupedItems['Commissioning'], 'COMMISSIONING');
             if (commissioningItems.length > 0) {
+                // v4.4.0: Any grant left over once the heat pump price reaches £0 cascades to
+                // commissioning (see CASCADE_GRANT_TO_COMMISSIONING) so the page reconciles.
+                var commTotalsOverride = {
+                    count:     categoryTotals['Commissioning'].count,
+                    total:     quoteData.bus.commissioningDisplay,
+                    formatted: symbol + formatNumber(quoteData.bus.commissioningDisplay)
+                };
                 html += renderCategorySection('commissioning-section', 'Commissioning',
                     'Your quote includes a commissioning visit from one of our specialist Field Engineers. This essential service unlocks the Boiler Upgrade Scheme (BUS) payment and provides a full handover, ensuring complete confidence.',
-                    commissioningItems, categoryTotals['Commissioning'], symbol, 'Your commissioning price', header, false, false);
+                    commissioningItems, commTotalsOverride, symbol, 'Your commissioning price', header, false);
             }
 
             // Component Breakdown (v4.0.9 - collapsible section showing ALL line items)
@@ -4226,25 +4295,35 @@ function loadQuoteData(quoteId, debugLog, pricingOverrides) {
 
 
             // v4.3.38: Heat Pump Price = Total quote price (subtotal) minus Commissioning subtotal
-            var commissioningTotal = (quoteData.categoryTotals['Commissioning'] && quoteData.categoryTotals['Commissioning'].total) || 0;
-            var hpDisplayPrice = header.subtotal - commissioningTotal;
-            // v4.3.70: Deduct BUS grant amount from displayed price
-            var hpGrantedPrice = hpDisplayPrice - HP_GRANT_AMOUNT;
+            // v4.4.0: Read the single resolved figure. hpDisplayPrice is clamped at 0 in
+            // loadQuoteData(), so this card can never render a negative price again — the
+            // balance after BUS in the total sections carries any negative value instead.
+            var bus = quoteData.bus;
             html += '    <div class="hp-price-card">\n' +
 '        <div class="hp-price-row">\n' +
 '            <span class="hp-price-label">Your heat pump price (On-site commissioning priced below):</span>\n' +
-'            <span class="hp-price-amount">' + symbol + formatNumber(hpGrantedPrice) + ' <span class="hp-price-vat">plus VAT</span></span>\n' +
+'            <span class="hp-price-amount">' + symbol + formatNumber(bus.hpDisplayPrice) + ' <span class="hp-price-vat">plus VAT</span></span>\n' +
 '        </div>\n' +
 '    </div>\n';
 
-            // Grant banner - v4.3.70: Updated to confirm grant has been applied to price
-            html += '    <div class="hp-grant-banner">\n' +
+            // Grant card — v4.4.0: only rendered when a BUS grant actually applies, with the
+            // resolved rate (£7,500 or £9,000) and a refund line when the grant exceeds the quote.
+            if (bus.hasGrant) {
+                var refundHtml = '';
+                if (bus.creditDue > 0) {
+                    refundHtml = '            <span class="hp-grant-banner-refund">Any grant funding in excess of your quote value (' +
+                        symbol + formatNumber(bus.creditDue) +
+                        ') will be refunded to you once the grant has been claimed.</span>\n';
+                }
+                html += '    <div class="hp-grant-banner">\n' +
 '        <div class="hp-grant-banner-icon"><span style="font-size: 24px; font-weight: 700;">£</span></div>\n' +
 '        <div class="hp-grant-banner-text">\n' +
-'            <strong>£7,500 grant funding has been applied to this quote</strong>\n' +
+'            <strong>' + symbol + formatNumber(bus.amount) + ' grant funding has been applied to this quote</strong>\n' +
 '            <span class="hp-grant-banner-asterisk">*Subject to scheme eligibility</span>\n' +
+                 refundHtml +
 '        </div>\n' +
 '    </div>\n';
+            }
 
             html += '</div>\n'; // Close hp-tree-section
 
@@ -4546,7 +4625,10 @@ function loadQuoteData(quoteId, debugLog, pricingOverrides) {
 
 
         // v3.6.4: Category section uses same restructured product card layout
-        function renderCategorySection(id, title, intro, items, totals, symbol, costLabel, header, showGrantBanner, showPriceBreakdown) {
+        // v4.4.0: showGrantBanner parameter removed — the .grant-banner block it gated was
+        // unreachable (both call sites passed false; Heat Pump/UFH do not use this function).
+        // The live grant card is .hp-grant-banner in renderHeatPumpTreeSection().
+        function renderCategorySection(id, title, intro, items, totals, symbol, costLabel, header, showPriceBreakdown) {
             // Default showPriceBreakdown to true if not specified
             if (showPriceBreakdown === undefined) showPriceBreakdown = true;
             // v4.3.42: Reuse renderProductCard instead of duplicating card HTML
@@ -4575,19 +4657,6 @@ function loadQuoteData(quoteId, debugLog, pricingOverrides) {
 '</div>';
             }
 
-            // Grant banner for Heat Pump - v4.2.0: Changed $ to £ icon and "is eligible" to "may be eligible"
-            var grantBannerHtml = '';
-            if (showGrantBanner) {
-                grantBannerHtml = '\n' +
-'<div class="grant-banner">\n' +
-'    <div class="grant-banner-icon"><span style="font-size: 24px; font-weight: 700;">£</span></div>\n' +
-'    <div class="grant-banner-text">\n' +
-'        <strong>This system may be eligible for a £7,500 Government grant</strong>\n' +
-'        <span>You could save on the cost of a heat pump. Speak to your account manager to see if you are eligible and we\'ll handle the rest.</span>\n' +
-'    </div>\n' +
-'</div>';
-            }
-
             // v4.0.8: Changed subsection headers from H3 to H2 for consistency
             return '\n' +
 '<div class="category-section" id="' + id + '">\n' +
@@ -4603,7 +4672,6 @@ function loadQuoteData(quoteId, debugLog, pricingOverrides) {
 '        </div>\n' +
 '    </div>\n' +
     breakdownHtml +
-    grantBannerHtml +
 '</div>';
         }
 
@@ -4611,15 +4679,24 @@ function loadQuoteData(quoteId, debugLog, pricingOverrides) {
             var header = quoteData.header;
             var symbol = header.currencySymbol;
 
-            // v4.3.70: Deduct BUS grant from displayed totals for HP quotes
-            var grantDeduction = quoteData.hasHeatPump ? HP_GRANT_AMOUNT : 0;
-            var displaySubtotal = Math.max(0, header.subtotal - grantDeduction);
-            var displayTotal = Math.max(0, header.total - grantDeduction);
+            // v4.4.0: Balance after BUS — clamps deliberately removed (see renderTopTotalSection).
+            var bus = quoteData.bus;
+            var displaySubtotal = bus.balanceAfterBus;      // may be negative
+            var displayTotal = bus.totalIncVatAfterBus;     // may be negative
 
             // Conditional discount line - only show if discount > 0
             var discountHtml = '';
             if (header.hasDiscount && header.discountTotal > 0) {
+                // header.discountTotal is Math.abs()'d in extractHeaderData() — this line
+                // hand-rolls its own '-', so do NOT swap it for formatSignedCurrency().
                 discountHtml = '        <div class="total-breakdown-item">Discount: -' + symbol + formatNumber(header.discountTotal) + '</div>\n';
+            }
+
+            // v4.4.0: BUS breakdown lines, only when a grant applies
+            var busHtml = '';
+            if (bus.hasGrant) {
+                busHtml = '                <div class="total-breakdown-item">System price: ' + symbol + formatNumber(header.subtotal) + '</div>\n' +
+'                <div class="total-breakdown-item">BUS grant applied: -' + symbol + formatNumber(bus.amount) + '</div>\n';
             }
 
             return '\n' +
@@ -4630,11 +4707,12 @@ function loadQuoteData(quoteId, debugLog, pricingOverrides) {
 '            <p class="total-terms">This quotation is subject to our terms and conditions</p>\n' +
 '        </div>\n' +
 '        <div class="total-right">\n' +
-'            <div class="total-amount">' + symbol + formatNumber(displaySubtotal) + '</div>\n' +
+'            <div class="total-amount">' + formatSignedCurrency(displaySubtotal, symbol) + '</div>\n' +
 '            <div class="total-breakdown-list">\n' +
+                 busHtml +
                  discountHtml +
 '                <div class="total-breakdown-item">VAT: ' + symbol + formatNumber(header.taxTotal) + '</div>\n' +
-'                <div class="total-breakdown-item total-inc-vat">Total inc VAT: ' + symbol + formatNumber(displayTotal) + '</div>\n' +
+'                <div class="total-breakdown-item total-inc-vat">Total inc VAT: ' + formatSignedCurrency(displayTotal, symbol) + '</div>\n' +
 '            </div>\n' +
 '        </div>\n' +
 '    </div>\n' +
@@ -5052,6 +5130,27 @@ function loadQuoteData(quoteId, debugLog, pricingOverrides) {
         function formatNumber(value) {
             if (value === null || value === undefined) return '0.00';
             return parseFloat(value).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+        }
+
+        /**
+         * v4.4.0: Formats a currency value with the minus sign BEFORE the symbol.
+         * e.g. (-694.40, '£') => '-£694.40'
+         *
+         * formatNumber() already handles negatives correctly ('-1,870.33'); the
+         * '£-1,870.33' ordering is purely a caller problem, so use this helper for
+         * every figure that can go negative rather than changing formatNumber().
+         *
+         * ⚠️ Do NOT use this for header.discountTotal — that value is Math.abs()'d in
+         * extractHeaderData() and its two call sites hand-roll their own '-' prefix,
+         * so passing it here produces '-£-…'.
+         *
+         * @param {number} value - may be negative
+         * @param {string} symbol - currency symbol
+         * @returns {string}
+         */
+        function formatSignedCurrency(value, symbol) {
+            var n = Number(value) || 0;
+            return (n < 0 ? '-' : '') + symbol + formatNumber(Math.abs(n));
         }
 
         function getCurrencySymbol(currency) {

@@ -2,7 +2,7 @@
 
 **Purpose:** Comprehensive context for AI agents (Claude, etc.) to efficiently continue development on this project without extensive re-reading of source files. Load this document at the start of every new AI session.
 
-**Last Updated:** 31 March 2026
+**Last Updated:** 18 August 2026
 
 ---
 
@@ -161,6 +161,41 @@ A multi-component SuiteScript 2.1 solution:
 - Grant banner updated from "may be eligible" to "£7,500 grant funding has been applied to this quote" with "*Subject to scheme eligibility" asterisk line
 - `HP_GRANT_AMOUNT = 7500` constant in both files — blanket for now, intended to become conditional on a NetSuite field in future
 
+### Phase 9: BUS Grant Rates & Post-Grant Balance (18 August 2026, v4.4.0 / v1.7.0 / v1.6.0 / v1.0.0)
+
+**The bug it fixed.** v4.3.70 subtracted the grant in six places across two files. Five wrapped the
+result in `Math.max(0, …)`; the heat pump price card did not. The clamps were therefore in exactly
+the wrong places — a quote worth less than the grant rendered a **negative heat pump price**
+(−£1,870.33) while the total clamped to **£0.00**. v4.4.0 inverts this: the component price is
+clamped and can never go negative, and the **balance after BUS** carries the negative value, with a
+refund line explaining what is owed back to the customer.
+
+**The feature it added.** The blanket hard-coded £7,500 (applied to any quote containing a Heat Pump
+line) became three outcomes resolved from the **Suppak line item**, which is authoritative:
+
+| Suppak line | Rate |
+|---|---|
+| `Suppak N1(R)HP`, `Suppak N1(NB)HP`, `Suppak BUS` | £7,500 (standard) |
+| `Suppak BUS - Uplift` | £9,000 (enhanced) |
+| any other `Suppak…` line, or none | no grant |
+
+**Key decisions:**
+- **New shared module `nuheat_bus_grant.js`** so the rules cannot drift between the quote page and
+  the Master Proposal. Follows the existing cross-script import precedent
+  (`nuheat_send_quote_sl.js` already does `define(['./nuheat_master_proposal'])`).
+- **One resolution per quote.** The Quote Suitelet resolves once in `loadQuoteData()` and stores
+  every derived figure on `quoteData.bus`; all render sites read from it. Re-resolving per section
+  is what produced the six-site duplication and the bug.
+- **The Master Proposal has no line-item access** — it never loads an Estimate. The Send Quote SL
+  does, so it resolves the grant there and passes `busAmount` / `busRate` through the
+  `serverWidget` sublist as text.
+- **Grant cascade** — leftover grant once the heat pump price hits £0 also reduces the displayed
+  commissioning price (`CASCADE_GRANT_TO_COMMISSIONING`, default `true`) so the page reconciles.
+- **Exact matching, not substring**, so a future SKU cannot silently match the wrong tier. A
+  `BUS_UNMATCHED` audit entry logs the raw `itemName` of any unrecognised Suppak line.
+- Removed both `HP_GRANT_AMOUNT` constants and the dead `.grant-banner` code (unreachable since
+  both call sites passed `showGrantBanner = false`). `.hp-grant-banner` is the live card.
+
 ---
 
 ## 3. Current System State
@@ -169,17 +204,26 @@ A multi-component SuiteScript 2.1 solution:
 
 | Component | Version | File | Status |
 |-----------|---------|------|--------|
-| Quote Suitelet | v4.3.70 | `nuheat_quote_suitelet.js` | ⏳ Pending Sandbox testing |
+| Quote Suitelet | v4.4.0 | `nuheat_quote_suitelet.js` | ⏳ Pending Sandbox testing |
 | Quote UE | v4.0.9 | `nuheat_quote_ue.js` | ✅ Production ready |
 | Quote CS | v4.0.6 | `nuheat_quote_cs.js` | ✅ Production ready |
 | Quote Viewer | v1.1.0 | `nuheat_quote_viewer_sl.js` | ✅ Production ready |
 | Scheduled Script | v1.0.0 | `nuheat_quote_generator_ss.js` | ✅ Production ready |
-| Master Proposal | v1.6.7 | `nuheat_master_proposal.js` | ⏳ Pending Sandbox testing |
-| Send Quote SL | v1.5.0 | `nuheat_send_quote_sl.js` | ✅ Production ready |
-| Send Quote CS | v1.2.0 | `nuheat_send_quote_cs.js` | ✅ Production ready |
-| Opportunity UE | v1.0.0 | `src/nuheat_opportunity_ue.js` | ✅ Production ready |
-| Opportunity CS | v1.0.0 | `src/nuheat_opportunity_cs.js` | ✅ Production ready |
+| Master Proposal | v1.7.0 | `nuheat_master_proposal.js` | ⏳ Pending Sandbox testing |
+| Send Quote SL | v1.6.0 | `nuheat_send_quote_sl.js` | ⏳ Pending Sandbox testing |
+| Send Quote CS | v1.3.0 | `nuheat_send_quote_cs (1).js` | ⏳ Pending Sandbox testing |
+| Opportunity UE | v1.0.0 | `nuheat_opportunity_ue.js` | ✅ Production ready |
+| Opportunity CS | v1.0.0 | `nuheat_opportunity_cs.js` | ✅ Production ready |
 | Analytics Suitelet | v1.0.1 | `nuheat_analytics_sl.js` | ✅ Production ready |
+| **BUS Grant Module** | **v1.0.0** | **`nuheat_bus_grant.js`** | ⏳ Pending Sandbox testing |
+
+> **All scripts live at the repository root — there is no `src/` directory.** Older documentation
+> cited `src/…` paths that have not existed for some time; those references are being corrected
+> as sections are touched.
+
+> ⚠️ **`nuheat_bus_grant.js` is a shared custom module.** It needs no script deployment record,
+> only a File Cabinet upload — but it must be uploaded to `SuiteScripts/NuHeat` **before** the
+> Quote Suitelet or the Send Quote SL is redeployed, or both fail at load time.
 
 ### Current Configuration
 
@@ -200,9 +244,9 @@ A multi-component SuiteScript 2.1 solution:
 > | Sandbox (472052_SB1) | 21719365 |
 > | Production | 26895192 |
 > If switching between environments, update the folder ID constant in all three files:
-> - `QUOTE_HTML_FOLDER_ID` in `src/nuheat_quote_viewer_sl.js`
-> - `QUOTE_HTML_FOLDER_ID` in `src/nuheat_quote_suitelet.js`
-> - `FOLDER_ID` in `src/nuheat_master_proposal.js`
+> - `QUOTE_HTML_FOLDER_ID` in `nuheat_quote_viewer_sl.js`
+> - `QUOTE_HTML_FOLDER_ID` in `nuheat_quote_suitelet.js`
+> - `FOLDER_ID` in `nuheat_master_proposal.js`
 
 ### What Works
 
@@ -268,7 +312,15 @@ A multi-component SuiteScript 2.1 solution:
 ### File Organisation
 
 ```
-src/
+(repository root — there is no src/ directory)
+
+├── nuheat_bus_grant.js         # Shared BUS grant resolution (v1.0.0)
+│   ├── BUS_RATES                # STANDARD 7500 / ENHANCED 9000 / NONE 0
+│   ├── BUS_STANDARD_ITEMS       # Suppak N1(R)HP, N1(NB)HP, BUS
+│   ├── BUS_ENHANCED_ITEMS       # Suppak BUS - Uplift
+│   ├── normaliseItemName()      # Strips "Parent : Child", collapses ws, lowercases
+│   └── resolveBusGrant()        # -> {amount, rate, matchedItem, suppressedBy}
+│
 ├── nuheat_quote_suitelet.js    # ~4,500 lines — the big one
 │   ├── Constants & Config       # BRAND, PRODUCT_TYPE_ID_MAP, etc.
 │   ├── onRequest()              # Entry point — routes generate vs view
@@ -547,7 +599,7 @@ Current task: [describe what you need]
 ### Key Files to Read First
 
 For most tasks, you only need to read:
-- `src/nuheat_quote_suitelet.js` — Lines 1-100 (config) + the relevant render function
+- `nuheat_quote_suitelet.js` — Lines 1-100 (config) + the relevant render function
 - `CHANGELOG.md` — First 50 lines (latest changes)
 - This document
 

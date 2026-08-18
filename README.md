@@ -54,8 +54,10 @@ Opportunity ──▶ Send Quote SL ──▶ Master Proposal ──▶ HTML Fil
 
 ```
 nuheat_netsuite_suitelet/
-├── src/
-│   ├── nuheat_quote_suitelet.js       # Core quote HTML generation engine (v4.3.53)
+│   (all scripts live at the repository root — there is no src/ directory)
+│
+│   ├── nuheat_bus_grant.js            # Shared BUS grant resolution module (v1.0.0)
+│   ├── nuheat_quote_suitelet.js       # Core quote HTML generation engine (v4.4.0)
 │   ├── nuheat_quote_ue.js             # User Event — auto-gen + "Regen quote" button (v4.0.9)
 │   ├── nuheat_quote_cs.js             # Client Script — button handler (v4.0.6)
 │   ├── nuheat_quote_viewer_sl.js      # Proxy Suitelet for stable URLs (v1.1.0)
@@ -124,7 +126,11 @@ nuheat_netsuite_suitelet/
 
 ### 1. Deploy Scripts
 
-Upload all scripts from `src/` to **File Cabinet > SuiteScripts > NuHeat**.
+Upload all scripts to **File Cabinet > SuiteScripts > NuHeat**.
+
+> ⚠️ Upload `nuheat_bus_grant.js` **first** — `nuheat_quote_suitelet.js` and
+> `nuheat_send_quote_sl.js` both import it and fail at load time if it is not already present.
+> It is a shared custom module and needs no script deployment record.
 
 ### 2. Create Script Records
 
@@ -206,17 +212,18 @@ See [Configuration Checklist](docs/CONFIGURATION_CHECKLIST.md) for the full list
 
 | Component | Current Version | Last Updated |
 |-----------|----------------|--------------|
-| Quote Suitelet | v4.3.53 | 28 Mar 2026 |
+| Quote Suitelet | v4.4.0 | 18 Aug 2026 |
 | Quote UE Script | v4.0.9 | 28 Mar 2026 |
 | Quote Client Script | v4.0.6 | 28 Mar 2026 |
 | Quote Viewer | v1.1.0 | 28 Mar 2026 |
-| Master Proposal | v1.6.2 | 28 Mar 2026 |
-| Send Quote Suitelet | v1.4.9 | 28 Mar 2026 |
-| Send Quote CS | v1.1.1 | 28 Mar 2026 |
+| Master Proposal | v1.7.0 | 18 Aug 2026 |
+| Send Quote Suitelet | v1.6.0 | 18 Aug 2026 |
+| Send Quote CS | v1.3.0 | 18 Aug 2026 |
 | Opportunity UE | v1.0.0 | 28 Mar 2026 |
 | Opportunity CS | v1.0.0 | 28 Mar 2026 |
 | Scheduled Script | v1.0.0 | Mar 2026 |
 | Analytics Suitelet | v1.0.0 | Apr 2026 |
+| BUS Grant Module | v1.0.0 | 18 Aug 2026 |
 
 See [CHANGELOG.md](CHANGELOG.md) for detailed version history.
 

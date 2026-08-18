@@ -1,6 +1,53 @@
 # Version History
 
+## BUS Grant Module (`nuheat_bus_grant.js`)
+
+### v1.0.0 — 18 August 2026 ⏳ Draft — pending Sandbox testing
+
+- NEW FILE: Shared BUS (Boiler Upgrade Scheme) grant resolution module, `@NModuleScope Public`,
+  imported by `nuheat_quote_suitelet.js` and `nuheat_send_quote_sl.js` as `'./nuheat_bus_grant'`.
+  Exists so the Suppak → grant-rate rules cannot drift between the quote page and the Master Proposal.
+- ADDED: `BUS_RATES` — `STANDARD: 7500`, `ENHANCED: 9000`, `NONE: 0`.
+- ADDED: `BUS_STANDARD_ITEMS` — `suppak n1(r)hp`, `suppak n1(nb)hp`, `suppak bus`.
+- ADDED: `BUS_ENHANCED_ITEMS` — `suppak bus - uplift`.
+- ADDED: `normaliseItemName(name)` — takes the last colon-delimited segment (handles NetSuite's
+  `"Parent : Child"` sub-item form), collapses whitespace, lowercases.
+- ADDED: `resolveBusGrant(lineItems)` → `{amount, rate, matchedItem, suppressedBy}`. Precedence:
+  enhanced → standard → none. A non-qualifying Suppak line suppresses the grant only when no
+  qualifying line is present; it never overrides one.
+- Matching is **exact array membership after normalisation, never substring** — `'suppak bus - uplift'`
+  can therefore not be caught by the `'suppak bus'` entry, and no longest-match ordering is needed.
+- LOGGING: `BUS_RESOLVE` on every resolution; `BUS_UNMATCHED` with the raw `itemName` whenever a
+  Suppak line matches no tier, so a mismatch is visible rather than silently paying no grant.
+- ⚠️ DEPLOYMENT: must be uploaded to `SuiteScripts/NuHeat` **before** either consumer is redeployed.
+  Custom modules need no script deployment record — File Cabinet upload only.
+
+---
+
 ## Master Proposal (`nuheat_master_proposal.js`)
+
+### v1.7.0 — 18 August 2026 ⏳ Draft — pending Sandbox testing
+
+- CHANGED: `generateQuoteCard()` shows the **balance after BUS** (`subtotal - busAmount`), which
+  **may be negative**. Keyed off the resolved Suppak rate via `hasBusGrant(quote)`, **not**
+  `quote.quoteType === 'Heat Pump'`.
+- FIXED: the `if (subtotal > 0)` guard that suppressed the price when the balance was negative.
+- CHANGED: `Total inc. VAT` detail line follows the same un-clamped post-grant figure.
+- ADDED: `Includes £7,500 BUS grant` detail (dynamic amount), and `£694.40 refundable to you`
+  (dynamic) when the balance is negative.
+- CHANGED: `generateBUSGrantBanner(busAmount)` now takes the amount as an argument, so it reads
+  £9,000 on the enhanced rate. Gate changed from `isMain && hasHeatPump` to "at least one main quote
+  carries a grant", using the highest rate present. `SHOW_BUS_GRANT_BANNER` remains the master switch.
+- CHANGED: `calculateTotals()` aggregates post-grant balances **without clamping**, so a negative
+  per-quote balance reduces the headline total instead of being skipped.
+- ADDED: `formatSignedCurrency()` — `-£694.40`, not `£-694.40`. `formatCurrency()` is unchanged.
+  Not used for the discount line, which is `Math.abs()`'d and hand-rolls its own sign.
+- ADDED: `getBusAmount(quote)` / `hasBusGrant(quote)` — parse `busAmount` back after its
+  `serverWidget` TEXT round trip and gate on `busRate !== 'none'`.
+- REMOVED: `HP_GRANT_AMOUNT = 7500` constant.
+- CHANGED: headline total bar uses `formatSignedCurrency()`.
+
+---
 
 ### v1.6.7 — 22 April 2026 ⏳ Draft — pending Sandbox testing
 
@@ -36,6 +83,42 @@
 ---
 
 ## Quote Suitelet (`nuheat_quote_suitelet.js`)
+
+### v4.4.0 — 18 August 2026 ⏳ Draft — pending Sandbox testing
+
+- ADDED: imports `'./nuheat_bus_grant'` as `busGrant`.
+- ADDED: single BUS calculation block in `loadQuoteData()`, immediately after `categoryTotals`.
+  Resolves once and stores every derived figure on `quoteData.bus` — `amount`, `rate`, `matchedItem`,
+  `hpGross`, `hpDisplayPrice`, `residualGrant`, `commissioningDisplay`, `balanceAfterBus`,
+  `totalIncVatAfterBus`, `creditDue`, `hasGrant`. Logged as `BUS_FIGURES`.
+- FIXED: **the −£1,870.33 bug.** The heat pump price card now renders
+  `quoteData.bus.hpDisplayPrice`, which is `Math.max(0, hpGross - busAmount)` — it can never go
+  negative. Previously it was the one deduction site with no clamp.
+- CHANGED: `renderTopTotalSection()` and `renderTotalSection()` **drop their `Math.max(0, …)` clamps**
+  and use `formatSignedCurrency()`, so the balance after BUS shows its true negative value
+  (−£694.40 in the reported case, previously £0.00).
+- ADDED: "System price" and "BUS grant applied" breakdown lines in both total sections, rendered
+  only when a grant applies.
+- CHANGED: commissioning card receives a totals override built from
+  `quoteData.bus.commissioningDisplay` (mirrors the existing Solar override pattern), so grant left
+  over once the heat pump price reaches £0 cascades there and the page reconciles.
+- ADDED: `CASCADE_GRANT_TO_COMMISSIONING` config constant, default `true`.
+- CHANGED: the `.hp-grant-banner` grant card renders **only when a grant applies**, with the resolved
+  amount, so it reads £9,000 on the enhanced rate and is hidden entirely with no Suppak line.
+- ADDED: third grant-card line, shown only when the grant exceeds the quote value — "Any grant
+  funding in excess of your quote value (£694.40) will be refunded to you once the grant has been
+  claimed." — plus the `.hp-grant-banner-refund` CSS rule.
+- ADDED: `formatSignedCurrency(value, symbol)`. `formatNumber()` is deliberately **unchanged** — it
+  already handles negatives; the `£-` ordering was a caller problem. The two discount call sites
+  keep `formatNumber()` because `header.discountTotal` is `Math.abs()`'d and they hand-roll their sign.
+- REMOVED: `HP_GRANT_AMOUNT = 7500` constant.
+- REMOVED: dead `.grant-banner` code — the `showGrantBanner` parameter of `renderCategorySection()`,
+  the `if (showGrantBanner) { … }` block, the `false` argument at both call sites, and the five
+  `.grant-banner*` CSS rules. Unreachable: both call sites passed `false` and Heat Pump/UFH do not
+  use `renderCategorySection`. `.hp-grant-banner` is untouched.
+- FIXED: JSDoc `@version` had drifted to `4.3.67` while `SCRIPT_VERSION` read `4.3.70`.
+
+---
 
 ### v4.3.70 — 22 April 2026 ⏳ Draft — pending Sandbox testing
 
@@ -97,7 +180,28 @@
 
 ---
 
-## Send Quote Suitelet (`nuheat_send_quote_sl.js`) & Client Script (`nuheat_send_quote_cs.js`)
+## Send Quote Suitelet (`nuheat_send_quote_sl.js`) & Client Script (`nuheat_send_quote_cs (1).js`)
+
+### Send Quote SL v1.6.0 / Send Quote CS v1.3.0 — 18 August 2026 ⏳ Draft — pending Sandbox testing
+
+- ADDED (SL): imports `'./nuheat_bus_grant'`. `searchRelatedQuotes()` reads the item sublist off the
+  Estimate it already loads via `record.load()` and resolves the BUS grant there — the Master
+  Proposal never loads an Estimate and so has no line-item access of its own.
+- ADDED (SL): `busAmount` (0 | 7500 | 9000) and `busRate` ('none' | 'standard' | 'enhanced') carried
+  on each quote entry and logged per Estimate as `SendQuoteSL.BUS`.
+- ADDED (SL): hidden sublist fields `custpage_bus_amount` and `custpage_bus_rate`. Values are
+  stringified on the way out (serverWidget sublists carry TEXT) and `parseFloat`'d on the way back in.
+- ADDED (SL): the same treatment on the preview path, so preview and the saved/emailed proposal agree.
+- ADDED (SL): `formatSignedCurrency()` for figures that can go negative once the grant exceeds the
+  quote value. `formatCurrency()` is unchanged.
+- ADDED (CS): collects `custpage_bus_amount` / `custpage_bus_rate` into the preview payload —
+  without this the preview would show no grant while the saved proposal showed one.
+- FIXED: drifted JSDoc `@version` headers — SL said `1.4.9` (constant `1.5.1`), CS said `1.1.1`
+  (constant `1.2.0`).
+- ⚠️ DEPLOYMENT: `nuheat_bus_grant.js` must be in `SuiteScripts/NuHeat` before this script is
+  redeployed.
+
+---
 
 ### v1.5.0 / v1.2.0 — 30 March 2026 ⏳ Draft — pending sandbox/production testing
 

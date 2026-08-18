@@ -6,7 +6,7 @@
  * @description Module that generates a master proposal HTML page aggregating
  *              multiple quotes under a single Opportunity. Called by the
  *              Send Quote Suitelet after the user selects which quotes to include.
- * @version     1.6.7
+ * @version     1.7.0
  * @author      Nu-Heat Development
  *
  * CHANGELOG v1.6.6 (feat: Site address in Customer Information):
@@ -199,7 +199,7 @@ define([
 
     // ─── Constants ────────────────────────────────────────────────────────────────
 
-    var MODULE_VERSION = '1.6.7';
+    var MODULE_VERSION = '1.7.0';
 
     var GTM_CONTAINER_ID = 'GTM-5NJJSBMP';
 
@@ -302,9 +302,10 @@ define([
      */
     var SHOW_BUS_GRANT_BANNER = true;
 
-    // v1.6.7: BUS grant amount deducted from HP card display price.
-    // Blanket deduction applied to all Heat Pump quotes — make conditional in future if needed.
-    var HP_GRANT_AMOUNT = 7500;
+    // v1.7.0: The BUS grant amount is no longer hard-coded here. It is resolved from the
+    // Suppak line item by nuheat_bus_grant.js in nuheat_send_quote_sl.js, which loads the
+    // Estimate records, and arrives on each quote object as busAmount / busRate.
+    // This module has no line-item access of its own (it never loads an Estimate).
 
     // ─── Logo (hardcoded base64 — identical to nuheat_quote_suitelet.js v4.3.36) ─
     // v1.5.1 FIX: Hardcode logo base64 directly instead of loading from File Cabinet
@@ -805,7 +806,7 @@ define([
         h.push('      <p class="top-total-terms">This proposal is subject to our terms and conditions</p>');
         h.push('    </div>');
         h.push('    <div class="top-total-right">');
-        h.push('      <div class="top-total-amount">' + formatCurrency(totals.subtotal) + ' <span class="top-total-plus-vat">plus VAT</span></div>');
+        h.push('      <div class="top-total-amount">' + formatSignedCurrency(totals.subtotal) + ' <span class="top-total-plus-vat">plus VAT</span></div>');
 
         // Breakdown
         if (totals.discount > 0) {
@@ -814,7 +815,7 @@ define([
             h.push('      </div>');
         }
 
-        h.push('      <div class="top-total-inc-vat">Total inc. VAT: ' + formatCurrency(totals.totalIncVat) + '</div>');
+        h.push('      <div class="top-total-inc-vat">Total inc. VAT: ' + formatSignedCurrency(totals.totalIncVat) + '</div>');
         h.push('    </div>');
         h.push('  </div>');
         h.push('</section>');
@@ -851,17 +852,19 @@ define([
         }
 
         // v1.6.0: Render all quotes as system cards (no separators — cards have own borders)
-        var hasHeatPump = false;
+        // v1.7.0: Track the highest BUS rate present rather than "is there a Heat Pump line".
+        var maxBusAmount = 0;
         quotes.forEach(function (quote) {
             h.push(generateQuoteCard(quote, isMain));
-            if (quote.quoteType === 'Heat Pump') {
-                hasHeatPump = true;
+            if (hasBusGrant(quote)) {
+                maxBusAmount = Math.max(maxBusAmount, getBusAmount(quote));
             }
         });
 
-        // v1.6.0: BUS Grant banner — shown only in main quotes if a Heat Pump is present
-        if (isMain && hasHeatPump && SHOW_BUS_GRANT_BANNER) {
-            h.push(generateBUSGrantBanner());
+        // v1.7.0: BUS Grant banner — shown only in main quotes when at least one main quote
+        // actually carries a grant (resolved from its Suppak line), at the highest rate present.
+        if (isMain && maxBusAmount > 0 && SHOW_BUS_GRANT_BANNER) {
+            h.push(generateBUSGrantBanner(maxBusAmount));
         }
 
         h.push('    </div>');
@@ -937,23 +940,39 @@ define([
             ', tax=' + taxTotal + ', total(amount)=' + total);
 
         // Price display — compact footer format
-        // v1.6.7: Deduct BUS grant from displayed price for Heat Pump quotes
-        var displaySubtotal = (quote.quoteType === 'Heat Pump') ? Math.max(0, subtotal - HP_GRANT_AMOUNT) : subtotal;
+        // v1.7.0: Balance after BUS. Keyed off the resolved Suppak rate, NOT quoteType.
+        // The Math.max(0, ...) clamps are deliberately gone — a grant larger than the quote
+        // must show its true negative value, which is the figure the proposal has to display.
+        var busAmount       = getBusAmount(quote);
+        var quoteHasBus     = hasBusGrant(quote);
+        var displaySubtotal = quoteHasBus ? (subtotal - busAmount) : subtotal;   // may be negative
+        var totalIncVat     = quoteHasBus ? (total - busAmount)    : total;      // may be negative
+
+        safeLog('debug', 'MasterProposal.renderQuoteCard', 'BUS for quote ' + (quote.tranId || quote.quoteId) +
+            ': rate=' + (quote.busRate || 'none') + ', amount=' + busAmount +
+            ', balanceAfterBus=' + displaySubtotal);
+
         h.push('    <div class="system-card-pricing">');
-        if (displaySubtotal > 0) {
-            h.push('      <div class="system-card-price">' + formatCurrency(displaySubtotal) + '</div>');
+        // v1.7.0 FIX: was `if (displaySubtotal > 0)` — a negative balance must still render.
+        if (displaySubtotal !== 0 || quoteHasBus) {
+            h.push('      <div class="system-card-price">' + formatSignedCurrency(displaySubtotal) + '</div>');
         }
 
-        // Price detail line: discount and/or total inc VAT
+        // Price detail line: BUS grant, discount and/or total inc VAT
         var detailParts = [];
+        if (quoteHasBus) {
+            detailParts.push('Includes ' + formatCurrency(busAmount) + ' BUS grant');
+        }
         if (discountTotal !== 0) {
             var discountDisplay = Math.abs(discountTotal);
             detailParts.push('<span class="discount">Discount: -' + formatCurrency(discountDisplay) + '</span>');
         }
-        // v1.6.7: Deduct BUS grant from Total inc VAT for HP quotes
-        var totalIncVat = (quote.quoteType === 'Heat Pump') ? Math.max(0, total - HP_GRANT_AMOUNT) : total;
-        if (totalIncVat > 0) {
-            detailParts.push('Total inc. VAT: <strong>' + formatCurrency(totalIncVat) + '</strong>');
+        if (totalIncVat !== 0 || quoteHasBus) {
+            detailParts.push('Total inc. VAT: <strong>' + formatSignedCurrency(totalIncVat) + '</strong>');
+        }
+        // v1.7.0: When the grant exceeds the quote value, say what is owed back.
+        if (displaySubtotal < 0) {
+            detailParts.push(formatCurrency(Math.abs(displaySubtotal)) + ' refundable to you');
         }
         if (detailParts.length > 0) {
             h.push('      <div class="system-card-price-detail">' + detailParts.join(' &middot; ') + '</div>');
@@ -995,17 +1014,22 @@ define([
 
     /**
      * v1.6.0: Generates the BUS Grant contextual banner.
-     * Displayed after Heat Pump cards in the main quotes section.
-     * Static informational text — not from NetSuite fields.
+     * Displayed after the quote cards in the main quotes section.
+     *
+     * v1.7.0: The amount is now passed in rather than hard-coded, so the banner reads
+     * £9,000 on the enhanced rate. When main quotes carry different rates, the caller
+     * passes the highest present.
+     *
+     * @param {number} busAmount - resolved BUS grant amount (7500 | 9000)
      */
-    function generateBUSGrantBanner() {
+    function generateBUSGrantBanner(busAmount) {
         var h = [];
         h.push('<div class="grant-highlight">');
         h.push('  <div class="grant-highlight-icon">');
         h.push('    <span style="font-size: 24px; font-weight: 700; color: white;">&pound;</span>');
         h.push('  </div>');
         h.push('  <div class="grant-highlight-content">');
-        h.push('    <div class="grant-highlight-title">&pound;7,500 grant funding has been applied to this quote</div>');
+        h.push('    <div class="grant-highlight-title">' + formatCurrency(busAmount) + ' grant funding has been applied to this quote</div>');
         h.push('    <div class="grant-highlight-desc grant-highlight-asterisk">*Subject to scheme eligibility</div>');
         h.push('  </div>');
         h.push('</div>');
@@ -1601,12 +1625,15 @@ define([
         var total = 0;
 
         quotes.forEach(function (q) {
-            // v1.6.7: Deduct BUS grant from HP quote totals before aggregation
-            var grantDeduction = (q.quoteType === 'Heat Pump') ? HP_GRANT_AMOUNT : 0;
-            subtotal += Math.max(0, parseCurrencyAmount(q.subtotal) - grantDeduction);
+            // v1.7.0: Aggregate the post-grant balances so the headline total bar matches the
+            // sum of the cards. Keyed off the resolved Suppak rate, not quoteType. The
+            // Math.max(0, ...) clamps are gone — a negative per-quote balance must REDUCE the
+            // total, not be skipped.
+            var grantDeduction = hasBusGrant(q) ? getBusAmount(q) : 0;
+            subtotal += parseCurrencyAmount(q.subtotal) - grantDeduction;
             discount += Math.abs(parseCurrencyAmount(q.discountTotal));
             vat      += parseCurrencyAmount(q.taxTotal);
-            total    += Math.max(0, parseCurrencyAmount(q.amount) - grantDeduction);  // NS 'total' field = already inc VAT
+            total    += parseCurrencyAmount(q.amount) - grantDeduction;  // NS 'total' field = already inc VAT
         });
 
         // v1.5.4 FIX: NS 'total' already includes VAT — do NOT add vat again
@@ -1635,6 +1662,46 @@ define([
     function formatCurrency(amount) {
         var num = parseFloat(amount) || 0;
         return '\u00A3' + num.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+    }
+
+    /**
+     * v1.7.0: Formats a currency value with the minus sign BEFORE the symbol.
+     * e.g. -694.40 => '-£694.40' (formatCurrency alone gives '£-694.40').
+     *
+     * ⚠️ Do NOT use this for the discount line — that value is Math.abs()'d and its
+     * call site hand-rolls its own '-' prefix, so it would render '-£-…'.
+     *
+     * @param {number|string} amount - may be negative
+     * @returns {string}
+     */
+    function formatSignedCurrency(amount) {
+        var num = parseFloat(amount) || 0;
+        return (num < 0 ? '-' : '') + formatCurrency(Math.abs(num));
+    }
+
+    /**
+     * v1.7.0: Reads the BUS grant amount off a quote entry.
+     * The value round-trips through a serverWidget sublist as text, so parse it back.
+     *
+     * @param {Object} quote
+     * @returns {number} 0 | 7500 | 9000
+     */
+    function getBusAmount(quote) {
+        if (!quote || quote.busAmount === null || quote.busAmount === undefined) { return 0; }
+        var n = parseFloat(String(quote.busAmount).replace(/[\u00A3,\s]/g, ''));
+        return isNaN(n) ? 0 : n;
+    }
+
+    /**
+     * v1.7.0: Whether a quote carries a BUS grant.
+     * Keyed off the resolved Suppak rate, NOT quoteType === 'Heat Pump'.
+     *
+     * @param {Object} quote
+     * @returns {boolean}
+     */
+    function hasBusGrant(quote) {
+        if (!quote || quote.busRate === 'none') { return false; }
+        return getBusAmount(quote) > 0;
     }
 
     /**
