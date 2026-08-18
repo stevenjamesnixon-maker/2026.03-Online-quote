@@ -155,6 +155,12 @@ A multi-component SuiteScript 2.1 solution:
 - Added contact selector dropdown to proposal email form — selecting a contact populates the To address field
 - Key NetSuite pitfalls discovered during implementation (see Section 9, pitfall #11):
 
+### Phase 8: Grant Funding Applied to Price (22 April 2026, v4.3.70 / v1.6.7)
+
+- HP display price now shows subtotal minus £7,500 BUS grant on both the quote page and Master Proposal
+- Grant banner updated from "may be eligible" to "£7,500 grant funding has been applied to this quote" with "*Subject to scheme eligibility" asterisk line
+- `HP_GRANT_AMOUNT = 7500` constant in both files — blanket for now, intended to become conditional on a NetSuite field in future
+
 ---
 
 ## 3. Current System State
@@ -163,12 +169,12 @@ A multi-component SuiteScript 2.1 solution:
 
 | Component | Version | File | Status |
 |-----------|---------|------|--------|
-| Quote Suitelet | v4.3.69 | `nuheat_quote_suitelet.js` | ✅ Production ready |
+| Quote Suitelet | v4.3.70 | `nuheat_quote_suitelet.js` | ⏳ Pending Sandbox testing |
 | Quote UE | v4.0.9 | `nuheat_quote_ue.js` | ✅ Production ready |
 | Quote CS | v4.0.6 | `nuheat_quote_cs.js` | ✅ Production ready |
 | Quote Viewer | v1.1.0 | `nuheat_quote_viewer_sl.js` | ✅ Production ready |
 | Scheduled Script | v1.0.0 | `nuheat_quote_generator_ss.js` | ✅ Production ready |
-| Master Proposal | v1.6.6 | `nuheat_master_proposal.js` | ✅ Production ready |
+| Master Proposal | v1.6.7 | `nuheat_master_proposal.js` | ⏳ Pending Sandbox testing |
 | Send Quote SL | v1.5.0 | `nuheat_send_quote_sl.js` | ✅ Production ready |
 | Send Quote CS | v1.2.0 | `nuheat_send_quote_cs.js` | ✅ Production ready |
 | Opportunity UE | v1.0.0 | `src/nuheat_opportunity_ue.js` | ✅ Production ready |

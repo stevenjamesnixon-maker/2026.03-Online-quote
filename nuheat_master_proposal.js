@@ -6,7 +6,7 @@
  * @description Module that generates a master proposal HTML page aggregating
  *              multiple quotes under a single Opportunity. Called by the
  *              Send Quote Suitelet after the user selects which quotes to include.
- * @version     1.6.6
+ * @version     1.6.7
  * @author      Nu-Heat Development
  *
  * CHANGELOG v1.6.6 (feat: Site address in Customer Information):
@@ -199,7 +199,7 @@ define([
 
     // ─── Constants ────────────────────────────────────────────────────────────────
 
-    var MODULE_VERSION = '1.6.6';
+    var MODULE_VERSION = '1.6.7';
 
     var GTM_CONTAINER_ID = 'GTM-5NJJSBMP';
 
@@ -301,6 +301,10 @@ define([
      * Set to false to hide the banner without removing code.
      */
     var SHOW_BUS_GRANT_BANNER = true;
+
+    // v1.6.7: BUS grant amount deducted from HP card display price.
+    // Blanket deduction applied to all Heat Pump quotes — make conditional in future if needed.
+    var HP_GRANT_AMOUNT = 7500;
 
     // ─── Logo (hardcoded base64 — identical to nuheat_quote_suitelet.js v4.3.36) ─
     // v1.5.1 FIX: Hardcode logo base64 directly instead of loading from File Cabinet
@@ -933,9 +937,11 @@ define([
             ', tax=' + taxTotal + ', total(amount)=' + total);
 
         // Price display — compact footer format
+        // v1.6.7: Deduct BUS grant from displayed price for Heat Pump quotes
+        var displaySubtotal = (quote.quoteType === 'Heat Pump') ? Math.max(0, subtotal - HP_GRANT_AMOUNT) : subtotal;
         h.push('    <div class="system-card-pricing">');
-        if (subtotal > 0) {
-            h.push('      <div class="system-card-price">' + formatCurrency(subtotal) + '</div>');
+        if (displaySubtotal > 0) {
+            h.push('      <div class="system-card-price">' + formatCurrency(displaySubtotal) + '</div>');
         }
 
         // Price detail line: discount and/or total inc VAT
@@ -944,7 +950,8 @@ define([
             var discountDisplay = Math.abs(discountTotal);
             detailParts.push('<span class="discount">Discount: -' + formatCurrency(discountDisplay) + '</span>');
         }
-        var totalIncVat = total;  // v1.5.4 FIX: NS 'total' already includes VAT
+        // v1.6.7: Deduct BUS grant from Total inc VAT for HP quotes
+        var totalIncVat = (quote.quoteType === 'Heat Pump') ? Math.max(0, total - HP_GRANT_AMOUNT) : total;
         if (totalIncVat > 0) {
             detailParts.push('Total inc. VAT: <strong>' + formatCurrency(totalIncVat) + '</strong>');
         }
@@ -998,8 +1005,8 @@ define([
         h.push('    <span style="font-size: 24px; font-weight: 700; color: white;">&pound;</span>');
         h.push('  </div>');
         h.push('  <div class="grant-highlight-content">');
-        h.push('    <div class="grant-highlight-title">Save &pound;7,500 with the Boiler Upgrade Scheme</div>');
-        h.push('    <div class="grant-highlight-desc">Your heat pump may qualify for a &pound;7,500 government grant. We handle the full application &mdash; speak to your account manager for details.</div>');
+        h.push('    <div class="grant-highlight-title">&pound;7,500 grant funding has been applied to this quote</div>');
+        h.push('    <div class="grant-highlight-desc grant-highlight-asterisk">*Subject to scheme eligibility</div>');
         h.push('  </div>');
         h.push('</div>');
         return h.join('\n');
@@ -1279,6 +1286,7 @@ define([
             '.grant-highlight-content { flex: 1; }',
             '.grant-highlight-title { font-size: 16px; font-weight: 700; color: var(--color-primary); margin-bottom: 4px; }',
             '.grant-highlight-desc { font-size: 14px; color: #666; line-height: 1.5; }',
+            '.grant-highlight-asterisk { font-size: 11px; opacity: 0.8; font-style: italic; margin-top: 4px; }',
 
             // ── What Happens Next ──
             '.what-happens-next-section { background: #f9f9f9; padding: 40px; margin: 0; }',
@@ -1593,10 +1601,12 @@ define([
         var total = 0;
 
         quotes.forEach(function (q) {
-            subtotal += parseCurrencyAmount(q.subtotal);
+            // v1.6.7: Deduct BUS grant from HP quote totals before aggregation
+            var grantDeduction = (q.quoteType === 'Heat Pump') ? HP_GRANT_AMOUNT : 0;
+            subtotal += Math.max(0, parseCurrencyAmount(q.subtotal) - grantDeduction);
             discount += Math.abs(parseCurrencyAmount(q.discountTotal));
             vat      += parseCurrencyAmount(q.taxTotal);
-            total    += parseCurrencyAmount(q.amount);  // NS 'total' field = already inc VAT
+            total    += Math.max(0, parseCurrencyAmount(q.amount) - grantDeduction);  // NS 'total' field = already inc VAT
         });
 
         // v1.5.4 FIX: NS 'total' already includes VAT — do NOT add vat again

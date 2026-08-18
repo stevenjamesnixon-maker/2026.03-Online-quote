@@ -2,6 +2,15 @@
 
 ## Master Proposal (`nuheat_master_proposal.js`)
 
+### v1.6.7 — 22 April 2026 ⏳ Draft — pending Sandbox testing
+
+- CHANGED: Heat Pump quote cards now display subtotal minus £7,500 BUS grant (`HP_GRANT_AMOUNT` constant). Uses `Math.max(0, subtotal - HP_GRANT_AMOUNT)` to prevent negative prices.
+- CHANGED: `generateBUSGrantBanner()` text updated to "£7,500 grant funding has been applied to this quote" with asterisk line "*Subject to scheme eligibility".
+- ADDED: `HP_GRANT_AMOUNT = 7500` constant alongside `SHOW_BUS_GRANT_BANNER`.
+- ADDED: `.grant-highlight-asterisk` CSS modifier class for the asterisk line.
+
+---
+
 ### v1.6.6 — 22 April 2026
 
 - ADDED: `loadOpportunityData()` reads `custbody_opp_site_adress` from the Opportunity record using a defensive try-catch. Value stored as `siteAddress` on the returned `oppData` object.
@@ -27,6 +36,13 @@
 ---
 
 ## Quote Suitelet (`nuheat_quote_suitelet.js`)
+
+### v4.3.70 — 22 April 2026 ⏳ Draft — pending Sandbox testing
+
+- CHANGED: Heat pump display price now deducts £7,500 BUS grant (`HP_GRANT_AMOUNT` constant). `hpGrantedPrice = hpDisplayPrice - 7500` shown in price card.
+- CHANGED: `hp-grant-banner` text updated from "may be eligible for a £7,500 Government grant" to "£7,500 grant funding has been applied to this quote" with asterisk line "*Subject to scheme eligibility" in smaller italic text.
+- ADDED: `HP_GRANT_AMOUNT = 7500` constant — blanket deduction, intended to become conditional on a NetSuite field in future.
+- ADDED: `.hp-grant-banner-text .hp-grant-banner-asterisk` CSS class for the smaller italic asterisk line.
 
 ### v4.3.69 — 22 April 2026 ⏳ Draft — pending Sandbox testing
 
