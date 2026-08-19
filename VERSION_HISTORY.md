@@ -53,6 +53,18 @@
 
 ## Master Proposal (`nuheat_master_proposal.js`)
 
+### v1.8.3 — 18 August 2026 ⏳ Draft — pending Sandbox testing
+
+**Copy only.**
+
+- CHANGED: the blended-VAT note now reads "VAT is charged at 0% on your heat pump and 20% on your
+  underfloor heating. The total amount shown combines the two — see more detail in the quote
+  breakdowns below." (em dash, as before).
+- UNCHANGED: the gating condition — still shown only when the proposal contains both a heat pump
+  quote and at least one 20%-rated quote. `.top-total-vat-note` CSS unchanged.
+
+---
+
 ### v1.8.2 — 18 August 2026 ⏳ Draft — pending Sandbox testing
 
 **One CSS rule — no JavaScript, no HTML, no other file.**
@@ -178,6 +190,32 @@
 ---
 
 ## Quote Suitelet (`nuheat_quote_suitelet.js`)
+
+### v4.6.0 — 18 August 2026 ⏳ Draft — pending Sandbox testing
+
+- FIXED: **the "Site address" row never rendered.** The row already existed in `renderHeader()`,
+  conditionally rendered and correctly placed between "Customer name" and "System reference" — it
+  was suppressed because `header.projectAddress` was always empty. `custbody_opp_site_adress` is an
+  **Opportunity** field (the `opp_` prefix is the clue), and it was being read off the Estimate.
+- ADDED: `loadQuoteData()` loads the Opportunity — whose ID it already extracts for file naming —
+  and reads the field from there, mirroring `nuheat_master_proposal.js:463-467` and
+  `nuheat_send_quote_sl.js:415-419`. Wrapped in try/catch: a missing or unreadable Opportunity
+  leaves the row hidden and **never breaks the page**.
+- The two Estimate-level fallbacks are kept, *after* the Opportunity value. Order matters —
+  Opportunity first, Estimate second.
+- Value is `.trim()`ed, so a whitespace-only field hides the row rather than rendering an empty label.
+- ADDED: `SITE_ADDRESS` audit entry with the Opportunity ID and resolved value. An empty value
+  against a valid `oppId` is a data issue on that Opportunity, not a code one.
+- ⚠️ The field ID is misspelled in NetSuite — `adress`, one `d`. That is the real ID.
+- CHANGED: label `Project address:` → **`Site address:`**, matching the Master Proposal.
+- CHANGED: section header `Recommended Solutions and Costs` → **`Your solutions and costs`**.
+  Visible text only — the section ID stays `recommendations`, as do `toggleSection('recommendations')`,
+  the `recommendations-content` / `recommendations-icon` element IDs and the `.recommendations-header`
+  CSS class, so the collapse toggle is unaffected.
+- GOVERNANCE: one extra `record.load()` per quote generation (~10 units). Negligible —
+  `loadItemCustomFields()` already loads a record per line item.
+
+---
 
 ### v4.5.1 — 18 August 2026 ⏳ Draft — pending Sandbox testing
 

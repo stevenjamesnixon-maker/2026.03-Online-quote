@@ -209,3 +209,37 @@ this PR is unaffected.
 > class of its own, but it renders the bare words "plus VAT" with no amount appended, so it is far
 > too short to wrap. It was deliberately left alone; if it looks any different from before, something
 > unintended has changed.
+
+---
+
+## Site address, section rename, VAT copy (v4.6.0 / v1.8.3)
+
+Only `nuheat_quote_suitelet.js` and `nuheat_master_proposal.js` changed — the shared modules and the
+Send Quote scripts are untouched, so no new upload ordering concerns.
+
+| # | Scenario | Expected |
+|---|---|---|
+| F1 | Quote from an Opportunity **with** a site address | `Site address:` row renders between Customer name and System reference |
+| F2 | Quote from an Opportunity **without** a site address | Row hidden entirely — no empty label |
+| F3 | Quote with **no** linked Opportunity | Page renders normally, row hidden, no error |
+| F4 | Opportunity load fails / no permission | Page still renders; `log.debug` entry present; no crash |
+| F5 | Label wording | Reads `Site address:`, matching the Master Proposal |
+| F6 | Execution Log | `SITE_ADDRESS` audit entry present with oppId and resolved value |
+| F7 | Section header | Reads `Your solutions and costs` |
+| F8 | Collapse toggle | Section still expands/collapses — IDs unbroken |
+| F9 | Master Proposal VAT note | New wording; still only on HP + 20%-rated proposals |
+| F10 | Master Proposal, HP only | VAT note still hidden |
+| F11 | Mobile 768px | Address row wraps cleanly in the info block |
+| F12 | Print / PDF | Address row and renamed header both render |
+| F13 | Re-run Phases 2–5 scenarios | No regression in any BUS, VAT or layout figure |
+
+### Specific things to eyeball
+
+- [ ] **F8 is the one that matters most.** The section ID stayed `recommendations` while only the
+      visible `<h2>` text changed, so the toggle should be unaffected — but click it and confirm the
+      section still expands and collapses, and the ▼/▶ arrow still flips.
+- [ ] **F6 diagnoses F2 vs a real bug.** If the row is missing, check `SITE_ADDRESS` in the log:
+      an empty value against a *valid* `oppId` means the field is empty on that Opportunity — a data
+      issue, not a code one. `oppId=none` means the Estimate has no linked Opportunity (F3).
+- [ ] No empty `Site address:` label with a blank value — a whitespace-only field must hide the row.
+- [ ] The Master Proposal's own site address row is unchanged.

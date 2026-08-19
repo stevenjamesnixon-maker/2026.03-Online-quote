@@ -1,3 +1,72 @@
+## [Quote Suitelet v4.6.0 / Master Proposal v1.8.3] — 18 August 2026
+**Status:** ⏳ Draft — pending Sandbox testing
+**Components:** `nuheat_quote_suitelet.js`, `nuheat_master_proposal.js`
+
+No changes to `nuheat_bus_grant.js`, `nuheat_vat_rates.js`, `nuheat_send_quote_sl.js` or
+`nuheat_send_quote_cs (1).js` — Phases 2–5 are untouched, and there are no new File Cabinet upload
+ordering concerns beyond those already documented.
+
+### Fixed — site address never rendered on the quote page
+The "Site address" row **already existed** in `renderHeader()`, already conditionally rendered, and
+already in the right place between "Customer name" and "System reference". It was invisible because
+the value was read from the wrong record:
+
+```js
+// pre-v4.6.0 — custbody_opp_site_adress is an OPPORTUNITY field
+const projectAddress = estimate.getValue({ fieldId: 'custbody_opp_site_adress' }) || …
+```
+
+`custbody_opp_site_adress` lives on the **Opportunity** — the `opp_` prefix is the clue, and
+`FIELD_REFERENCE.md` documents it as such. Reading it off the Estimate returned empty every time, so
+the row was permanently suppressed.
+
+`loadQuoteData()` now loads the Opportunity (whose ID it already extracts for file naming) and reads
+the field from there, mirroring `nuheat_master_proposal.js:463-467` and
+`nuheat_send_quote_sl.js:415-419`:
+
+- Wrapped in try/catch — **a missing or unreadable Opportunity can never break the page**; the row
+  simply stays hidden.
+- The two Estimate-level fallbacks are **kept**, after the Opportunity value, in case some Estimates
+  carry their own. Order matters: Opportunity first.
+- Value is `.trim()`ed, so a whitespace-only field still hides the row rather than rendering an
+  empty label.
+- Logged as `SITE_ADDRESS` with the Opportunity ID and resolved value.
+- ⚠️ The field ID is misspelled in NetSuite — **`adress`, one `d`**. That is the real ID; not a typo
+  to fix.
+
+### Changed — label and section header
+- **`Project address:` → `Site address:`** on the quote page, matching the Master Proposal
+  (`nuheat_master_proposal.js:729`). The two documents should agree.
+- **`Recommended Solutions and Costs` → `Your solutions and costs`** in
+  `renderRecommendationsHeader()`. **Visible text only** — the section ID stays `recommendations`,
+  as do `toggleSection('recommendations')`, the `recommendations-content` / `recommendations-icon`
+  element IDs and the `.recommendations-header` CSS class. Renaming those would break the collapse
+  toggle for no benefit.
+
+### Changed — Master Proposal VAT note copy
+Gating condition and `.top-total-vat-note` CSS unchanged — copy only:
+
+> VAT is charged at 0% on your heat pump and 20% on your underfloor heating. The total amount shown
+> combines the two — see more detail in the quote breakdowns below.
+
+Still shown only when the proposal contains both a heat pump quote and at least one 20%-rated quote.
+
+### Governance
+One extra `record.load()` per quote generation (~10 units). Negligible in context —
+`loadItemCustomFields()` already performs a `record.load()` per line item. Nothing was restructured
+to save it.
+
+### Open question for review
+The surrounding section headers are Title Case — "Project Specification", "Upgrades & Offers", and
+the outgoing "Recommended Solutions and Costs". The new header is sentence case as specified. See the
+PR comment.
+
+### Testing notes
+F1–F13 in `TESTING_GUIDE.md`, including a re-run of the Phase 2–5 BUS, VAT and layout scenarios.
+Grep the Execution Log for `SITE_ADDRESS`.
+
+---
+
 ## [Master Proposal v1.8.2] — 18 August 2026
 **Status:** ⏳ Draft — pending Sandbox testing
 **Component:** `nuheat_master_proposal.js`

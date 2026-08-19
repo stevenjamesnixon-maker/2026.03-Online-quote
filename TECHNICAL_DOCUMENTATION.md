@@ -163,12 +163,12 @@ EXTERNAL ACCESS:
 |--------|------|---------|------|---------|
 | BUS Grant Module | `nuheat_bus_grant.js` | v1.0.0 | Module | Shared BUS grant resolution from the Suppak line item |
 | VAT Rates Module | `nuheat_vat_rates.js` | v1.0.0 | Module | Shared VAT rate resolution by quote technology |
-| Quote Suitelet | `nuheat_quote_suitelet.js` | v4.5.1 | Suitelet | Core HTML quote generation engine |
+| Quote Suitelet | `nuheat_quote_suitelet.js` | v4.6.0 | Suitelet | Core HTML quote generation engine |
 | Quote User Event | `nuheat_quote_ue.js` | v4.0.9 | UserEventScript | Auto-generates quotes on Estimate save; adds "Regen quote" button |
 | Quote Client Script | `nuheat_quote_cs.js` | v4.0.6 | ClientScript | Handles "Regen quote" button click; saves record first, passes fresh pricing |
 | Quote Viewer | `nuheat_quote_viewer_sl.js` | v1.1.0 | Suitelet | Proxy that serves latest quote HTML via stable URL |
 | Scheduled Script | `nuheat_quote_generator_ss.js` | v1.0.0 | ScheduledScript | Fallback for governance-limited UE contexts |
-| Master Proposal | `nuheat_master_proposal.js` | v1.8.2 | Module | Generates multi-quote master proposals |
+| Master Proposal | `nuheat_master_proposal.js` | v1.8.3 | Module | Generates multi-quote master proposals |
 | Send Quote SL | `nuheat_send_quote_sl.js` | v1.7.0 | Suitelet | Quote selection UI for proposal generation |
 | Send Quote CS | `nuheat_send_quote_cs (1).js` | v1.4.0 | ClientScript | Handles Send Quote form interactions |
 | Opportunity UE | `nuheat_opportunity_ue.js` | v1.0.0 | UserEventScript | Adds "Send Quote" button to Opportunity form |

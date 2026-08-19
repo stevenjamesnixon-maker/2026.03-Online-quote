@@ -1,7 +1,7 @@
 # Section Logic Mapping — BUS Grant & VAT
 
 **Last Updated:** 18 August 2026
-**Applies to:** Quote Suitelet v4.5.1, Master Proposal v1.8.1, Send Quote SL v1.7.0,
+**Applies to:** Quote Suitelet v4.6.0, Master Proposal v1.8.3, Send Quote SL v1.7.0,
 BUS Module v1.0.0, VAT Module v1.0.0
 
 How the BUS (Boiler Upgrade Scheme) grant is resolved, and exactly where each derived figure is
@@ -351,3 +351,66 @@ blended figure (UFH at 20% + HP at 0%). No new calculation.
 > subtotal is gross of discount and the discount is shown as its own breakdown line. This is not a
 > divergence between `totals.vat` and `totals.totalIncVat` — the displayed arithmetic is correct
 > either way: `subtotal − discount + VAT = Total inc. VAT`.
+
+---
+---
+
+# Part 4 — Site address (v4.6.0)
+
+## 17. Where the site address comes from
+
+`custbody_opp_site_adress` is a field on the **Opportunity**, not the Estimate. The `opp_` prefix is
+the clue.
+
+> ⚠️ **This was the bug.** The quote page's "Site address" row already existed in `renderHeader()`,
+> already conditionally rendered, and already correctly placed between "Customer name" and "System
+> reference". It never appeared because `custbody_opp_site_adress` was being read off the **Estimate**,
+> which returns empty every time, so `header.projectAddress` was always falsy and the row was
+> permanently suppressed. The markup was never the problem.
+
+⚠️ The field ID is misspelled in NetSuite — **`adress`, one `d`**. That is the real ID.
+
+## 18. Resolution order
+
+`loadQuoteData()` resolves the address before calling `extractHeaderData()`, which applies the
+fallback chain. **Order matters — Opportunity first:**
+
+| # | Source | Notes |
+|---|---|---|
+| 1 | Opportunity `custbody_opp_site_adress` | the authoritative value; `.trim()`ed |
+| 2 | Estimate `custbody_opp_site_adress` | kept in case an Estimate carries its own |
+| 3 | Estimate `custbody_project_address` | legacy fallback |
+| — | otherwise `''` | **row hidden entirely — never an empty label** |
+
+The Opportunity ID is already extracted by `loadQuoteData()` for stable file naming, so no new
+lookup was needed to find it.
+
+**Structural guarantee.** The `record.load()` is wrapped in try/catch. If the Opportunity is missing,
+inaccessible, or the load throws for any reason, `siteAddress` stays `''`, the chain falls through to
+the Estimate fallbacks, and the row simply stays hidden — **a missing address can never break the
+page.** The failure is recorded with `log.debug`.
+
+A whitespace-only value trims to `''` and hides the row, so a field containing only spaces does not
+render an empty label.
+
+## 19. Consumers
+
+All three scripts now read the field from the Opportunity, each in a try/catch:
+
+| Script | Where | Label rendered |
+|---|---|---|
+| `nuheat_master_proposal.js` | `loadOppData()` ~:463 | `Site address:` |
+| `nuheat_send_quote_sl.js` | ~:415 | (not rendered — used internally) |
+| `nuheat_quote_suitelet.js` | `loadQuoteData()` — **new in v4.6.0** | `Site address:` |
+
+The quote page label changed from `Project address:` to `Site address:` in v4.6.0 so the quote page
+and the Master Proposal agree.
+
+## 20. Audit log
+
+| Tag | Written by | Meaning |
+|---|---|---|
+| `SITE_ADDRESS` | Quote Suitelet | Opportunity ID and the resolved address for every quote generation |
+
+⚠️ An **empty** `SITE_ADDRESS` value against a **valid** `oppId` means the field is genuinely empty on
+that Opportunity — a data issue, not a code one. Do not go hunting for another field.

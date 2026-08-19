@@ -19,7 +19,30 @@ All custom NetSuite fields used by this solution, organised by record type and p
 |---|---|---|
 | custbody_opp_quote_last_viewed | DateTime | Timestamp of most recent proposal view |
 | custbody_opp_view_count | Integer | Running total of proposal views |
-| custbody_opp_site_adress | Text | Site address — displayed in Customer Information section of Master Proposal (note: field ID has single 'd' in "adress") |
+| custbody_opp_site_adress | Text | Site address — displayed in the Customer Information section of **both** the Master Proposal and (from Quote Suitelet v4.6.0) the quote page (note: field ID has single 'd' in "adress") |
+
+> ⚠️ **`custbody_opp_site_adress` is an OPPORTUNITY field, not an Estimate field.** The `opp_` prefix
+> is the clue. Reading it off an Estimate returns empty every time — which is exactly what the Quote
+> Suitelet did before v4.6.0, so its "Site address" row never rendered despite the markup being
+> present and correctly placed.
+>
+> All three consumers now load the Opportunity and read it from there, each inside a try/catch so a
+> missing or unreadable Opportunity can never break the page:
+>
+> | Script | Where |
+> |---|---|
+> | `nuheat_master_proposal.js` | `loadOppData()` ~:463 |
+> | `nuheat_send_quote_sl.js` | ~:415 |
+> | `nuheat_quote_suitelet.js` | `loadQuoteData()` — **new in v4.6.0**, logged as `SITE_ADDRESS` |
+>
+> The Quote Suitelet keeps its two Estimate-level fallbacks after the Opportunity value
+> (`custbody_opp_site_adress`, then `custbody_project_address` on the Estimate) in case some
+> Estimates carry their own value. Order matters: **Opportunity first.**
+>
+> ⚠️ **Do not "correct" the spelling.** `adress` with one `d` is the real field ID in NetSuite.
+>
+> If `SITE_ADDRESS` logs an empty string against a valid `oppId`, the field is genuinely empty on
+> that Opportunity — a data issue, not a code one.
 
 ---
 

@@ -9,7 +9,7 @@
  * accessible via public URL with print-to-PDF functionality.
  * 
  * Author: Nu-Heat Development Team
- * @version 4.5.1
+ * @version 4.6.0
  * Created: February 2026
  * Updated: 28 March 2026 - v4.3.49: Suitelet Proxy for stable URLs, timestamped filenames, file cleanup
  * Updated: 28 March 2026 - v4.3.50: Removed invalid search.lookupFields() for pricing, simplified data priority
@@ -32,6 +32,9 @@
  *          the section price cards (VAT is now referenced only in the total system price header)
  * Updated: 18 August 2026 - v4.5.1: Presentation refinements — "Refundable amount" line in both total sections when the
  *          balance after BUS is negative (display only, no calculation changes)
+ * Updated: 18 August 2026 - v4.6.0: Site address now read from the OPPORTUNITY record (custbody_opp_site_adress is an
+ *          Opportunity field — reading it off the Estimate always returned empty, so the row never rendered), label
+ *          changed to "Site address:" to match the Master Proposal, section header renamed to "Your solutions and costs"
  *
  * For detailed version history, see CHANGELOG.md
  */
@@ -42,7 +45,7 @@ define(['N/record', 'N/search', 'N/log', 'N/format', 'N/error', 'N/runtime', 'N/
         // =====================================================================
         // SCRIPT VERSION
         // =====================================================================
-        var SCRIPT_VERSION = '4.5.1';
+        var SCRIPT_VERSION = '4.6.0';
 
         // =====================================================================
         // GTM CONFIGURATION (v4.3.68)
@@ -1642,7 +1645,30 @@ function loadQuoteData(quoteId, debugLog, pricingOverrides) {
                                estimate.getValue({ fieldId: 'createdfrom' }) || '';
             debugLog('LoadQuote', 'Opportunity ID extracted', { opportunityId: opportunityId });
 
-            const headerData = extractHeaderData(estimate, debugLog, freshPricingFields);
+            // v4.6.0: custbody_opp_site_adress lives on the OPPORTUNITY, not the Estimate.
+            // Reading it off the Estimate (pre-v4.6.0) always returned empty, so the
+            // "Site address" row never rendered. Mirrors nuheat_master_proposal.js:463-467.
+            // ⚠️ The field ID is misspelled in NetSuite — 'adress', one 'd'. That is the real ID.
+            // Structural: if this load throws, siteAddress stays '' and the row simply stays
+            // hidden — a missing address must never break the page.
+            var siteAddress = '';
+            if (opportunityId) {
+                try {
+                    var oppRecord = record.load({
+                        type: record.Type.OPPORTUNITY,
+                        id:   opportunityId,
+                        isDynamic: false
+                    });
+                    siteAddress = (oppRecord.getValue({ fieldId: 'custbody_opp_site_adress' }) || '').trim();
+                } catch (oppErr) {
+                    log.debug('loadQuoteData', 'Could not load Opportunity ' + opportunityId +
+                        ' for site address: ' + oppErr.message);
+                }
+            }
+            log.audit('SITE_ADDRESS', 'Quote ' + quoteId + ' — oppId=' + (opportunityId || 'none') +
+                ', siteAddress="' + siteAddress + '"');
+
+            const headerData = extractHeaderData(estimate, debugLog, freshPricingFields, siteAddress);
             debugLog('LoadQuote', 'Header data extracted', {
                 customerName: headerData.customerName,
                 total: headerData.total,
@@ -1926,7 +1952,7 @@ function loadQuoteData(quoteId, debugLog, pricingOverrides) {
             return quoteData;
         }
 
-        function extractHeaderData(estimate, debugLog, freshPricingFields) {
+        function extractHeaderData(estimate, debugLog, freshPricingFields, siteAddress) {
             debugLog = debugLog || function() {};
             freshPricingFields = freshPricingFields || {};
             const customerId = estimate.getValue({ fieldId: 'entity' });
@@ -1971,7 +1997,11 @@ function loadQuoteData(quoteId, debugLog, pricingOverrides) {
             
             
             // Updated field mappings per Quote content and logic.xlsx
-            const projectAddress = estimate.getValue({ fieldId: 'custbody_opp_site_adress' }) || 
+            // v4.6.0: siteAddress is resolved from the OPPORTUNITY by loadQuoteData() and passed
+            // in. Order matters — Opportunity first, then the Estimate-level fallbacks, which are
+            // kept in case some Estimates do carry their own value.
+            const projectAddress = siteAddress ||
+                                  estimate.getValue({ fieldId: 'custbody_opp_site_adress' }) ||
                                   estimate.getValue({ fieldId: 'custbody_project_address' }) || '';
             const projectName = estimate.getValue({ fieldId: 'custbody_project_name' }) || '';
             const projectId = estimate.getValue({ fieldId: 'custbody_project_id' }) || '';
@@ -3997,7 +4027,7 @@ function loadQuoteData(quoteId, debugLog, pricingOverrides) {
 '            </div>\n' +
 (header.projectAddress ? 
 '            <div class="info-item">\n' +
-'                <span class="info-label">Project address:</span>\n' +
+'                <span class="info-label">Site address:</span>\n' +
 '                <span class="info-value">' + escapeHtml(header.projectAddress) + '</span>\n' +
 '            </div>\n' : '') +
 '            <div class="info-item">\n' +
@@ -4124,7 +4154,7 @@ function loadQuoteData(quoteId, debugLog, pricingOverrides) {
             return '\n' +
 '<div class="collapsible-section">\n' +
 '    <div class="collapsible-header recommendations-header" onclick="toggleSection(\'recommendations\')">\n' +
-'        <h2>Recommended Solutions and Costs</h2>\n' +
+'        <h2>Your solutions and costs</h2>\n' +
 '        <span class="collapsible-toggle" id="recommendations-icon">▼</span>\n' +
 '    </div>\n' +
 '    <div class="collapsible-content" id="recommendations-content">';

@@ -6,7 +6,7 @@
  * @description Module that generates a master proposal HTML page aggregating
  *              multiple quotes under a single Opportunity. Called by the
  *              Send Quote Suitelet after the user selects which quotes to include.
- * @version     1.8.2
+ * @version     1.8.3
  * @author      Nu-Heat Development
  *
  * CHANGELOG v1.6.6 (feat: Site address in Customer Information):
@@ -199,7 +199,7 @@ define([
 
     // ─── Constants ────────────────────────────────────────────────────────────────
 
-    var MODULE_VERSION = '1.8.2';
+    var MODULE_VERSION = '1.8.3';
 
     var GTM_CONTAINER_ID = 'GTM-5NJJSBMP';
 
@@ -826,9 +826,9 @@ define([
         h.push('      <h1 class="top-total-title">Your total system price</h1>');
         h.push('      <p class="top-total-terms">This proposal is subject to our terms and conditions</p>');
         if (hasHeatPumpQuote && hasStandardRatedQuote) {
-            h.push('      <p class="top-total-terms top-total-vat-note">The VAT amount shown is blended ' +
-                   'between the underfloor heating at 20% and heat pump quote at 0%. ' +
-                   'Please see below for more information.</p>');
+            h.push('      <p class="top-total-terms top-total-vat-note">VAT is charged at 0% on your ' +
+                   'heat pump and 20% on your underfloor heating. The total amount shown combines ' +
+                   'the two &mdash; see more detail in the quote breakdowns below.</p>');
         }
         h.push('    </div>');
         h.push('    <div class="top-total-right">');
