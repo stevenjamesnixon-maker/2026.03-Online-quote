@@ -46,6 +46,35 @@ All custom NetSuite fields used by this solution, organised by record type and p
 
 ---
 
+## Doubled and misspelled field IDs — correct as written
+
+NetSuite applies the `custbody_` / `custitem_` prefix a second time when a field is *created* with
+a name that already begins with it. The doubled form is the real internal ID and must be used
+verbatim in `getValue()` / `setValue()`. A separate case, `custbody_opp_site_adress`, is simply
+misspelled in NetSuite.
+
+**None of these are typos in the code. Do not "correct" them.** They do not throw when wrong —
+`getValue()` returns empty and the dependent row renders blank, so the mistake is silent.
+
+| Internal ID (correct) | Looks like it should be | Record | Used by |
+|---|---|---|---|
+| `custitemcustitem_quote_fab_1` … `_6` | `custitem_quote_fab_1`…`_6` | Item | `nuheat_quote_suitelet.js` — `loadItemCustomFields()` (~:863), `loadThermostatOptionItems()` |
+| `custbodycustbody_quote_last_viewed` | `custbody_quote_last_viewed` | Estimate | `nuheat_analytics_sl.js` |
+| `custbodycustbody_quote_view_count` | `custbody_quote_view_count` | Estimate | `nuheat_analytics_sl.js` |
+| `custbody_opp_site_adress` | `custbody_opp_site_address` | **Opportunity** | quote page, Master Proposal, Send Quote SL |
+
+> **How this was found the hard way.** v4.3.54 and v4.3.55 were both fixes for the same root cause:
+> the fab fields were being read under their single-prefix names, so `getValue()` returned empty and
+> **every main product card feature bullet was silently blank** across UFH, Heat Pump, Solar and
+> Commissioning. Nothing errored. Always verify an internal ID at
+> **Customization → Lists, Records & Fields → Item Fields**, and use the ID column, not the name.
+
+> ⚠️ Related but distinct: these custom item fields are also **invalid as search columns** — they
+> throw `SSS_INVALID_SRCH_COL` and abort the whole search. Use the two-step pattern: search with
+> standard columns to get internal IDs, then `record.load()` per item to read the custom fields.
+
+---
+
 ## BUS Grant — Suppak Line Items (v4.4.0)
 
 The BUS (Boiler Upgrade Scheme) grant is **not** a NetSuite field. It is resolved at render time
@@ -134,4 +163,4 @@ worked through, the quote page and the Estimate will disagree.
 
 ---
 
-**Last Updated:** 18 August 2026
+**Last Updated:** 20 August 2026

@@ -1,6 +1,6 @@
 # Section Logic Mapping — BUS Grant & VAT
 
-**Last Updated:** 18 August 2026
+**Last Updated:** 20 August 2026
 **Applies to:** Quote Suitelet v4.6.0, Master Proposal v1.8.3, Send Quote SL v1.7.0,
 BUS Module v1.0.0, VAT Module v1.0.0
 
@@ -42,15 +42,22 @@ and logged as `BUS_FIGURES`. **No render function re-derives any of these.**
 | `residualGrant` | `Math.max(0, amount - hpGross)` | no |
 | `commissioningDisplay` | cascade ? `Math.max(0, commissioningTotal - residualGrant)` : `commissioningTotal` | no |
 | `balanceAfterBus` | `header.subtotal - amount` | **YES** |
-| `totalIncVatAfterBus` | `header.total - amount` | **YES** |
+| `totalIncVatAfterBus` | `correctedTotalIncVat - amount` — see §9 | **YES** |
 | `creditDue` | `Math.max(0, -balanceAfterBus)` | no |
 | `hasGrant` | `amount > 0` | — |
 
 `header.subtotal` is **gross** — there is no negative grant line on the Estimate, so Phase 2 owns
 the entire deduction and there is no double-deduct risk.
 
-**VAT.** The grant is deducted from the ex-VAT subtotal; NetSuite's `taxTotal` is left untouched.
-VAT is 0% on renewables, so grant-vs-VAT ordering is moot in practice.
+**VAT.** The grant is deducted from the ex-VAT subtotal, so `balanceAfterBus` is unaffected by VAT.
+
+> ⚠️ **Superseded by v4.5.0 — read §9 before using this table.** As originally written at v4.4.0,
+> `totalIncVatAfterBus` was `header.total - amount` and NetSuite's `taxTotal` was left untouched.
+> From v4.5.0 the scripts **derive** VAT rather than echoing NetSuite's, and the inc-VAT total is
+> rebuilt from that derived figure — `correctedTotalIncVat - busAmount`. NetSuite's `total` carries
+> the wrong VAT on heat pump quotes, so the old formula would have produced a page whose VAT line
+> and total disagreed. The BUS block now sits **immediately after** the VAT block in
+> `loadQuoteData()` so the corrected total is available to feed it. §9 has the full derivation.
 
 ### The clamping rule, stated once
 
