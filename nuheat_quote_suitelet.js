@@ -9,7 +9,7 @@
  * accessible via public URL with print-to-PDF functionality.
  * 
  * Author: Nu-Heat Development Team
- * Version: 4.3.67
+ * @version 4.6.0
  * Created: February 2026
  * Updated: 28 March 2026 - v4.3.49: Suitelet Proxy for stable URLs, timestamped filenames, file cleanup
  * Updated: 28 March 2026 - v4.3.50: Removed invalid search.lookupFields() for pricing, simplified data priority
@@ -24,17 +24,28 @@
  * Updated: 31 March 2026 - v4.3.65: Show Design+ upgrade price in UFH upgrade banner from custbody_upgrades_optiontype/custbody_upgrades_itemprice fields
  * Updated: 31 March 2026 - v4.3.66: Style Design+ upgrade price to match pink CTA button styling
  * Updated: 31 March 2026 - v4.3.67: Prepend £ symbol to Design+ upgrade price in UFH upgrade banner
+ * Updated: 18 August 2026 - v4.4.0: BUS grant rate resolution (£7,500 / £9,000 / none) from the Suppak line item via
+ *          ./nuheat_bus_grant, HP price clamped at £0.00, un-clamped post-grant balance in both total sections,
+ *          grant cascade to commissioning, refundable-excess line, removed dead .grant-banner code
+ * Updated: 18 August 2026 - v4.5.0: VAT derived by technology via ./nuheat_vat_rates (HP/Solar 0%, UFH 20%) instead of
+ *          echoing NetSuite's taxtotal, corrected Total inc VAT, VAT_MISMATCH audit logging, removed "plus VAT" from
+ *          the section price cards (VAT is now referenced only in the total system price header)
+ * Updated: 18 August 2026 - v4.5.1: Presentation refinements — "Refundable amount" line in both total sections when the
+ *          balance after BUS is negative (display only, no calculation changes)
+ * Updated: 18 August 2026 - v4.6.0: Site address now read from the OPPORTUNITY record (custbody_opp_site_adress is an
+ *          Opportunity field — reading it off the Estimate always returned empty, so the row never rendered), label
+ *          changed to "Site address:" to match the Master Proposal, section header renamed to "Your solutions and costs"
  *
  * For detailed version history, see CHANGELOG.md
  */
 
-define(['N/record', 'N/search', 'N/log', 'N/format', 'N/error', 'N/runtime', 'N/file', 'N/url'],
-    function(record, search, log, format, error, runtime, file, url) {
+define(['N/record', 'N/search', 'N/log', 'N/format', 'N/error', 'N/runtime', 'N/file', 'N/url', './nuheat_bus_grant', './nuheat_vat_rates'],
+    function(record, search, log, format, error, runtime, file, url, busGrant, vatRates) {
 
         // =====================================================================
         // SCRIPT VERSION
         // =====================================================================
-        var SCRIPT_VERSION = '4.3.70';
+        var SCRIPT_VERSION = '4.6.0';
 
         // =====================================================================
         // GTM CONFIGURATION (v4.3.68)
@@ -369,11 +380,22 @@ define(['N/record', 'N/search', 'N/log', 'N/format', 'N/error', 'N/runtime', 'N/
         };
 
         // =====================================================================
-        // BUS GRANT CONFIGURATION (v4.3.70)
+        // BUS GRANT CONFIGURATION (v4.4.0)
         // =====================================================================
-        // v4.3.70: BUS grant amount deducted from HP display price.
-        // Blanket deduction applied to all HP quotes — make conditional on a NetSuite field in future if needed.
-        var HP_GRANT_AMOUNT = 7500;
+        // Rates and Suppak matching now live in ./nuheat_bus_grant.js.
+        // v4.4.0 replaced the blanket hard-coded HP_GRANT_AMOUNT = 7500 (applied to
+        // any quote containing a Heat Pump line) with a rate resolved from the
+        // Suppak line item, which is authoritative.
+        //
+        // CASCADE_GRANT_TO_COMMISSIONING:
+        //   true  (default): grant left over after the heat pump price reaches £0
+        //                    also reduces the displayed commissioning price, so the
+        //                    page reconciles — components total £0 and the refund
+        //                    line explains the £694.40 owed back.
+        //   false:           commissioning always shows its own price. Simpler, but
+        //                    the visible components no longer sum to the balance in
+        //                    "Your total system price".
+        var CASCADE_GRANT_TO_COMMISSIONING = true;
 
         // Design package product card images (hosted in NetSuite File Cabinet)
         // v4.3.38: Corrected design package image URLs to use NetSuite File Cabinet
@@ -1623,7 +1645,30 @@ function loadQuoteData(quoteId, debugLog, pricingOverrides) {
                                estimate.getValue({ fieldId: 'createdfrom' }) || '';
             debugLog('LoadQuote', 'Opportunity ID extracted', { opportunityId: opportunityId });
 
-            const headerData = extractHeaderData(estimate, debugLog, freshPricingFields);
+            // v4.6.0: custbody_opp_site_adress lives on the OPPORTUNITY, not the Estimate.
+            // Reading it off the Estimate (pre-v4.6.0) always returned empty, so the
+            // "Site address" row never rendered. Mirrors nuheat_master_proposal.js:463-467.
+            // ⚠️ The field ID is misspelled in NetSuite — 'adress', one 'd'. That is the real ID.
+            // Structural: if this load throws, siteAddress stays '' and the row simply stays
+            // hidden — a missing address must never break the page.
+            var siteAddress = '';
+            if (opportunityId) {
+                try {
+                    var oppRecord = record.load({
+                        type: record.Type.OPPORTUNITY,
+                        id:   opportunityId,
+                        isDynamic: false
+                    });
+                    siteAddress = (oppRecord.getValue({ fieldId: 'custbody_opp_site_adress' }) || '').trim();
+                } catch (oppErr) {
+                    log.debug('loadQuoteData', 'Could not load Opportunity ' + opportunityId +
+                        ' for site address: ' + oppErr.message);
+                }
+            }
+            log.audit('SITE_ADDRESS', 'Quote ' + quoteId + ' — oppId=' + (opportunityId || 'none') +
+                ', siteAddress="' + siteAddress + '"');
+
+            const headerData = extractHeaderData(estimate, debugLog, freshPricingFields, siteAddress);
             debugLog('LoadQuote', 'Header data extracted', {
                 customerName: headerData.customerName,
                 total: headerData.total,
@@ -1723,6 +1768,105 @@ function loadQuoteData(quoteId, debugLog, pricingOverrides) {
             
             const categoryTotals = calculateCategoryTotals(groupedItems, headerData.currencySymbol, estimate);
 
+            // =====================================================================
+            // VAT — SINGLE CALCULATION BLOCK (v4.5.0)
+            // =====================================================================
+            // The scripts have never calculated VAT — both surfaces echoed NetSuite's
+            // 'taxtotal' verbatim. Heat pump quotes were showing 20% because the TAX CODES
+            // ON THOSE ESTIMATES ARE WRONG. This derives the rate that should apply from the
+            // quote's technology and displays that instead.
+            //
+            // ⚠️ This is a DISPLAY STOPGAP, not a fix. Where the derived figure disagrees
+            // with NetSuite, VAT_MISMATCH is logged at audit level — those entries are the
+            // work-list for correcting the tax codes at source. Until that happens the quote
+            // page and the Estimate will disagree.
+            //
+            // Every Estimate is single-technology, so one rate applies to the whole quote and
+            // no line-level tax capture is needed.
+            var quoteTypeText = headerData.quoteTypeText || '';
+            var quoteTypeSource = 'custbody_quote_type';
+            if (!quoteTypeText) {
+                // getText() on a list field is unreliable — infer from what is actually on the quote.
+                if (groupedItems['Heat Pump'].length > 0) {
+                    quoteTypeText = 'Heat Pump';
+                } else if (groupedItems['Solar thermal'].length > 0) {
+                    quoteTypeText = 'Solar';
+                } else {
+                    quoteTypeText = 'Underfloor Heating';
+                }
+                quoteTypeSource = 'inferred from grouped items';
+            }
+            log.audit('VAT_QUOTE_TYPE', 'Quote ' + quoteId + ' type="' + quoteTypeText +
+                '" (source: ' + quoteTypeSource + ')');
+
+            var vatInfo = vatRates.resolveVatRate(quoteTypeText);
+            // VAT applies AFTER discount. headerData.discountTotal is already Math.abs()'d,
+            // and the codebase's documented invariant is total = subtotal - discount + tax,
+            // so subtotal is gross of discount and this subtraction is correct.
+            var netAmount  = headerData.subtotal - headerData.discountTotal;
+            var derivedVat = vatRates.calculateVat(netAmount, vatInfo.rate);
+
+            vatRates.logVatMismatch('QuoteSuitelet', quoteId, derivedVat, headerData.taxTotal, quoteTypeText);
+
+            // Replaces headerData.total for display. NetSuite's 'total' already contains the
+            // WRONG VAT — recomputing VAT without recomputing the total leaves them inconsistent.
+            var correctedTotalIncVat = netAmount + derivedVat;
+
+            var vatFigures = {
+                rate:       vatInfo.rate,
+                percent:    vatInfo.percent,       // '0%' | '20%'
+                amount:     derivedVat,
+                quoteType:  vatInfo.quoteType,     // normalised display name
+                rawQuoteType: quoteTypeText,
+                netAmount:  netAmount,
+                correctedTotalIncVat: correctedTotalIncVat,
+                netsuiteTaxTotal: headerData.taxTotal   // kept for comparison/debugging
+            };
+
+            log.audit('VAT_FIGURES', JSON.stringify(vatFigures));
+
+            // =====================================================================
+            // BUS GRANT — SINGLE CALCULATION BLOCK (v4.4.0)
+            // =====================================================================
+            // Resolve ONCE here and store on quoteData.bus so every render function
+            // reads the same figures. Do NOT re-resolve per section — that is how
+            // the pre-v4.4.0 six-site duplication (and the -£1,870.33 bug) arose.
+            var busResult = busGrant.resolveBusGrant(lineItems);
+            var busAmount          = busResult.amount;
+            var grossSubtotal      = headerData.subtotal;              // gross — no grant line on the Estimate
+            var commissioningTotal = (categoryTotals['Commissioning'] &&
+                                      categoryTotals['Commissioning'].total) || 0;
+            var hpGross            = grossSubtotal - commissioningTotal;
+
+            var hpDisplayPrice       = Math.max(0, hpGross - busAmount);   // clamped, never negative
+            var residualGrant        = Math.max(0, busAmount - hpGross);   // grant left over
+            var commissioningDisplay = CASCADE_GRANT_TO_COMMISSIONING
+                                        ? Math.max(0, commissioningTotal - residualGrant)
+                                        : commissioningTotal;
+
+            var balanceAfterBus     = grossSubtotal - busAmount;           // MAY BE NEGATIVE (ex-VAT, unchanged)
+            // v4.5.0: built from the CORRECTED total, not NetSuite's (which holds the wrong VAT).
+            // The BUS grant applies to the heat pump, which is 0%-rated, so deducting it from an
+            // inc-VAT total remains arithmetically sound.
+            var totalIncVatAfterBus = correctedTotalIncVat - busAmount;    // MAY BE NEGATIVE
+            var creditDue           = Math.max(0, -balanceAfterBus);       // refundable amount
+
+            var busFigures = {
+                amount:               busAmount,
+                rate:                 busResult.rate,
+                matchedItem:          busResult.matchedItem,
+                hpGross:              hpGross,
+                hpDisplayPrice:       hpDisplayPrice,
+                residualGrant:        residualGrant,
+                commissioningDisplay: commissioningDisplay,
+                balanceAfterBus:      balanceAfterBus,
+                totalIncVatAfterBus:  totalIncVatAfterBus,
+                creditDue:            creditDue,
+                hasGrant:             busAmount > 0
+            };
+
+            log.audit('BUS_FIGURES', JSON.stringify(busFigures));
+
             // Determine if we have rooms data (prefer new delimited format, fallback to legacy HTML)
             var hasRoomsData = roomsList.length > 0 || (roomsHtml && roomsHtml.trim().length > 0);
             
@@ -1755,6 +1899,8 @@ function loadQuoteData(quoteId, debugLog, pricingOverrides) {
                 lineItems: lineItems,
                 groupedItems: groupedItems,
                 categoryTotals: categoryTotals,
+                bus: busFigures,               // v4.4.0 - Resolved BUS grant + all derived display figures
+                vat: vatFigures,               // v4.5.0 - Derived VAT by technology (NOT NetSuite's taxtotal)
                 systemInfo: systemInfo,
                 roomsList: roomsList,  // v3.8.0 - New parsed rooms array
                 roomsHtml: roomsHtml,  // Legacy HTML fallback
@@ -1806,7 +1952,7 @@ function loadQuoteData(quoteId, debugLog, pricingOverrides) {
             return quoteData;
         }
 
-        function extractHeaderData(estimate, debugLog, freshPricingFields) {
+        function extractHeaderData(estimate, debugLog, freshPricingFields, siteAddress) {
             debugLog = debugLog || function() {};
             freshPricingFields = freshPricingFields || {};
             const customerId = estimate.getValue({ fieldId: 'entity' });
@@ -1814,6 +1960,16 @@ function loadQuoteData(quoteId, debugLog, pricingOverrides) {
             const tranId = estimate.getValue({ fieldId: 'tranid' }) || '';
             const tranDate = estimate.getValue({ fieldId: 'trandate' });
             const formattedDate = tranDate ? formatDate(tranDate) : '';
+
+            // v4.5.0: Quote type drives the VAT rate (see ./nuheat_vat_rates).
+            // Per project rules getText() on a list field is unreliable, so this is defensive —
+            // loadQuoteData() infers from the grouped items when it comes back empty.
+            var quoteTypeText = '';
+            try {
+                quoteTypeText = estimate.getText({ fieldId: 'custbody_quote_type' }) || '';
+            } catch (qtErr) {
+                log.audit('extractHeaderData', 'v4.5.0 Could not read custbody_quote_type: ' + qtErr.message);
+            }
             
             // v4.3.50: STALE DATA FIX - prefer client script overrides over record.load()
             // record.load() values may be cached in the same execution context
@@ -1841,7 +1997,11 @@ function loadQuoteData(quoteId, debugLog, pricingOverrides) {
             
             
             // Updated field mappings per Quote content and logic.xlsx
-            const projectAddress = estimate.getValue({ fieldId: 'custbody_opp_site_adress' }) || 
+            // v4.6.0: siteAddress is resolved from the OPPORTUNITY by loadQuoteData() and passed
+            // in. Order matters — Opportunity first, then the Estimate-level fallbacks, which are
+            // kept in case some Estimates do carry their own value.
+            const projectAddress = siteAddress ||
+                                  estimate.getValue({ fieldId: 'custbody_opp_site_adress' }) ||
                                   estimate.getValue({ fieldId: 'custbody_project_address' }) || '';
             const projectName = estimate.getValue({ fieldId: 'custbody_project_name' }) || '';
             const projectId = estimate.getValue({ fieldId: 'custbody_project_id' }) || '';
@@ -1910,8 +2070,9 @@ function loadQuoteData(quoteId, debugLog, pricingOverrides) {
                 rawTranDate: tranDate,
                 expiryDate: expiryDate ? formatDate(expiryDate) : '',
                 subtotal: subtotal,
-                taxTotal: taxTotal,
-                total: total,
+                taxTotal: taxTotal,          // NetSuite's figure — v4.5.0 displays a DERIVED VAT instead
+                total: total,                // NetSuite's figure — contains the wrong VAT; see quoteData.vat
+                quoteTypeText: quoteTypeText, // v4.5.0 - raw custbody_quote_type ('' when unreadable)
                 discountTotal: Math.abs(discountTotal),
                 hasDiscount: discountTotal !== 0,
                 projectName: projectName,
@@ -3060,6 +3221,7 @@ function loadQuoteData(quoteId, debugLog, pricingOverrides) {
 '.hp-grant-banner-text strong { display: block; color: var(--color-primary); margin-bottom: 4px; }\n' +
 '.hp-grant-banner-text span { color: #666; font-size: 14px; }\n' +
 '.hp-grant-banner-text .hp-grant-banner-asterisk { font-size: 11px; opacity: 0.8; font-style: italic; margin-top: 4px; display: block; }\n' +
+'.hp-grant-banner-text .hp-grant-banner-refund { font-size: 13px; color: #666; margin-top: 6px; display: block; }\n' +
 
 // Component Breakdown (v3.6.1 - collapsible with all items) - v3.7.9: reduced margins
 '.component-breakdown { margin-top: 20px; }\n' +
@@ -3226,11 +3388,6 @@ function loadQuoteData(quoteId, debugLog, pricingOverrides) {
 '.price-breakdown-table td.text-right, .price-breakdown-table th.text-right { text-align: right; }\n' +
 
 // Grant banner (for Heat Pump)
-'.grant-banner { background: var(--color-success); color: var(--color-white); padding: 16px 20px; border-radius: var(--radius-md); margin-top: 16px; display: flex; align-items: center; gap: 12px; }\n' +
-'.grant-banner-icon { width: 40px; height: 40px; background: rgba(255,255,255,0.2); border-radius: 50%; display: flex; align-items: center; justify-content: center; }\n' +
-'.grant-banner-text { flex: 1; }\n' +
-'.grant-banner-text strong { font-size: 16px; display: block; margin-bottom: 2px; }\n' +
-'.grant-banner-text span { font-size: 13px; opacity: 0.9; }\n' +
 
 // Total section - v4.1.5: Horizontal layout for desktop, centered/stacked on mobile
 '.total-section { background: #00857D; color: var(--color-white); padding: 25px 40px; border-radius: var(--radius-xl); margin: 30px 0; }\n' +
@@ -3870,7 +4027,7 @@ function loadQuoteData(quoteId, debugLog, pricingOverrides) {
 '            </div>\n' +
 (header.projectAddress ? 
 '            <div class="info-item">\n' +
-'                <span class="info-label">Project address:</span>\n' +
+'                <span class="info-label">Site address:</span>\n' +
 '                <span class="info-value">' + escapeHtml(header.projectAddress) + '</span>\n' +
 '            </div>\n' : '') +
 '            <div class="info-item">\n' +
@@ -3937,14 +4094,38 @@ function loadQuoteData(quoteId, debugLog, pricingOverrides) {
             var header = quoteData.header;
             var symbol = header.currencySymbol;
 
-            // v4.3.70: Deduct BUS grant from displayed totals for HP quotes
-            var grantDeduction = quoteData.hasHeatPump ? HP_GRANT_AMOUNT : 0;
-            var displaySubtotal = Math.max(0, header.subtotal - grantDeduction);
-            var displayTotal = Math.max(0, header.total - grantDeduction);
+            // v4.4.0: Balance after BUS — the Math.max(0, ...) clamps are deliberately GONE.
+            // A grant larger than the quote must show its true negative value here; the
+            // heat pump price card is the figure that is clamped at £0.00 instead.
+            var bus = quoteData.bus;
+            var displaySubtotal = bus.balanceAfterBus;      // may be negative
+            var displayTotal = bus.totalIncVatAfterBus;     // may be negative
 
             var discountHtml = '';
             if (header.hasDiscount && header.discountTotal > 0) {
+                // header.discountTotal is Math.abs()'d in extractHeaderData() — this line
+                // hand-rolls its own '-', so do NOT swap it for formatSignedCurrency().
                 discountHtml = '        <div class="top-total-breakdown-item">Discount: -' + symbol + formatNumber(header.discountTotal) + '</div>\n';
+            }
+
+            // v4.4.0: BUS breakdown lines, only when a grant applies
+            var busHtml = '';
+            if (bus.hasGrant) {
+                busHtml = '                <div class="top-total-breakdown-item">System price: ' + symbol + formatNumber(header.subtotal) + '</div>\n' +
+'                <div class="top-total-breakdown-item">BUS grant applied: -' + symbol + formatNumber(bus.amount) + '</div>\n';
+            }
+
+            // v4.5.1: Refundable amount, shown only when the balance after BUS is negative.
+            // Rendered as a POSITIVE figure — it is money coming back to the customer.
+            // ⚠️ Derived from totalIncVatAfterBus, NOT bus.creditDue: creditDue is ex-VAT,
+            // while what the customer actually receives is the VAT-inclusive balance.
+            // Identical today (heat pumps are 0%-rated) but correct rather than coincidental.
+            // Math.max(0, -x) also guarantees no '£0.00' row and no '-£0.00'.
+            var refundableAmount = Math.max(0, -(bus.totalIncVatAfterBus));
+            var refundHtml = '';
+            if (refundableAmount > 0) {
+                refundHtml = '                <div class="top-total-breakdown-item">Refundable amount: ' +
+                             symbol + formatNumber(refundableAmount) + '</div>\n';
             }
 
             return '\n' +
@@ -3955,11 +4136,13 @@ function loadQuoteData(quoteId, debugLog, pricingOverrides) {
 '            <p class="top-total-terms">This quotation is subject to our terms and conditions</p>\n' +
 '        </div>\n' +
 '        <div class="top-total-right">\n' +
-'            <div class="top-total-amount">' + symbol + formatNumber(displaySubtotal) + ' <span class="top-total-plus-vat">plus VAT</span></div>\n' +
+'            <div class="top-total-amount">' + formatSignedCurrency(displaySubtotal, symbol) + ' <span class="top-total-plus-vat">plus VAT</span></div>\n' +
 '            <div class="top-total-breakdown">\n' +
+                 busHtml +
                  discountHtml +
-'                <div class="top-total-breakdown-item">VAT: ' + symbol + formatNumber(header.taxTotal) + '</div>\n' +
-'                <div class="top-total-breakdown-item top-total-inc-vat">Total inc VAT: ' + symbol + formatNumber(displayTotal) + '</div>\n' +
+'                <div class="top-total-breakdown-item">VAT at ' + quoteData.vat.percent + ': ' + symbol + formatNumber(quoteData.vat.amount) + '</div>\n' +
+                 refundHtml +
+'                <div class="top-total-breakdown-item top-total-inc-vat">Total inc VAT: ' + formatSignedCurrency(displayTotal, symbol) + '</div>\n' +
 '            </div>\n' +
 '        </div>\n' +
 '    </div>\n' +
@@ -3971,7 +4154,7 @@ function loadQuoteData(quoteId, debugLog, pricingOverrides) {
             return '\n' +
 '<div class="collapsible-section">\n' +
 '    <div class="collapsible-header recommendations-header" onclick="toggleSection(\'recommendations\')">\n' +
-'        <h2>Recommended Solutions and Costs</h2>\n' +
+'        <h2>Your solutions and costs</h2>\n' +
 '        <span class="collapsible-toggle" id="recommendations-icon">▼</span>\n' +
 '    </div>\n' +
 '    <div class="collapsible-content" id="recommendations-content">';
@@ -4036,16 +4219,23 @@ function loadQuoteData(quoteId, debugLog, pricingOverrides) {
                 var solarTotalsOverride = { count: categoryTotals['Solar thermal'].count, total: solarDisplayPrice, formatted: symbol + formatNumber(solarDisplayPrice) };
                 html += renderCategorySection('solar-section', 'Solar thermal',
                     'Nu-Heat solar thermal systems arrive as complete, ready-to-install packages. From collectors and cylinders to bespoke layouts and heat-losses, everything needed for a simple install is included. For the full item list, see your Component Breakdown.',
-                    solarItems, solarTotalsOverride, symbol, 'Your solar price', header, false, false);
+                    solarItems, solarTotalsOverride, symbol, 'Your solar price', header, false);
             }
 
 
             // Commissioning (v4.3.42: consolidated filtering via filterForRender)
             var commissioningItems = filterForRender(groupedItems['Commissioning'], 'COMMISSIONING');
             if (commissioningItems.length > 0) {
+                // v4.4.0: Any grant left over once the heat pump price reaches £0 cascades to
+                // commissioning (see CASCADE_GRANT_TO_COMMISSIONING) so the page reconciles.
+                var commTotalsOverride = {
+                    count:     categoryTotals['Commissioning'].count,
+                    total:     quoteData.bus.commissioningDisplay,
+                    formatted: symbol + formatNumber(quoteData.bus.commissioningDisplay)
+                };
                 html += renderCategorySection('commissioning-section', 'Commissioning',
                     'Your quote includes a commissioning visit from one of our specialist Field Engineers. This essential service unlocks the Boiler Upgrade Scheme (BUS) payment and provides a full handover, ensuring complete confidence.',
-                    commissioningItems, categoryTotals['Commissioning'], symbol, 'Your commissioning price', header, false, false);
+                    commissioningItems, commTotalsOverride, symbol, 'Your commissioning price', header, false);
             }
 
             // Component Breakdown (v4.0.9 - collapsible section showing ALL line items)
@@ -4226,25 +4416,35 @@ function loadQuoteData(quoteId, debugLog, pricingOverrides) {
 
 
             // v4.3.38: Heat Pump Price = Total quote price (subtotal) minus Commissioning subtotal
-            var commissioningTotal = (quoteData.categoryTotals['Commissioning'] && quoteData.categoryTotals['Commissioning'].total) || 0;
-            var hpDisplayPrice = header.subtotal - commissioningTotal;
-            // v4.3.70: Deduct BUS grant amount from displayed price
-            var hpGrantedPrice = hpDisplayPrice - HP_GRANT_AMOUNT;
+            // v4.4.0: Read the single resolved figure. hpDisplayPrice is clamped at 0 in
+            // loadQuoteData(), so this card can never render a negative price again — the
+            // balance after BUS in the total sections carries any negative value instead.
+            var bus = quoteData.bus;
             html += '    <div class="hp-price-card">\n' +
 '        <div class="hp-price-row">\n' +
 '            <span class="hp-price-label">Your heat pump price (On-site commissioning priced below):</span>\n' +
-'            <span class="hp-price-amount">' + symbol + formatNumber(hpGrantedPrice) + ' <span class="hp-price-vat">plus VAT</span></span>\n' +
+'            <span class="hp-price-amount">' + symbol + formatNumber(bus.hpDisplayPrice) + '</span>\n' +
 '        </div>\n' +
 '    </div>\n';
 
-            // Grant banner - v4.3.70: Updated to confirm grant has been applied to price
-            html += '    <div class="hp-grant-banner">\n' +
+            // Grant card — v4.4.0: only rendered when a BUS grant actually applies, with the
+            // resolved rate (£7,500 or £9,000) and a refund line when the grant exceeds the quote.
+            if (bus.hasGrant) {
+                var refundHtml = '';
+                if (bus.creditDue > 0) {
+                    refundHtml = '            <span class="hp-grant-banner-refund">Any grant funding in excess of your quote value (' +
+                        symbol + formatNumber(bus.creditDue) +
+                        ') will be refunded to you once the grant has been claimed.</span>\n';
+                }
+                html += '    <div class="hp-grant-banner">\n' +
 '        <div class="hp-grant-banner-icon"><span style="font-size: 24px; font-weight: 700;">£</span></div>\n' +
 '        <div class="hp-grant-banner-text">\n' +
-'            <strong>£7,500 grant funding has been applied to this quote</strong>\n' +
+'            <strong>' + symbol + formatNumber(bus.amount) + ' grant funding has been applied to this quote</strong>\n' +
 '            <span class="hp-grant-banner-asterisk">*Subject to scheme eligibility</span>\n' +
+                 refundHtml +
 '        </div>\n' +
 '    </div>\n';
+            }
 
             html += '</div>\n'; // Close hp-tree-section
 
@@ -4546,7 +4746,10 @@ function loadQuoteData(quoteId, debugLog, pricingOverrides) {
 
 
         // v3.6.4: Category section uses same restructured product card layout
-        function renderCategorySection(id, title, intro, items, totals, symbol, costLabel, header, showGrantBanner, showPriceBreakdown) {
+        // v4.4.0: showGrantBanner parameter removed — the .grant-banner block it gated was
+        // unreachable (both call sites passed false; Heat Pump/UFH do not use this function).
+        // The live grant card is .hp-grant-banner in renderHeatPumpTreeSection().
+        function renderCategorySection(id, title, intro, items, totals, symbol, costLabel, header, showPriceBreakdown) {
             // Default showPriceBreakdown to true if not specified
             if (showPriceBreakdown === undefined) showPriceBreakdown = true;
             // v4.3.42: Reuse renderProductCard instead of duplicating card HTML
@@ -4575,19 +4778,6 @@ function loadQuoteData(quoteId, debugLog, pricingOverrides) {
 '</div>';
             }
 
-            // Grant banner for Heat Pump - v4.2.0: Changed $ to £ icon and "is eligible" to "may be eligible"
-            var grantBannerHtml = '';
-            if (showGrantBanner) {
-                grantBannerHtml = '\n' +
-'<div class="grant-banner">\n' +
-'    <div class="grant-banner-icon"><span style="font-size: 24px; font-weight: 700;">£</span></div>\n' +
-'    <div class="grant-banner-text">\n' +
-'        <strong>This system may be eligible for a £7,500 Government grant</strong>\n' +
-'        <span>You could save on the cost of a heat pump. Speak to your account manager to see if you are eligible and we\'ll handle the rest.</span>\n' +
-'    </div>\n' +
-'</div>';
-            }
-
             // v4.0.8: Changed subsection headers from H3 to H2 for consistency
             return '\n' +
 '<div class="category-section" id="' + id + '">\n' +
@@ -4599,11 +4789,10 @@ function loadQuoteData(quoteId, debugLog, pricingOverrides) {
 '    <div class="category-cost-card">\n' +
 '        <div class="category-cost-row">\n' +
 '            <div class="category-cost-label">' + escapeHtml(costLabel) + (header.hasDiscount ? '<small>This includes your discount of ' + symbol + formatNumber(header.discountTotal) + '</small>' : '') + '</div>\n' +
-'            <div class="category-cost-value">' + totals.formatted + ' <span class="category-cost-vat">plus VAT</span></div>\n' +
+'            <div class="category-cost-value">' + totals.formatted + '</div>\n' +
 '        </div>\n' +
 '    </div>\n' +
     breakdownHtml +
-    grantBannerHtml +
 '</div>';
         }
 
@@ -4611,15 +4800,33 @@ function loadQuoteData(quoteId, debugLog, pricingOverrides) {
             var header = quoteData.header;
             var symbol = header.currencySymbol;
 
-            // v4.3.70: Deduct BUS grant from displayed totals for HP quotes
-            var grantDeduction = quoteData.hasHeatPump ? HP_GRANT_AMOUNT : 0;
-            var displaySubtotal = Math.max(0, header.subtotal - grantDeduction);
-            var displayTotal = Math.max(0, header.total - grantDeduction);
+            // v4.4.0: Balance after BUS — clamps deliberately removed (see renderTopTotalSection).
+            var bus = quoteData.bus;
+            var displaySubtotal = bus.balanceAfterBus;      // may be negative
+            var displayTotal = bus.totalIncVatAfterBus;     // may be negative
 
             // Conditional discount line - only show if discount > 0
             var discountHtml = '';
             if (header.hasDiscount && header.discountTotal > 0) {
+                // header.discountTotal is Math.abs()'d in extractHeaderData() — this line
+                // hand-rolls its own '-', so do NOT swap it for formatSignedCurrency().
                 discountHtml = '        <div class="total-breakdown-item">Discount: -' + symbol + formatNumber(header.discountTotal) + '</div>\n';
+            }
+
+            // v4.4.0: BUS breakdown lines, only when a grant applies
+            var busHtml = '';
+            if (bus.hasGrant) {
+                busHtml = '                <div class="total-breakdown-item">System price: ' + symbol + formatNumber(header.subtotal) + '</div>\n' +
+'                <div class="total-breakdown-item">BUS grant applied: -' + symbol + formatNumber(bus.amount) + '</div>\n';
+            }
+
+            // v4.5.1: Refundable amount — see renderTopTotalSection() for the full rationale.
+            // Both total sections render the same figures and must stay in step.
+            var refundableAmount = Math.max(0, -(bus.totalIncVatAfterBus));
+            var refundHtml = '';
+            if (refundableAmount > 0) {
+                refundHtml = '                <div class="total-breakdown-item">Refundable amount: ' +
+                             symbol + formatNumber(refundableAmount) + '</div>\n';
             }
 
             return '\n' +
@@ -4630,11 +4837,13 @@ function loadQuoteData(quoteId, debugLog, pricingOverrides) {
 '            <p class="total-terms">This quotation is subject to our terms and conditions</p>\n' +
 '        </div>\n' +
 '        <div class="total-right">\n' +
-'            <div class="total-amount">' + symbol + formatNumber(displaySubtotal) + '</div>\n' +
+'            <div class="total-amount">' + formatSignedCurrency(displaySubtotal, symbol) + '</div>\n' +
 '            <div class="total-breakdown-list">\n' +
+                 busHtml +
                  discountHtml +
-'                <div class="total-breakdown-item">VAT: ' + symbol + formatNumber(header.taxTotal) + '</div>\n' +
-'                <div class="total-breakdown-item total-inc-vat">Total inc VAT: ' + symbol + formatNumber(displayTotal) + '</div>\n' +
+'                <div class="total-breakdown-item">VAT at ' + quoteData.vat.percent + ': ' + symbol + formatNumber(quoteData.vat.amount) + '</div>\n' +
+                 refundHtml +
+'                <div class="total-breakdown-item total-inc-vat">Total inc VAT: ' + formatSignedCurrency(displayTotal, symbol) + '</div>\n' +
 '            </div>\n' +
 '        </div>\n' +
 '    </div>\n' +
@@ -5052,6 +5261,27 @@ function loadQuoteData(quoteId, debugLog, pricingOverrides) {
         function formatNumber(value) {
             if (value === null || value === undefined) return '0.00';
             return parseFloat(value).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+        }
+
+        /**
+         * v4.4.0: Formats a currency value with the minus sign BEFORE the symbol.
+         * e.g. (-694.40, '£') => '-£694.40'
+         *
+         * formatNumber() already handles negatives correctly ('-1,870.33'); the
+         * '£-1,870.33' ordering is purely a caller problem, so use this helper for
+         * every figure that can go negative rather than changing formatNumber().
+         *
+         * ⚠️ Do NOT use this for header.discountTotal — that value is Math.abs()'d in
+         * extractHeaderData() and its two call sites hand-roll their own '-' prefix,
+         * so passing it here produces '-£-…'.
+         *
+         * @param {number} value - may be negative
+         * @param {string} symbol - currency symbol
+         * @returns {string}
+         */
+        function formatSignedCurrency(value, symbol) {
+            var n = Number(value) || 0;
+            return (n < 0 ? '-' : '') + symbol + formatNumber(Math.abs(n));
         }
 
         function getCurrencySymbol(currency) {

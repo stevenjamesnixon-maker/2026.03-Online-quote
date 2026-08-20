@@ -1,7 +1,7 @@
 # Nu-Heat Quote System — Technical Documentation
 
 **Version:** 1.0.0  
-**Last Updated:** 28 March 2026  
+**Last Updated:** 18 August 2026  
 **Applies to:** Suitelet v4.3.53, UE v4.0.9, CS v4.0.6, Viewer v1.1.0, Master Proposal v1.6.2
 
 ---
@@ -161,14 +161,16 @@ EXTERNAL ACCESS:
 
 | Script | File | Version | Type | Purpose |
 |--------|------|---------|------|---------|
-| Quote Suitelet | `nuheat_quote_suitelet.js` | v4.3.53 | Suitelet | Core HTML quote generation engine |
+| BUS Grant Module | `nuheat_bus_grant.js` | v1.0.0 | Module | Shared BUS grant resolution from the Suppak line item |
+| VAT Rates Module | `nuheat_vat_rates.js` | v1.0.0 | Module | Shared VAT rate resolution by quote technology |
+| Quote Suitelet | `nuheat_quote_suitelet.js` | v4.6.0 | Suitelet | Core HTML quote generation engine |
 | Quote User Event | `nuheat_quote_ue.js` | v4.0.9 | UserEventScript | Auto-generates quotes on Estimate save; adds "Regen quote" button |
 | Quote Client Script | `nuheat_quote_cs.js` | v4.0.6 | ClientScript | Handles "Regen quote" button click; saves record first, passes fresh pricing |
 | Quote Viewer | `nuheat_quote_viewer_sl.js` | v1.1.0 | Suitelet | Proxy that serves latest quote HTML via stable URL |
 | Scheduled Script | `nuheat_quote_generator_ss.js` | v1.0.0 | ScheduledScript | Fallback for governance-limited UE contexts |
-| Master Proposal | `nuheat_master_proposal.js` | v1.6.2 | Module | Generates multi-quote master proposals |
-| Send Quote SL | `nuheat_send_quote_sl.js` | v1.4.9 | Suitelet | Quote selection UI for proposal generation |
-| Send Quote CS | `nuheat_send_quote_cs.js` | v1.1.1 | ClientScript | Handles Send Quote form interactions |
+| Master Proposal | `nuheat_master_proposal.js` | v1.8.3 | Module | Generates multi-quote master proposals |
+| Send Quote SL | `nuheat_send_quote_sl.js` | v1.7.0 | Suitelet | Quote selection UI for proposal generation |
+| Send Quote CS | `nuheat_send_quote_cs (1).js` | v1.4.0 | ClientScript | Handles Send Quote form interactions |
 | Opportunity UE | `nuheat_opportunity_ue.js` | v1.0.0 | UserEventScript | Adds "Send Quote" button to Opportunity form |
 | Opportunity CS | `nuheat_opportunity_cs.js` | v1.0.0 | ClientScript | Opens Send Quote Suitelet from Opportunity |
 
@@ -184,7 +186,88 @@ nuheat_send_quote_sl.js ─────────▶ nuheat_send_quote_cs.js (
 nuheat_opportunity_ue.js ────────▶ nuheat_opportunity_cs.js (button handler)
 nuheat_opportunity_cs.js ────────▶ nuheat_send_quote_sl.js (opens Suitelet)
 nuheat_master_proposal.js ──────▶ nuheat_quote_viewer_sl.js (embed proxy URLs)
+
+nuheat_quote_suitelet.js ────────▶ nuheat_bus_grant.js (module import)   ← v4.4.0
+nuheat_send_quote_sl.js ─────────▶ nuheat_bus_grant.js (module import)   ← v1.6.0
+nuheat_quote_suitelet.js ────────▶ nuheat_vat_rates.js (module import)   ← v4.5.0
+nuheat_send_quote_sl.js ─────────▶ nuheat_vat_rates.js (module import)   ← v1.7.0
 ```
+
+#### Shared VAT module dependency (v4.5.0)
+
+`nuheat_vat_rates.js` follows the identical pattern to `nuheat_bus_grant.js` — `@NModuleScope
+Public`, File Cabinet upload only, no deployment record, imported by relative path.
+
+**Why it exists.** The scripts had never calculated VAT. Both surfaces read NetSuite's `taxtotal`
+verbatim, and heat pump quotes were displaying 20% because the tax codes on those Estimate lines are
+wrong in NetSuite. UK VAT on heat pump installations is 0% (energy-saving materials relief);
+underfloor heating is standard-rated at 20%.
+
+> ⚠️ **This is a display stopgap, not a fix.** The customer-facing figure is corrected immediately,
+> but NetSuite still invoices from its own tax codes. Every disagreement over 1p writes a
+> `VAT_MISMATCH` audit entry naming the Estimate and both figures — **those entries are the
+> work-list for correcting the source data.**
+
+**Single-technology assumption.** Every Estimate is single-technology (the Master Proposal is what
+groups technologies together), so one rate applies per quote and no line-level tax capture is
+needed. `extractLineItems()` deliberately does **not** read `taxcode` / `taxrate1`.
+
+**Resolution paths**, mirroring the BUS module:
+
+| Consumer | How it resolves | Where the result lands |
+|---|---|---|
+| `nuheat_quote_suitelet.js` | `custbody_quote_type` (try/catch), falling back to inference from grouped items | `quoteData.vat` |
+| `nuheat_send_quote_sl.js` | `quoteTypeDisplay` per Estimate | `vatRate` / `vatPercent` on the quote entry; also overrides `taxTotal` and `amount` |
+| `nuheat_master_proposal.js` | **Cannot resolve** — no line-item or record access | receives the values via hidden sublist fields |
+
+**Arithmetic.** `netAmount = subtotal − discount` (VAT applies after discount, consistent with the
+documented invariant `total = subtotal − discount + tax`); `derivedVat = round(netAmount × rate, 2)`;
+`correctedTotalIncVat = netAmount + derivedVat`. The corrected total — not NetSuite's — feeds the BUS
+block's `totalIncVatAfterBus`. `balanceAfterBus` is ex-VAT and unaffected.
+
+**Quote-type normalisation.** `VAT_RATES` is keyed on display names, but callers hold raw
+`custbody_quote_type` values (`'Heat Pump (ASHP)'`, `'Heat Emitter'`). `normaliseQuoteType()` maps
+raw onto display inside the module, so both forms resolve correctly. Without it, an ASHP/GSHP/EAHP
+quote would fall through to the 20% default — silently, because UFH types default to 20% anyway and
+look correct. `QUOTE_TYPE_ALIASES` mirrors `QUOTE_TYPE_MAPPING` in `nuheat_send_quote_sl.js`; a new
+quote type must be added in both.
+
+> ⚠️ **Deployment ordering.** Same rule as the BUS module — upload `nuheat_vat_rates.js` to
+> `SuiteScripts/NuHeat` **before** either consumer is redeployed.
+
+#### Shared BUS module dependency (v4.4.0)
+
+`nuheat_bus_grant.js` is a shared SuiteScript custom module (`@NModuleScope Public`) holding the BUS
+(Boiler Upgrade Scheme) grant rates and the Suppak line-item matching rules. Both consumers import it
+by relative path:
+
+```js
+define([… , './nuheat_bus_grant'], function (… , busGrant) { … });
+```
+
+**Why it exists.** The rules have to be identical on the quote page and in the Master Proposal. Before
+v4.4.0 the grant was a hard-coded `HP_GRANT_AMOUNT = 7500` duplicated across two files and subtracted
+at six different render sites, five of which clamped the result and one of which did not — which is
+precisely what produced the negative heat-pump-price bug. There is now one definition and one
+resolution per quote.
+
+**Resolution paths.** They differ because of what each script can see:
+
+| Consumer | How it resolves | Where the result lands |
+|---|---|---|
+| `nuheat_quote_suitelet.js` | Has the Estimate loaded; resolves once in `loadQuoteData()` | `quoteData.bus` — every render function reads from it |
+| `nuheat_send_quote_sl.js` | Reads the item sublist off each Estimate it already `record.load()`s | `busAmount` / `busRate` on the quote entry |
+| `nuheat_master_proposal.js` | **Cannot resolve** — it never loads an Estimate and has no line-item access | receives `busAmount` / `busRate` from the Send Quote SL |
+
+The Send Quote SL passes the values through a `serverWidget` sublist, which carries **TEXT**, so
+`busAmount` is stringified on the way out (`custpage_bus_amount`) and `parseFloat`'d on the way back
+in. `nuheat_send_quote_cs (1).js` collects the same two fields into the preview payload so preview
+and the saved proposal agree.
+
+> ⚠️ **Deployment ordering.** `nuheat_bus_grant.js` must be uploaded to `SuiteScripts/NuHeat`
+> **before** either consumer is redeployed — both fail at load time otherwise. It requires no script
+> record and no script deployment record; the relative path resolves against the calling script's own
+> File Cabinet folder, so all files must live in the same folder. See `DEPLOYMENT_CHECKLIST.md`.
 
 ### 2.3 Key Functions
 

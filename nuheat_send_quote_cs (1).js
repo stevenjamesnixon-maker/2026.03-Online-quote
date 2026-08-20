@@ -6,7 +6,7 @@
  * @name        Nu-Heat Send Quote Client Script
  * @description Client script for the Send Quote Selection Suitelet form.
  *              Handles button actions: Cancel (back to Opportunity), Preview Proposal.
- * @version     1.1.1
+ * @version     1.4.0
  * @author      Nu-Heat Development
  *
  * NOTE: This script is loaded inline by the Suitelet via form.clientScriptModulePath.
@@ -34,7 +34,7 @@ function (currentRecord, url, log, dialog) {
 
     'use strict';
 
-    var SCRIPT_VERSION = '1.2.0';
+    var SCRIPT_VERSION = '1.4.0';
 
     /**
      * All known sublist type slugs — must match the Suitelet's QUOTE_TYPE_SLUGS values.
@@ -112,7 +112,8 @@ function (currentRecord, url, log, dialog) {
      * collectSelectedQuotes — Iterates over all type-based sublists to find checked quotes.
      *
      * v1.1.1: Now collects ALL fields needed by the preview endpoint and master proposal,
-     * including quoteId, title, amount, subtotal, discountTotal, taxTotal, and description.
+     * including quoteId, title, amount, subtotal, discountTotal, taxTotal, busAmount,
+     * busRate, vatRate, vatPercent, and description.
      * Previously only sent tranId/category/url/quoteType, which caused description (and
      * other fields) to be missing from preview proposals.
      *
@@ -151,6 +152,15 @@ function (currentRecord, url, log, dialog) {
                     var discountTotal = rec.getSublistValue({ sublistId: sublistId, fieldId: 'custpage_discount_total', line: i }) || '';
                     var taxTotal     = rec.getSublistValue({ sublistId: sublistId, fieldId: 'custpage_tax_total', line: i }) || '';
                     var description  = rec.getSublistValue({ sublistId: sublistId, fieldId: 'custpage_quote_description', line: i }) || '';
+                    // v1.3.0: BUS grant fields — without these the preview would show no grant
+                    // while the emailed/saved proposal shows one.
+                    var busAmount    = rec.getSublistValue({ sublistId: sublistId, fieldId: 'custpage_bus_amount', line: i }) || '0';
+                    var busRate      = rec.getSublistValue({ sublistId: sublistId, fieldId: 'custpage_bus_rate', line: i }) || 'none';
+                    // v1.4.0: VAT fields — without these the preview would show different VAT
+                    // from the emailed proposal, the same bug the BUS fields were added for.
+                    var vatRate      = rec.getSublistValue({ sublistId: sublistId, fieldId: 'custpage_vat_rate', line: i });
+                    if (vatRate === null || vatRate === undefined || vatRate === '') vatRate = '0.2';
+                    var vatPercent   = rec.getSublistValue({ sublistId: sublistId, fieldId: 'custpage_vat_percent', line: i }) || '20%';
 
                     selected.push({
                         tranId:        tranId,
@@ -163,6 +173,10 @@ function (currentRecord, url, log, dialog) {
                         subtotal:      subtotal,         // v1.1.1
                         discountTotal: discountTotal,    // v1.1.1
                         taxTotal:      taxTotal,         // v1.1.1
+                        busAmount:     busAmount,        // v1.3.0: 0 | 7500 | 9000 (as text)
+                        busRate:       busRate,          // v1.3.0: 'none' | 'standard' | 'enhanced'
+                        vatRate:       vatRate,          // v1.4.0: '0' | '0.2' (as text)
+                        vatPercent:    vatPercent,       // v1.4.0: '0%' | '20%'
                         description:   description       // v1.1.1: custbody_quote_description for preview rendering
                     });
                 }

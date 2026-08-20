@@ -9,11 +9,38 @@
  *              categorise them as Main or Additional, and trigger proposal generation.
  *              Supports preview (generates HTML without saving) and email sending.
  *              Quotes are grouped into separate sections by type.
- * @version     1.4.9
+ * @version     1.7.0
  * @author      Nu-Heat Development
  *
  * Script ID:      customscript_nuheat_send_quote_sl
  * Deployment ID:  customdeploy_nuheat_send_quote_sl
+ *
+ * CHANGELOG v1.7.0 (VAT by technology):
+ *   - ADDED: Derives the VAT rate from the quote's technology via ./nuheat_vat_rates and passes
+ *     vatRate / vatPercent through to the Master Proposal alongside busAmount / busRate.
+ *   - ⚠️ CHANGED: taxTotal and amount pushed to the proposal are now DERIVED, not raw NetSuite
+ *     values. This is deliberate and is NOT a regression of the v1.4.9 fix below — that fix was
+ *     about reading subtotal/discounttotal/taxtotal reliably via record.load() instead of
+ *     search.lookupFields(), and those reads are unchanged. What changed is that the tax figure
+ *     is now recalculated from subtotal-minus-discount because the TAX CODES on heat pump
+ *     Estimates are wrong in NetSuite (20% where it should be 0%). Where derived and NetSuite
+ *     figures disagree, VAT_MISMATCH is logged — that log is the work-list for fixing the codes
+ *     at source. When record.load() fails, the NetSuite fallback values are still used.
+ *   - ADDED: Hidden sublist fields custpage_vat_rate and custpage_vat_percent.
+ *   - ⚠️ DEPLOYMENT: nuheat_vat_rates.js must be uploaded to SuiteScripts/NuHeat BEFORE this
+ *     script is redeployed, or it fails at load time.
+ *
+ * CHANGELOG v1.6.0 (BUS grant pass-through):
+ *   - ADDED: Resolves the BUS grant rate from the Estimate's Suppak line item via the
+ *     shared ./nuheat_bus_grant module and passes busAmount / busRate through to the
+ *     Master Proposal, which has no line-item access of its own.
+ *   - ADDED: Hidden sublist fields custpage_bus_amount and custpage_bus_rate so the
+ *     values survive the serverWidget round trip.
+ *   - CHANGED: formatCurrency() gained a signed sibling, formatSignedCurrency(), for
+ *     figures that can go negative once the grant exceeds the quote value.
+ *   - ⚠️ DEPLOYMENT: nuheat_bus_grant.js must be uploaded to SuiteScripts/NuHeat BEFORE
+ *     this script is redeployed, or it fails at load time.
+ *   - NOTE: @version had drifted to 1.4.9 while SCRIPT_VERSION read 1.5.1; both now 1.6.0.
  *
  * CHANGELOG v1.4.9 (Pricing Data Fix - record.load):
  *   - CRITICAL FIX: Replaced search.lookupFields() with record.load() for pricing
@@ -136,14 +163,16 @@ define([
     'N/runtime',
     'N/format',
     'N/email',
-    './nuheat_master_proposal'
-], function (serverWidget, search, record, log, url, redirect, runtime, format, email, masterProposal) {
+    './nuheat_master_proposal',
+    './nuheat_bus_grant',
+    './nuheat_vat_rates'
+], function (serverWidget, search, record, log, url, redirect, runtime, format, email, masterProposal, busGrant, vatRates) {
 
     'use strict';
 
     // ─── Constants ────────────────────────────────────────────────────────────────
 
-    var SCRIPT_VERSION = '1.5.1';
+    var SCRIPT_VERSION = '1.7.0';
 
     /**
      * Mapping from the NetSuite custbody_quote_type list values
@@ -248,6 +277,17 @@ define([
     }
 
     /**
+     * v1.6.0: Formats a number as GBP with the minus sign BEFORE the symbol.
+     * e.g. -694.40 => '-£694.40' (formatCurrency alone gives '£-694.40').
+     * Use for any figure that can go negative once the BUS grant exceeds the quote value.
+     */
+    function formatSignedCurrency(amount) {
+        var num = parseFloat(amount);
+        if (isNaN(num)) num = 0;
+        return (num < 0 ? '-' : '') + formatCurrency(Math.abs(num));
+    }
+
+    /**
      * Parses a comma-separated email string into an array of trimmed addresses.
      * Returns empty array if input is empty/null.
      */
@@ -316,6 +356,12 @@ define([
                     subtotal:      q.subtotal || '',
                     discountTotal: q.discountTotal || '',   // v1.4.3: Discount total
                     taxTotal:      q.taxTotal || '',        // v1.4.3: VAT total
+                    busAmount:     parseFloat(q.busAmount) || 0,   // v1.6.0: 0 | 7500 | 9000
+                    busRate:       q.busRate || 'none',            // v1.6.0: resolved Suppak rate
+                    vatRate:       (q.vatRate === undefined || q.vatRate === null || q.vatRate === '' || isNaN(parseFloat(q.vatRate)))
+                                       ? vatRates.DEFAULT_VAT_RATE
+                                       : parseFloat(q.vatRate),    // v1.7.0: 0 | 0.20
+                    vatPercent:    q.vatPercent || '20%',          // v1.7.0: '0%' | '20%'
                     quoteUrl:      q.url || q.quoteUrl || '',
                     category:      q.category || 'main',
                     description:   q.description || ''     // v1.4.2: For master proposal HTML rendering
@@ -610,6 +656,40 @@ define([
             });
             hiddenTax.updateDisplayType({ displayType: serverWidget.FieldDisplayType.HIDDEN });
 
+            // v1.6.0: Hidden: BUS grant amount for master proposal pricing.
+            // serverWidget sublists carry TEXT, so this is stringified on the way out and
+            // parsed back with parseFloat on the way in (see getBusAmount in the proposal).
+            var hiddenBusAmount = sublist.addField({
+                id: 'custpage_bus_amount',
+                type: serverWidget.FieldType.TEXT,
+                label: 'BUS Grant Amount'
+            });
+            hiddenBusAmount.updateDisplayType({ displayType: serverWidget.FieldDisplayType.HIDDEN });
+
+            // v1.6.0: Hidden: BUS grant rate ('none' | 'standard' | 'enhanced')
+            var hiddenBusRate = sublist.addField({
+                id: 'custpage_bus_rate',
+                type: serverWidget.FieldType.TEXT,
+                label: 'BUS Grant Rate'
+            });
+            hiddenBusRate.updateDisplayType({ displayType: serverWidget.FieldDisplayType.HIDDEN });
+
+            // v1.7.0: Hidden: VAT rate (as a decimal string, e.g. '0' or '0.2')
+            var hiddenVatRate = sublist.addField({
+                id: 'custpage_vat_rate',
+                type: serverWidget.FieldType.TEXT,
+                label: 'VAT Rate'
+            });
+            hiddenVatRate.updateDisplayType({ displayType: serverWidget.FieldDisplayType.HIDDEN });
+
+            // v1.7.0: Hidden: VAT rate as a display percentage ('0%' | '20%')
+            var hiddenVatPercent = sublist.addField({
+                id: 'custpage_vat_percent',
+                type: serverWidget.FieldType.TEXT,
+                label: 'VAT Percent'
+            });
+            hiddenVatPercent.updateDisplayType({ displayType: serverWidget.FieldDisplayType.HIDDEN });
+
             // v1.4.2: Hidden: quote description for master proposal
             var hiddenDesc = sublist.addField({
                 id: 'custpage_quote_description',
@@ -643,6 +723,13 @@ define([
                 sublist.setSublistValue({ id: 'custpage_quote_type',   line: i, value: q.quoteTypeDisplay });
                 sublist.setSublistValue({ id: 'custpage_discount_total', line: i, value: q.discountTotal || '£0.00' });  // v1.4.3
                 sublist.setSublistValue({ id: 'custpage_tax_total',      line: i, value: q.taxTotal || '£0.00' });       // v1.4.3
+                // v1.6.0: stringify — setSublistValue rejects a plain number on a TEXT field,
+                // and a 0 value must still be written (not skipped) so the row is unambiguous.
+                sublist.setSublistValue({ id: 'custpage_bus_amount',     line: i, value: String(q.busAmount || 0) });
+                sublist.setSublistValue({ id: 'custpage_bus_rate',       line: i, value: q.busRate || 'none' });
+                // v1.7.0: same stringify-out / parse-back pattern as the BUS fields
+                sublist.setSublistValue({ id: 'custpage_vat_rate',       line: i, value: String(q.vatRate === undefined ? '' : q.vatRate) });
+                sublist.setSublistValue({ id: 'custpage_vat_percent',    line: i, value: q.vatPercent || '20%' });
                 if (q.description) {
                     sublist.setSublistValue({ id: 'custpage_quote_description', line: i, value: q.description });  // v1.4.2
                 }
@@ -759,6 +846,16 @@ define([
                     var taxTotal     = request.getSublistValue({ group: sublistId, name: 'custpage_tax_total', line: i }) || '';        // v1.4.3
                     var quoteUrl     = request.getSublistValue({ group: sublistId, name: 'custpage_quote_url', line: i });
                     var description  = request.getSublistValue({ group: sublistId, name: 'custpage_quote_description', line: i }) || '';  // v1.4.2
+                    // v1.6.0: parse the BUS amount back to a number after the TEXT round trip
+                    var busAmountRaw = request.getSublistValue({ group: sublistId, name: 'custpage_bus_amount', line: i });
+                    var busAmount    = parseFloat(busAmountRaw);
+                    if (isNaN(busAmount)) busAmount = 0;
+                    var busRate      = request.getSublistValue({ group: sublistId, name: 'custpage_bus_rate', line: i }) || 'none';
+                    // v1.7.0: parse the VAT rate back to a number after the TEXT round trip
+                    var vatRateRaw   = request.getSublistValue({ group: sublistId, name: 'custpage_vat_rate', line: i });
+                    var vatRate      = parseFloat(vatRateRaw);
+                    if (isNaN(vatRate)) vatRate = vatRates.DEFAULT_VAT_RATE;
+                    var vatPercent   = request.getSublistValue({ group: sublistId, name: 'custpage_vat_percent', line: i }) || '20%';
 
                     var entry = {
                         quoteId:       quoteId,
@@ -769,6 +866,10 @@ define([
                         subtotal:      subtotal,
                         discountTotal: discountTotal,   // v1.4.3: Discount total from NS discounttotal field
                         taxTotal:      taxTotal,        // v1.4.3: VAT total from NS taxtotal field
+                        busAmount:     busAmount,       // v1.6.0: 0 | 7500 | 9000
+                        busRate:       busRate,         // v1.6.0: 'none' | 'standard' | 'enhanced'
+                        vatRate:       vatRate,         // v1.7.0: 0 | 0.20
+                        vatPercent:    vatPercent,      // v1.7.0: '0%' | '20%'
                         quoteUrl:      quoteUrl,
                         category:      category,
                         description:   description      // v1.4.2: For master proposal HTML rendering
@@ -1946,6 +2047,10 @@ define([
                 var discountTotalVal = '';
                 var taxTotalVal = '';
                 var totalVal = '';
+                // v1.6.0: BUS grant resolved from this Estimate's Suppak line item. The Master
+                // Proposal never loads an Estimate, so the resolution has to happen here.
+                var busAmountVal = 0;
+                var busRateVal = 'none';
                 if (estimateId) {
                     try {
                         var estimateRec = record.load({
@@ -1961,6 +2066,24 @@ define([
                         log.debug('SendQuoteSL.searchRelatedQuotes', 'Pricing loaded via record.load for Estimate ' + estimateId +
                             ': subtotal=' + subtotalVal + ', discount=' + discountTotalVal +
                             ', tax=' + taxTotalVal + ', total=' + totalVal);
+
+                        // v1.6.0: Read the item sublist and resolve the BUS rate. itemName uses
+                        // getSublistText (the SKU/display name), matching how the Quote Suitelet
+                        // builds line items — the BUS module normalises either form.
+                        var busLineItems = [];
+                        var estLineCount = estimateRec.getLineCount({ sublistId: 'item' });
+                        for (var li = 0; li < estLineCount; li++) {
+                            busLineItems.push({
+                                itemName: estimateRec.getSublistText({ sublistId: 'item', fieldId: 'item', line: li }) || ''
+                            });
+                        }
+                        var busResult = busGrant.resolveBusGrant(busLineItems);
+                        busAmountVal = busResult.amount;
+                        busRateVal   = busResult.rate;
+
+                        log.audit('SendQuoteSL.BUS', 'Estimate ' + estimateId + ' — lines=' + estLineCount +
+                            ', rate=' + busRateVal + ', amount=' + busAmountVal +
+                            ', matched=' + (busResult.matchedItem || 'none'));
                     } catch (pricingErr) {
                         log.debug('SendQuoteSL.searchRelatedQuotes', 'Could not load Estimate record ' + estimateId +
                             ' for pricing: ' + pricingErr.message + ' — will use search total as fallback');
@@ -1968,6 +2091,35 @@ define([
                         totalVal = result.getValue({ name: 'total' }) || '';
                     }
                 }
+
+                // ── v1.7.0: VAT derived from the quote's technology ──────────────────────
+                // ⚠️ quoteTypeDisplay, NOT rawQuoteType. VAT_RATES is keyed on display names
+                // ('Heat Pump'), while rawQuoteType holds the list value ('Heat Pump (ASHP)',
+                // 'Heat Emitter'). Passing the raw value would fail to match and fall through
+                // to the 20% default — charging an ASHP/GSHP/EAHP heat pump quote 20% VAT,
+                // which is the exact bug this change exists to fix. (nuheat_vat_rates also
+                // normalises raw values defensively, so both forms resolve correctly.)
+                var vatInfo = vatRates.resolveVatRate(quoteTypeDisplay);
+
+                // Only derive when record.load() actually returned pricing. On the fallback
+                // path (load failed) subtotalVal is empty and the search 'total' is all we
+                // have — deriving there would silently zero the quote's amount.
+                var hasPricing = (subtotalVal !== '' && subtotalVal !== null && subtotalVal !== undefined);
+                var netAmount  = hasPricing
+                    ? (parseFloat(subtotalVal) || 0) - Math.abs(parseFloat(discountTotalVal) || 0)
+                    : 0;
+                var derivedVat = hasPricing ? vatRates.calculateVat(netAmount, vatInfo.rate) : 0;
+
+                if (hasPricing) {
+                    vatRates.logVatMismatch('SendQuoteSL', estimateId, derivedVat, taxTotalVal, quoteTypeDisplay);
+                } else {
+                    log.audit('SendQuoteSL.VAT', 'Estimate ' + estimateId +
+                        ' — no pricing from record.load(); using NetSuite fallback figures, VAT not derived.');
+                }
+
+                log.audit('SendQuoteSL.VAT', 'Estimate ' + estimateId + ' — type="' + quoteTypeDisplay +
+                    '", rate=' + vatInfo.percent + ', net=' + netAmount.toFixed(2) +
+                    ', derivedVat=' + derivedVat.toFixed(2) + ', nsTaxTotal=' + (taxTotalVal || '0'));
 
                 quotes.push({
                     id:               estimateId,
@@ -1978,8 +2130,15 @@ define([
                     quoteTypeDisplay: quoteTypeDisplay,
                     subtotal:         formatCurrency(subtotalVal),
                     discountTotal:    formatCurrency(discountTotalVal),
-                    taxTotal:         formatCurrency(taxTotalVal),
-                    amount:           formatCurrency(totalVal || result.getValue({ name: 'total' })),
+                    // ⚠️ v1.7.0: taxTotal and amount are DERIVED, not NetSuite values — see the
+                    // v1.7.0 changelog at the top of this file before "fixing" this back.
+                    taxTotal:         hasPricing ? formatCurrency(derivedVat) : formatCurrency(taxTotalVal),
+                    amount:           hasPricing ? formatCurrency(netAmount + derivedVat)
+                                                 : formatCurrency(totalVal || result.getValue({ name: 'total' })),
+                    busAmount:        busAmountVal,   // v1.6.0: 0 | 7500 | 9000
+                    busRate:          busRateVal,     // v1.6.0: 'none' | 'standard' | 'enhanced'
+                    vatRate:          vatInfo.rate,     // v1.7.0: 0 | 0.20
+                    vatPercent:       vatInfo.percent,  // v1.7.0: '0%' | '20%'
                     quoteUrl:         result.getValue({ name: 'custbody_test_new_quote' }) || '',
                     description:      result.getValue({ name: 'custbody_quote_description' }) || ''
                 });
