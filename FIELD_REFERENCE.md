@@ -153,13 +153,16 @@ underfloor heating is standard-rated at 20%.
 > Execution Log. If a new quote type is added to the NetSuite list, add it to **both**
 > `QUOTE_TYPE_ALIASES` in `nuheat_vat_rates.js` and `QUOTE_TYPE_MAPPING` in `nuheat_send_quote_sl.js`.
 
-### ⚠️ The tax codes are the root cause
+### ✅ The tax codes were the root cause — corrected 20 August 2026
 
 The scripts do not read the Estimate's tax codes — they derive the rate that *should* apply. Heat
-pump quotes were showing 20% because **the tax codes on those Estimate lines are wrong in NetSuite**.
-Where derived and NetSuite figures differ by more than 1p, `VAT_MISMATCH` is logged with the Estimate
-ID and both amounts. **Those entries are the work-list for fixing the source data** — until they are
-worked through, the quote page and the Estimate will disagree.
+pump quotes were showing 20% because **the tax codes on those Estimate lines were wrong in
+NetSuite**. Those tax codes have since been corrected in Production, so the derived figure and
+NetSuite's `taxtotal` now agree.
+
+Where the two still differ by more than 1p, `VAT_MISMATCH` is logged with the Estimate ID and both
+amounts. With the source data correct, **a new entry means something has regressed at source** —
+investigate it as a live defect rather than treating it as a backlog item.
 
 ---
 

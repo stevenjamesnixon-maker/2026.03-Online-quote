@@ -169,15 +169,19 @@ A value of exactly zero renders `£0.00`, never `-£0.00`.
 
 The scripts had **never** calculated VAT. There was no `0.2` multiplier anywhere in the pre-v4.5.0
 codebase — both surfaces echoed NetSuite's `taxtotal` verbatim. Heat pump quotes displayed 20%
-because **the tax codes on those Estimate lines are wrong in NetSuite**.
+because **the tax codes on those Estimate lines were wrong in NetSuite**.
 
 UK VAT on heat pump installations is **0%** (energy-saving materials relief); underfloor heating is
 standard-rated at **20%**.
 
-> ⚠️ **v4.5.0 corrects the display, not the data.** NetSuite still invoices from its own tax codes.
-> A quote page showing £0.00 VAT against an Estimate that will invoice £1,200 is a commercial
-> problem, not a cosmetic one. Every disagreement over 1p writes a **`VAT_MISMATCH`** audit entry
-> naming the Estimate and both figures. **That log is the work-list for fixing the source data.**
+> ✅ **Both halves are now fixed.** v4.5.0 corrected the display; **the tax codes were corrected in
+> Production on 20 August 2026.** Derived VAT and NetSuite's `taxtotal` agree, and nothing is
+> outstanding.
+>
+> Every disagreement over 1p still writes a **`VAT_MISMATCH`** audit entry naming the Estimate and
+> both figures. That log is now an **early-warning signal**: a new entry means something has
+> regressed at source, and a quote page showing £0.00 VAT against an Estimate that would invoice
+> £1,200 is a commercial problem, not a cosmetic one.
 
 ## 8. Resolution — once per quote
 

@@ -239,13 +239,15 @@ line) became three outcomes resolved from the **Suppak line item**, which is aut
 
 **The scripts had never calculated VAT.** There was no `0.2` multiplier anywhere in the codebase —
 both surfaces echoed NetSuite's `taxtotal` verbatim. Heat pump quotes were displaying 20% because
-**the tax codes on those Estimate lines are wrong in NetSuite**. UK VAT on heat pump installations is
-0% under energy-saving materials relief; underfloor heating is standard-rated at 20%.
+**the tax codes on those Estimate lines were wrong in NetSuite at the time**. UK VAT on heat pump
+installations is 0% under energy-saving materials relief; underfloor heating is standard-rated
+at 20%.
 
-**⚠️ The fix is a display stopgap, not a cure.** The customer-facing figure is now correct, but
-NetSuite will still invoice from its own (wrong) tax codes. Every disagreement over 1p writes a
-`VAT_MISMATCH` audit entry naming the Estimate and both figures — **that log is the work-list for
-correcting the source data.** Until it is worked through, the quote page and the Estimate disagree.
+At the time of the change the derived figure and NetSuite disagreed, because the source tax codes
+were wrong. **The tax codes have since been corrected in Production (20 August 2026), so the two now
+agree.** Every disagreement over 1p writes a `VAT_MISMATCH` audit entry naming the Estimate and both
+figures — originally the work-list for correcting the source data, now an **early-warning signal**
+that something has regressed at source. See §6.
 
 **Key decisions:**
 - **New shared module `nuheat_vat_rates.js`**, following the `nuheat_bus_grant.js` pattern from
@@ -254,8 +256,8 @@ correcting the source data.** Until it is worked through, the quote page and the
   groups technologies), so one rate applies per quote and `extractLineItems()` was left alone.
 - **VAT applies after discount** — `netAmount = subtotal - discount`, consistent with the codebase's
   documented invariant `total = subtotal - discount + tax`.
-- **Total inc VAT is recomputed.** NetSuite's `total` carries the wrong VAT, so recomputing VAT
-  without recomputing the total would have left the two inconsistent. `balanceAfterBus` is ex-VAT
+- **Total inc VAT is recomputed.** NetSuite's `total` carried the wrong VAT at the time, so
+  recomputing VAT without recomputing the total would have left the two inconsistent. `balanceAfterBus` is ex-VAT
   and unchanged; the BUS grant applies to the 0%-rated heat pump, so deducting it from an inc-VAT
   total stays sound.
 - **Raw list values are normalised inside the module.** `VAT_RATES` is keyed on display names but
@@ -275,21 +277,23 @@ correcting the source data.** Until it is worked through, the quote page and the
 
 ### All Components and Versions
 
+**All components below are live in both Production and Sandbox as of 20 August 2026.**
+
 | Component | Version | File | Status |
 |-----------|---------|------|--------|
-| Quote Suitelet | v4.6.0 | `nuheat_quote_suitelet.js` | ⏳ Pending Sandbox testing |
-| Quote UE | v4.0.9 | `nuheat_quote_ue.js` | ✅ Production ready |
-| Quote CS | v4.0.6 | `nuheat_quote_cs.js` | ✅ Production ready |
-| Quote Viewer | v1.1.0 | `nuheat_quote_viewer_sl.js` | ✅ Production ready |
-| Scheduled Script | v1.0.0 | `nuheat_quote_generator_ss.js` | ✅ Production ready |
-| Master Proposal | v1.8.3 | `nuheat_master_proposal.js` | ⏳ Pending Sandbox testing |
-| Send Quote SL | v1.7.0 | `nuheat_send_quote_sl.js` | ⏳ Pending Sandbox testing |
-| Send Quote CS | v1.4.0 | `nuheat_send_quote_cs (1).js` | ⏳ Pending Sandbox testing |
-| Opportunity UE | v1.0.0 | `nuheat_opportunity_ue.js` | ✅ Production ready |
-| Opportunity CS | v1.0.0 | `nuheat_opportunity_cs.js` | ✅ Production ready |
-| Analytics Suitelet | v1.0.1 | `nuheat_analytics_sl.js` | ✅ Production ready |
-| **BUS Grant Module** | **v1.0.0** | **`nuheat_bus_grant.js`** | ⏳ Pending Sandbox testing |
-| **VAT Rates Module** | **v1.0.0** | **`nuheat_vat_rates.js`** | ⏳ Pending Sandbox testing |
+| Quote Suitelet | v4.6.0 | `nuheat_quote_suitelet.js` | ✅ Live in Production |
+| Quote UE | v4.0.9 | `nuheat_quote_ue.js` | ✅ Live in Production |
+| Quote CS | v4.0.6 | `nuheat_quote_cs.js` | ✅ Live in Production |
+| Quote Viewer | v1.1.0 | `nuheat_quote_viewer_sl.js` | ✅ Live in Production |
+| Scheduled Script | v1.0.0 | `nuheat_quote_generator_ss.js` | ✅ Live in Production |
+| Master Proposal | v1.8.3 | `nuheat_master_proposal.js` | ✅ Live in Production |
+| Send Quote SL | v1.7.0 | `nuheat_send_quote_sl.js` | ✅ Live in Production |
+| Send Quote CS | v1.4.0 | `nuheat_send_quote_cs (1).js` | ✅ Live in Production |
+| Opportunity UE | v1.0.0 | `nuheat_opportunity_ue.js` | ✅ Live in Production |
+| Opportunity CS | v1.0.0 | `nuheat_opportunity_cs.js` | ✅ Live in Production |
+| Analytics Suitelet | v1.0.1 | `nuheat_analytics_sl.js` | ✅ Live in Production |
+| **BUS Grant Module** | **v1.0.0** | **`nuheat_bus_grant.js`** | ✅ Live in Production |
+| **VAT Rates Module** | **v1.0.0** | **`nuheat_vat_rates.js`** | ✅ Live in Production |
 
 > **All scripts live at the repository root — there is no `src/` directory.** Older documentation
 > cited `src/…` paths that have not existed for some time; those references are being corrected
@@ -308,26 +312,30 @@ correcting the source data.** Until it is worked through, the quote page and the
 
 ### Current Configuration
 
-| Setting | Value |
-|---------|-------|
-| Environment | Sandbox (472052_SB1) |
-| File Cabinet Folder | 26895192 |
-| URL Field | `custbody_test_new_quote` |
-| URL Strategy | Proxy (default) |
-| `USE_PROXY_URL` | `true` |
-| Max File Versions | 5 |
-| Viewer Script ID | 3286 |
-| Viewer Deploy ID | 1 |
+Both environments are live. **The repository holds the Production values.**
 
-> **Environment note — File Cabinet Folder IDs**
-> | Environment | Folder ID |
-> |-------------|-----------|
-> | Sandbox (472052_SB1) | 21719365 |
-> | Production | 26895192 |
-> If switching between environments, update the folder ID constant in all three files:
-> - `QUOTE_HTML_FOLDER_ID` in `nuheat_quote_viewer_sl.js`
-> - `QUOTE_HTML_FOLDER_ID` in `nuheat_quote_suitelet.js`
-> - `FOLDER_ID` in `nuheat_master_proposal.js`
+| Setting | Production | Sandbox |
+|---------|-----------|---------|
+| Account ID | `472052` | `472052_SB1` |
+| File Cabinet Folder | **`26895192`** — the value in this repo | `21719365` — hand-edited in the File Cabinet, never committed |
+| URL Field | `custbody_test_new_quote` | `custbody_test_new_quote` |
+| URL Strategy | Proxy (default) | Proxy (default) |
+| `USE_PROXY_URL` | `true` | `true` |
+| Max File Versions | 5 | 5 |
+| Viewer Script ID | — | 3286 |
+| Viewer Deploy ID | — | 1 |
+
+> ⚠️ **The folder ID is the one line that legitimately differs between a Sandbox File Cabinet file
+> and its repository counterpart.** The Sandbox value is edited directly in the File Cabinet and is
+> never committed, so **the repository is always Production-ready** — upload repo versions straight
+> to Production, and never upload a downloaded Sandbox copy.
+>
+> The constant lives in **three** files and all three must agree:
+> - `QUOTE_HTML_FOLDER_ID` in `nuheat_quote_suitelet.js` (~:105) — writes
+> - `FOLDER_ID` in `nuheat_master_proposal.js` (~:225) — writes
+> - `QUOTE_HTML_FOLDER_ID` in `nuheat_quote_viewer_sl.js` (~:60) — searches
+>
+> See §9, pitfall 12.
 
 ### What Works
 
@@ -345,13 +353,20 @@ correcting the source data.** Until it is worked through, the quote page and the
 - ✅ Thermostat options section
 - ✅ Component Breakdown collapsible
 - ✅ Room-by-room specification display
+- ✅ BUS grant resolution from the Suppak line item
+- ✅ VAT by technology, agreeing with the (now corrected) NetSuite tax codes
+- ✅ **Deployed to Production** — all components live in both environments as of 20 August 2026
 
 ### What Needs Attention
 
-- ⚠️ Master Proposal pricing relies on individual quote data passed through Send Quote SL — if quotes are modified after proposal creation, the proposal doesn't auto-update
-- ⚠️ Production deployment not yet done (currently Sandbox only)
-- ⚠️ No automated testing framework — testing is manual
-- ⚠️ Design packages comparison page exists as mockup but not integrated
+Two open items:
+
+- ⚠️ **Solar VAT rate is assumed 0% and remains unconfirmed.** Only Heat Pump and UFH were
+  specified; Solar was set to 0% on the basis that solar thermal qualifies for the same
+  energy-saving materials relief. One-line change in `VAT_RATES` (`nuheat_vat_rates.js`) if wrong.
+- ⚠️ **`nuheat_quote_ue.js` JSDoc header says `Version: 4.0.8` (~:13) while
+  `SCRIPT_VERSION = '4.0.9'` (~:106).** A code discrepancy, not a documentation one — bump the
+  header to match on the next change to that file. See §6, JSDoc `@version` drift.
 
 ---
 
@@ -457,10 +472,14 @@ to diagnose a wrong figure on a rendered page.
 
 The `taxTotal` and `amount` figures passed to the Master Proposal are therefore **derived values**,
 not NetSuite's. This **deliberately reverses a v1.4.9 change** that made the Send Quote SL echo
-NetSuite's own `taxtotal` — do not "restore" it. NetSuite's `total` carries the wrong VAT on heat
-pump quotes, so recomputing VAT without also recomputing the total would leave the two figures
-inconsistent on the same page. Both are recomputed; NetSuite's original `taxtotal` is retained
-alongside for comparison and logged in `VAT_FIGURES`.
+NetSuite's own `taxtotal` — do not "restore" it.
+
+At the time of v4.5.0 NetSuite's `total` carried the wrong VAT on heat pump quotes, so recomputing
+VAT without also recomputing the total would have left the two figures inconsistent on the same
+page. **The source tax codes were corrected in Production on 20 August 2026 and the two now agree** —
+but deriving both remains the right design, because it is what makes a future regression at source
+detectable. NetSuite's original `taxtotal` is retained alongside for comparison, logged in
+`VAT_FIGURES`, and any disagreement over 1p raises `VAT_MISMATCH`. See §6.
 
 
 ---
@@ -597,16 +616,26 @@ its call sites passed `showGrantBanner = false`, so it had been unreachable. If 
 
 4. **No email sending from Master Proposal** — The "email" functionality is stubbed but not fully implemented (depends on email templates).
 
-### 🔴 Highest priority — VAT tax codes are wrong on Estimates
+### ✅ VAT tax codes — resolved, now a standing consistency check
 
-Customers now see the correct VAT figure, but **the underlying Estimates will still invoice at the
-wrong rate.** UK VAT on heat pump installations is 0% under energy-saving materials relief; the tax
-codes on those Estimate lines in NetSuite say 20%. The v4.5.0 change derives the rate that *should*
-apply and displays that — **it is a display stopgap, not a cure.**
+**Background.** UK VAT on heat pump installations is 0% under energy-saving materials relief;
+underfloor heating is standard-rated at 20%. The tax codes on heat pump Estimate lines in NetSuite
+said 20%, so heat pump quotes displayed 20%. v4.5.0 began deriving the rate that *should* apply
+rather than echoing NetSuite's `taxtotal`.
 
-Every disagreement over 1p writes a `VAT_MISMATCH` audit entry naming the Estimate and both
-figures. **That log is the work-list for correcting the source data.** Until it is worked through,
-the quote page and the Estimate disagree, and the invoice will follow the Estimate.
+**The tax codes were corrected in Production on 20 August 2026.** The source data is now right, so
+script-derived VAT and NetSuite's `taxtotal` should agree. There is no outstanding remediation
+task here.
+
+> ⚠️ **`VAT_MISMATCH` is now an early-warning signal, not a work-list.** It fires when derived VAT
+> and NetSuite's `taxtotal` differ by more than 1p. With the source data correct, **a new entry
+> means something has regressed at source** — a new Estimate created with the wrong tax code, a
+> changed tax schedule, or a quote type whose rate is not what the module assumes. Keep watching it;
+> treat any entry as a live defect to investigate rather than a backlog item to work through.
+
+**Why the derivation stays.** Now that both agree, the derived figure is a genuine cross-check on
+the source data — the reason a regression is detectable at all. It is not redundant, and reverting
+to echoing `taxtotal` would remove the only signal that the tax codes have drifted again.
 
 ### Unconfirmed assumptions
 
@@ -973,7 +1002,7 @@ The scripts log heavily on purpose. These are the keys that answer most question
 | `BUS_RESOLVE` | `nuheat_bus_grant.js` | which Suppak line matched and at what rate |
 | `BUS_UNMATCHED` | `nuheat_bus_grant.js` | a Suppak line matched no tier — includes the raw name to correct the arrays with |
 | `BUS_FIGURES` | `nuheat_quote_suitelet.js` | every derived BUS figure for the quote, as JSON |
-| `VAT_MISMATCH` | `nuheat_vat_rates.js` | derived VAT disagrees with NetSuite's — **the tax-code work-list** |
+| `VAT_MISMATCH` | `nuheat_vat_rates.js` | derived VAT disagrees with NetSuite's — tax codes fixed 20 Aug 2026, so **a new entry means a regression at source** |
 | `VAT_RATE_UNMATCHED` | `nuheat_vat_rates.js` | a quote type is missing from `QUOTE_TYPE_ALIASES` |
 | `VAT_FIGURES` | `nuheat_quote_suitelet.js` | every derived VAT figure for the quote, as JSON |
 | `VAT_QUOTE_TYPE` | `nuheat_quote_suitelet.js` | which route resolved the quote type (field vs inferred) |

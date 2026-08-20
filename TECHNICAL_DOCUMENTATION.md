@@ -200,14 +200,18 @@ nuheat_send_quote_sl.js ─────────▶ nuheat_vat_rates.js (modu
 Public`, File Cabinet upload only, no deployment record, imported by relative path.
 
 **Why it exists.** The scripts had never calculated VAT. Both surfaces read NetSuite's `taxtotal`
-verbatim, and heat pump quotes were displaying 20% because the tax codes on those Estimate lines are
-wrong in NetSuite. UK VAT on heat pump installations is 0% (energy-saving materials relief);
+verbatim, and heat pump quotes were displaying 20% because the tax codes on those Estimate lines
+were wrong in NetSuite. UK VAT on heat pump installations is 0% (energy-saving materials relief);
 underfloor heating is standard-rated at 20%.
 
-> ⚠️ **This is a display stopgap, not a fix.** The customer-facing figure is corrected immediately,
-> but NetSuite still invoices from its own tax codes. Every disagreement over 1p writes a
-> `VAT_MISMATCH` audit entry naming the Estimate and both figures — **those entries are the
-> work-list for correcting the source data.**
+> ✅ **The tax codes were corrected in Production on 20 August 2026.** Derived VAT and NetSuite's
+> `taxtotal` now agree, and there is no outstanding remediation task.
+>
+> The derivation stays because it is what makes a regression detectable. Every disagreement over 1p
+> writes a `VAT_MISMATCH` audit entry naming the Estimate and both figures — now an
+> **early-warning signal** that something has changed at source (a new Estimate created with the
+> wrong tax code, an altered tax schedule, a quote type whose rate differs from the module's
+> assumption), not a backlog to work through.
 
 **Single-technology assumption.** Every Estimate is single-technology (the Master Proposal is what
 groups technologies together), so one rate applies per quote and no line-level tax capture is

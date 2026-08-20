@@ -1,5 +1,5 @@
 ## [Quote Suitelet v4.6.0 / Master Proposal v1.8.3] — 18 August 2026
-**Status:** ⏳ Draft — pending Sandbox testing
+**Status:** ✅ Live in Production — deployed 20 August 2026
 **Components:** `nuheat_quote_suitelet.js`, `nuheat_master_proposal.js`
 
 No changes to `nuheat_bus_grant.js`, `nuheat_vat_rates.js`, `nuheat_send_quote_sl.js` or
@@ -68,7 +68,7 @@ Grep the Execution Log for `SITE_ADDRESS`.
 ---
 
 ## [Master Proposal v1.8.2] — 18 August 2026
-**Status:** ⏳ Draft — pending Sandbox testing
+**Status:** ✅ Live in Production — deployed 20 August 2026
 **Component:** `nuheat_master_proposal.js`
 
 **One CSS rule.** No JavaScript, no HTML restructuring, no other file. Everything else in this PR has
@@ -121,7 +121,7 @@ price in every case, including a £12,345.67 VAT figure. The `@media print` bloc
 ---
 
 ## [Quote Suitelet v4.5.1 / Master Proposal v1.8.1] — 18 August 2026
-**Status:** ⏳ Draft — pending Sandbox testing
+**Status:** ✅ Live in Production — deployed 20 August 2026
 **Components:** `nuheat_quote_suitelet.js`, `nuheat_master_proposal.js`
 
 **Presentation only.** No calculation logic was touched. Every figure rendered here already existed
@@ -214,7 +214,7 @@ and `totals.vat` is the correct figure to render. Verified numerically both ways
 ---
 
 ## [Quote Suitelet v4.5.0 / Master Proposal v1.8.0 / Send Quote SL v1.7.0 / VAT Module v1.0.0] — 18 August 2026
-**Status:** ⏳ Draft — pending Sandbox testing
+**Status:** ✅ Live in Production — deployed 20 August 2026
 **Components:** `nuheat_vat_rates.js` (NEW), `nuheat_quote_suitelet.js`, `nuheat_master_proposal.js`, `nuheat_send_quote_sl.js`, `nuheat_send_quote_cs (1).js`
 
 > ⚠️ **DEPLOYMENT ORDERING:** `nuheat_vat_rates.js` must be uploaded to `SuiteScripts/NuHeat`
@@ -222,20 +222,27 @@ and `totals.vat` is the correct figure to render. Verified numerically both ways
 > `nuheat_bus_grant.js` in v4.4.0. Both are `define()`d by relative path and fail at load time if
 > absent. Neither needs a script deployment record.
 
-### ⚠️ This is a display stopgap — the tax codes are the root cause
+### Why this change exists — the tax codes were the root cause
 
-The scripts have never calculated VAT. There is no `0.2` multiplier anywhere in the pre-v4.5.0
+> ✅ **Resolved 20 August 2026 — the tax codes have been corrected in Production.** The account of
+> the problem below is the state at the time of this release, kept as the record of why the change
+> was made. `VAT_MISMATCH` is now an early-warning signal rather than an outstanding task: with the
+> source data correct, a new entry means something has regressed at source.
+
+The scripts had never calculated VAT. There was no `0.2` multiplier anywhere in the pre-v4.5.0
 codebase; both surfaces echoed NetSuite's `taxtotal` verbatim
 (`nuheat_quote_suitelet.js:1875`, `nuheat_master_proposal.js:1635`). Heat pump quotes were
-displaying 20% because **the tax codes on those Estimate lines are wrong in NetSuite** — the source
-data says 20% where UK energy-saving materials relief makes it 0%.
+displaying 20% because **the tax codes on those Estimate lines were wrong in NetSuite** — the source
+data said 20% where UK energy-saving materials relief makes it 0%.
 
-v4.5.0 derives the rate that *should* apply and displays that. **It does not fix NetSuite.** Until
-the tax codes are corrected, the quote page and the Estimate will disagree — a quote showing £0.00
-VAT against an Estimate that will invoice £1,200 is a commercial problem, not a cosmetic one.
+v4.5.0 derives the rate that *should* apply and displays that. At the time of release it did not
+fix NetSuite, so until the tax codes were corrected the quote page and the Estimate disagreed — a
+quote showing £0.00 VAT against an Estimate that would invoice £1,200 is a commercial problem, not
+a cosmetic one.
 
 Every disagreement over 1p writes a **`VAT_MISMATCH`** audit entry naming the Estimate and both
-figures. **Those entries are the work-list for fixing the tax codes at source.**
+figures. Those entries were the work-list for fixing the tax codes at source; that work is now
+complete.
 
 ### Added
 - **`nuheat_vat_rates.js` v1.0.0 (NEW)** — shared module, `@NModuleScope Public`, imported by the
@@ -325,7 +332,7 @@ the passed-through `vatRate` / `busRate`, not `quoteType` string matching.
 ---
 
 ## [Quote Suitelet v4.4.0 / Master Proposal v1.7.0 / Send Quote SL v1.6.0 / BUS Module v1.0.0] — 18 August 2026
-**Status:** ⏳ Draft — pending Sandbox testing
+**Status:** ✅ Live in Production — deployed 20 August 2026
 **Components:** `nuheat_bus_grant.js` (NEW), `nuheat_quote_suitelet.js`, `nuheat_master_proposal.js`, `nuheat_send_quote_sl.js`, `nuheat_send_quote_cs (1).js`
 
 > ⚠️ **DEPLOYMENT ORDERING:** `nuheat_bus_grant.js` must be uploaded to `SuiteScripts/NuHeat`
