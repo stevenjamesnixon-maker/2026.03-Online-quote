@@ -1,6 +1,6 @@
 # Section Logic Mapping — BUS Grant & VAT
 
-**Last Updated:** 18 August 2026
+**Last Updated:** 20 August 2026
 **Applies to:** Quote Suitelet v4.6.0, Master Proposal v1.8.3, Send Quote SL v1.7.0,
 BUS Module v1.0.0, VAT Module v1.0.0
 
@@ -42,15 +42,22 @@ and logged as `BUS_FIGURES`. **No render function re-derives any of these.**
 | `residualGrant` | `Math.max(0, amount - hpGross)` | no |
 | `commissioningDisplay` | cascade ? `Math.max(0, commissioningTotal - residualGrant)` : `commissioningTotal` | no |
 | `balanceAfterBus` | `header.subtotal - amount` | **YES** |
-| `totalIncVatAfterBus` | `header.total - amount` | **YES** |
+| `totalIncVatAfterBus` | `correctedTotalIncVat - amount` — see §9 | **YES** |
 | `creditDue` | `Math.max(0, -balanceAfterBus)` | no |
 | `hasGrant` | `amount > 0` | — |
 
 `header.subtotal` is **gross** — there is no negative grant line on the Estimate, so Phase 2 owns
 the entire deduction and there is no double-deduct risk.
 
-**VAT.** The grant is deducted from the ex-VAT subtotal; NetSuite's `taxTotal` is left untouched.
-VAT is 0% on renewables, so grant-vs-VAT ordering is moot in practice.
+**VAT.** The grant is deducted from the ex-VAT subtotal, so `balanceAfterBus` is unaffected by VAT.
+
+> ⚠️ **Superseded by v4.5.0 — read §9 before using this table.** As originally written at v4.4.0,
+> `totalIncVatAfterBus` was `header.total - amount` and NetSuite's `taxTotal` was left untouched.
+> From v4.5.0 the scripts **derive** VAT rather than echoing NetSuite's, and the inc-VAT total is
+> rebuilt from that derived figure — `correctedTotalIncVat - busAmount`. NetSuite's `total` carries
+> the wrong VAT on heat pump quotes, so the old formula would have produced a page whose VAT line
+> and total disagreed. The BUS block now sits **immediately after** the VAT block in
+> `loadQuoteData()` so the corrected total is available to feed it. §9 has the full derivation.
 
 ### The clamping rule, stated once
 
@@ -162,15 +169,19 @@ A value of exactly zero renders `£0.00`, never `-£0.00`.
 
 The scripts had **never** calculated VAT. There was no `0.2` multiplier anywhere in the pre-v4.5.0
 codebase — both surfaces echoed NetSuite's `taxtotal` verbatim. Heat pump quotes displayed 20%
-because **the tax codes on those Estimate lines are wrong in NetSuite**.
+because **the tax codes on those Estimate lines were wrong in NetSuite**.
 
 UK VAT on heat pump installations is **0%** (energy-saving materials relief); underfloor heating is
 standard-rated at **20%**.
 
-> ⚠️ **v4.5.0 corrects the display, not the data.** NetSuite still invoices from its own tax codes.
-> A quote page showing £0.00 VAT against an Estimate that will invoice £1,200 is a commercial
-> problem, not a cosmetic one. Every disagreement over 1p writes a **`VAT_MISMATCH`** audit entry
-> naming the Estimate and both figures. **That log is the work-list for fixing the source data.**
+> ✅ **Both halves are now fixed.** v4.5.0 corrected the display; **the tax codes were corrected in
+> Production on 20 August 2026.** Derived VAT and NetSuite's `taxtotal` agree, and nothing is
+> outstanding.
+>
+> Every disagreement over 1p still writes a **`VAT_MISMATCH`** audit entry naming the Estimate and
+> both figures. That log is now an **early-warning signal**: a new entry means something has
+> regressed at source, and a quote page showing £0.00 VAT against an Estimate that would invoice
+> £1,200 is a commercial problem, not a cosmetic one.
 
 ## 8. Resolution — once per quote
 

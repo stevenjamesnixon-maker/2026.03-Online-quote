@@ -1,8 +1,9 @@
 # Nu-Heat Quote System — Technical Documentation
 
-**Version:** 1.0.0  
-**Last Updated:** 18 August 2026  
-**Applies to:** Suitelet v4.3.53, UE v4.0.9, CS v4.0.6, Viewer v1.1.0, Master Proposal v1.6.2
+**Version:** 1.1.0  
+**Last Updated:** 20 August 2026  
+**Applies to:** Suitelet v4.6.0, UE v4.0.9, CS v4.0.6, Viewer v1.1.0, Master Proposal v1.8.3,
+Send Quote SL v1.7.0, Send Quote CS v1.4.0, BUS Grant Module v1.0.0, VAT Rates Module v1.0.0
 
 ---
 
@@ -41,21 +42,21 @@
 │           │                      │                                       │
 │           │              ┌───────▼──────────┐                           │
 │           │              │ Quote Suitelet    │                           │
-│           │              │ (v4.3.53)         │                           │
+│           │              │ (v4.6.0)          │                           │
 │           │              │ generateAndSave   │                           │
 │           │              │ HTML()            │                           │
 │           │              └───────┬──────────┘                           │
 │           │                      │                                       │
 │  ┌────────▼──────────┐  ┌───────▼──────────┐   ┌──────────────────┐    │
 │  │ Send Quote SL      │  │ File Cabinet      │   │ Quote Viewer SL  │    │
-│  │ (v1.4.9)           │  │ Folder: 21719365  │   │ (v1.1.0)         │    │
+│  │ (v1.7.0)           │  │ Quote HTML folder │   │ (v1.1.0)         │    │
 │  │ Select quotes for  │  │ Quote HTML Files  │   │ Proxy for stable │    │
 │  │ master proposal    │  └──────────────────┘   │ URLs              │    │
 │  └────────┬──────────┘                          └──────────────────┘    │
 │           │                                                              │
 │  ┌────────▼──────────┐                                                  │
 │  │ Master Proposal    │                                                  │
-│  │ (v1.6.2)           │                                                  │
+│  │ (v1.8.3)           │                                                  │
 │  │ Generates multi-   │                                                  │
 │  │ quote proposals    │                                                  │
 │  └───────────────────┘                                                  │
@@ -63,7 +64,7 @@
 │  CLIENT-SIDE SCRIPTS:                                                   │
 │  ┌─────────────────┐  ┌─────────────────┐  ┌──────────────────┐       │
 │  │ Quote CS (v4.0.6)│  │ Send Quote CS   │  │ Opportunity CS   │       │
-│  │ "Regen quote"    │  │ (v1.1.1)        │  │ (v1.0.0)         │       │
+│  │ "Regen quote"    │  │ (v1.4.0)        │  │ (v1.0.0)         │       │
 │  │ button handler   │  │ Preview/Submit  │  │ "Send Quote" btn │       │
 │  └─────────────────┘  └─────────────────┘  └──────────────────┘       │
 │                                                                         │
@@ -110,7 +111,7 @@ EXTERNAL ACCESS:
 
 4. FILE STORAGE
    ├── Timestamped filename: quote_{quoteId}_{oppId}_{timestamp}.html
-   ├── Saved to File Cabinet folder 21719365
+   ├── Saved to the File Cabinet quote HTML folder (see §3.5)
    ├── isOnline = true (public access)
    └── Old versions cleaned up (keep last 5)
 
@@ -125,13 +126,13 @@ EXTERNAL ACCESS:
 1. TRIGGER
    └── User clicks "Send Quote" on Opportunity → Opens Send Quote Suitelet
 
-2. QUOTE SELECTION (Send Quote Suitelet v1.4.9)
+2. QUOTE SELECTION (Send Quote Suitelet v1.7.0)
    ├── Searches all Estimates linked to Opportunity
    ├── Groups by type: UFH, Heat Pump, Solar, Other
    ├── User selects Main vs Alternative quotes
    └── User enters email recipients
 
-3. PROPOSAL GENERATION (Master Proposal v1.6.2)
+3. PROPOSAL GENERATION (Master Proposal v1.8.3)
    ├── Loads customer/opportunity data
    ├── Aggregates pricing across selected quotes
    ├── Generates branded HTML with quote cards
@@ -182,7 +183,7 @@ nuheat_quote_ue.js ──────────────▶ nuheat_quote_su
 nuheat_quote_generator_ss.js ───▶ nuheat_quote_suitelet.js (module import)
 nuheat_quote_suitelet.js ────────▶ nuheat_quote_viewer_sl.js (URL generation)
 nuheat_send_quote_sl.js ─────────▶ nuheat_master_proposal.js (module import)
-nuheat_send_quote_sl.js ─────────▶ nuheat_send_quote_cs.js (inline client script)
+nuheat_send_quote_sl.js ─────────▶ nuheat_send_quote_cs (1).js (inline client script)
 nuheat_opportunity_ue.js ────────▶ nuheat_opportunity_cs.js (button handler)
 nuheat_opportunity_cs.js ────────▶ nuheat_send_quote_sl.js (opens Suitelet)
 nuheat_master_proposal.js ──────▶ nuheat_quote_viewer_sl.js (embed proxy URLs)
@@ -199,14 +200,18 @@ nuheat_send_quote_sl.js ─────────▶ nuheat_vat_rates.js (modu
 Public`, File Cabinet upload only, no deployment record, imported by relative path.
 
 **Why it exists.** The scripts had never calculated VAT. Both surfaces read NetSuite's `taxtotal`
-verbatim, and heat pump quotes were displaying 20% because the tax codes on those Estimate lines are
-wrong in NetSuite. UK VAT on heat pump installations is 0% (energy-saving materials relief);
+verbatim, and heat pump quotes were displaying 20% because the tax codes on those Estimate lines
+were wrong in NetSuite. UK VAT on heat pump installations is 0% (energy-saving materials relief);
 underfloor heating is standard-rated at 20%.
 
-> ⚠️ **This is a display stopgap, not a fix.** The customer-facing figure is corrected immediately,
-> but NetSuite still invoices from its own tax codes. Every disagreement over 1p writes a
-> `VAT_MISMATCH` audit entry naming the Estimate and both figures — **those entries are the
-> work-list for correcting the source data.**
+> ✅ **The tax codes were corrected in Production on 20 August 2026.** Derived VAT and NetSuite's
+> `taxtotal` now agree, and there is no outstanding remediation task.
+>
+> The derivation stays because it is what makes a regression detectable. Every disagreement over 1p
+> writes a `VAT_MISMATCH` audit entry naming the Estimate and both figures — now an
+> **early-warning signal** that something has changed at source (a new Estimate created with the
+> wrong tax code, an altered tax schedule, a quote type whose rate differs from the module's
+> assumption), not a backlog to work through.
 
 **Single-technology assumption.** Every Estimate is single-technology (the Master Proposal is what
 groups technologies together), so one rate applies per quote and no line-level tax capture is
@@ -403,10 +408,10 @@ SuiteScripts/
     ├── nuheat_quote_generator_ss.js
     ├── nuheat_master_proposal.js
     ├── nuheat_send_quote_sl.js
-    ├── nuheat_send_quote_cs.js
+    ├── nuheat_send_quote_cs (1).js
     ├── nuheat_opportunity_ue.js
     ├── nuheat_opportunity_cs.js
-    └── Quote HTML Files/          ← Folder ID: 21719365
+    └── Quote HTML Files/          ← Folder ID: environment-specific (see below)
         ├── quote_12345_67890_1711612800000.html
         ├── quote_12345_67890_1711612900000.html
         ├── proposal_67890_1711613000000.html
@@ -414,9 +419,31 @@ SuiteScripts/
 ```
 
 **Folder Settings:**
-- Folder ID: `21719365`
+
+| Environment | Folder ID |
+|---|---|
+| **Production** | `26895192` |
+| **Sandbox (472052_SB1)** | `21719365` |
+
 - Path: `SuiteScripts > NuHeat > Quote HTML Files`
-- Available Without Login: ✅ Yes
+- Available Without Login: ✅ Yes — **without this, generation still succeeds and the record still
+  gets a URL, but the public URL returns 403.** The failure is invisible until a customer opens it.
+
+> ### ⚠️ The folder ID is hardcoded in three files and they must agree
+>
+> | File | Constant | Line | Role |
+> |---|---|---|---|
+> | `nuheat_quote_suitelet.js` | `QUOTE_HTML_FOLDER_ID` | ~:105 | **writes** quote HTML |
+> | `nuheat_master_proposal.js` | `FOLDER_ID` | ~:225 | **writes** proposal HTML |
+> | `nuheat_quote_viewer_sl.js` | `QUOTE_HTML_FOLDER_ID` | ~:60 | **searches** for the latest file |
+>
+> Miss one and the writers and the searcher point at different folders — the proxy URL then 404s or
+> serves a stale file. A wrong ID surfaces as `Invalid folder reference key <id>` in the Execution
+> Log.
+>
+> **The repository holds the Production values.** Sandbox copies are hand-edited in the File
+> Cabinet and never committed, so a Sandbox file and its repository counterpart legitimately differ
+> on this one line. Always upload the **repository** version to Production.
 
 ---
 
@@ -473,7 +500,7 @@ var USE_PROXY_URL = true;  // Stable proxy URLs (default)
 - Cleanup is non-critical — failures are logged but don't block generation
 - Safety: never deletes the file that was just created
 
-- **Proposals**: All versions retained (cleanup removed in v1.6.2)
+- **Proposals**: All versions retained (cleanup removed in Master Proposal v1.6.2)
 - Timestamped filenames provide audit trail
 - `cleanupOldProposals()` function retained in code but not called
 
@@ -482,7 +509,7 @@ var USE_PROXY_URL = true;  // Stable proxy URLs (default)
 | Property | Value |
 |----------|-------|
 | Type | `file.Type.HTMLDOC` |
-| Folder | `21719365` |
+| Folder | environment-specific — see §3.5 |
 | `isOnline` | `true` |
 | Encoding | `file.Encoding.UTF_8` |
 
@@ -575,7 +602,7 @@ Returns:
     "userId": -4,
     "userRole": "anonymous",
     "remainingUsage": 9990,
-    "folderId": 21719365,
+    "folderId": 26895192,
     "timestamp": "2026-03-28T12:00:00.000Z"
 }
 ```
@@ -596,7 +623,7 @@ To find relevant logs in NetSuite:
 1. Go to **Customization > Scripting > Script Execution Log**
 2. Filter by Script: `Nu-Heat Quote Page Suitelet`
 3. Filter by Type: `AUDIT` for operational logs, `ERROR` for failures
-4. Search for version-specific entries (e.g., `v4.3.53`)
+4. Search for version-specific entries (e.g., `v4.6.0`)
 
 ---
 
@@ -694,14 +721,15 @@ Refer to `PRODUCT_TYPE_ID_MAP` and `PRODUCT_CATEGORY_MAP` in `nuheat_quote_suite
 
 ## Appendix A: NetSuite Environment
 
-| Setting | Value |
-|---------|-------|
-| Account ID | 472052_SB1 (Sandbox) |
-| Environment | Sandbox |
-| SuiteScript Version | 2.1 |
-| Script Folder | SuiteScripts > NuHeat |
-| HTML Folder ID | 21719365 |
-| Domain (External) | 472052-sb1.extforms.netsuite.com |
+| Setting | Sandbox | Production |
+|---------|---------|------------|
+| Account ID | 472052_SB1 | — |
+| SuiteScript Version | 2.1 | 2.1 |
+| Script Folder | SuiteScripts > NuHeat | SuiteScripts > NuHeat |
+| HTML Folder ID | `21719365` | `26895192` |
+| Domain (External) | 472052-sb1.extforms.netsuite.com | — |
+
+> The repository holds the **Production** folder ID. See §3.5.
 
 ## Appendix B: Brand Configuration
 

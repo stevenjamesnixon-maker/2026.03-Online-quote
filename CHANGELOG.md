@@ -1,5 +1,5 @@
 ## [Quote Suitelet v4.6.0 / Master Proposal v1.8.3] — 18 August 2026
-**Status:** ⏳ Draft — pending Sandbox testing
+**Status:** ✅ Live in Production — deployed 20 August 2026
 **Components:** `nuheat_quote_suitelet.js`, `nuheat_master_proposal.js`
 
 No changes to `nuheat_bus_grant.js`, `nuheat_vat_rates.js`, `nuheat_send_quote_sl.js` or
@@ -68,7 +68,7 @@ Grep the Execution Log for `SITE_ADDRESS`.
 ---
 
 ## [Master Proposal v1.8.2] — 18 August 2026
-**Status:** ⏳ Draft — pending Sandbox testing
+**Status:** ✅ Live in Production — deployed 20 August 2026
 **Component:** `nuheat_master_proposal.js`
 
 **One CSS rule.** No JavaScript, no HTML restructuring, no other file. Everything else in this PR has
@@ -121,7 +121,7 @@ price in every case, including a £12,345.67 VAT figure. The `@media print` bloc
 ---
 
 ## [Quote Suitelet v4.5.1 / Master Proposal v1.8.1] — 18 August 2026
-**Status:** ⏳ Draft — pending Sandbox testing
+**Status:** ✅ Live in Production — deployed 20 August 2026
 **Components:** `nuheat_quote_suitelet.js`, `nuheat_master_proposal.js`
 
 **Presentation only.** No calculation logic was touched. Every figure rendered here already existed
@@ -214,7 +214,7 @@ and `totals.vat` is the correct figure to render. Verified numerically both ways
 ---
 
 ## [Quote Suitelet v4.5.0 / Master Proposal v1.8.0 / Send Quote SL v1.7.0 / VAT Module v1.0.0] — 18 August 2026
-**Status:** ⏳ Draft — pending Sandbox testing
+**Status:** ✅ Live in Production — deployed 20 August 2026
 **Components:** `nuheat_vat_rates.js` (NEW), `nuheat_quote_suitelet.js`, `nuheat_master_proposal.js`, `nuheat_send_quote_sl.js`, `nuheat_send_quote_cs (1).js`
 
 > ⚠️ **DEPLOYMENT ORDERING:** `nuheat_vat_rates.js` must be uploaded to `SuiteScripts/NuHeat`
@@ -222,20 +222,27 @@ and `totals.vat` is the correct figure to render. Verified numerically both ways
 > `nuheat_bus_grant.js` in v4.4.0. Both are `define()`d by relative path and fail at load time if
 > absent. Neither needs a script deployment record.
 
-### ⚠️ This is a display stopgap — the tax codes are the root cause
+### Why this change exists — the tax codes were the root cause
 
-The scripts have never calculated VAT. There is no `0.2` multiplier anywhere in the pre-v4.5.0
+> ✅ **Resolved 20 August 2026 — the tax codes have been corrected in Production.** The account of
+> the problem below is the state at the time of this release, kept as the record of why the change
+> was made. `VAT_MISMATCH` is now an early-warning signal rather than an outstanding task: with the
+> source data correct, a new entry means something has regressed at source.
+
+The scripts had never calculated VAT. There was no `0.2` multiplier anywhere in the pre-v4.5.0
 codebase; both surfaces echoed NetSuite's `taxtotal` verbatim
 (`nuheat_quote_suitelet.js:1875`, `nuheat_master_proposal.js:1635`). Heat pump quotes were
-displaying 20% because **the tax codes on those Estimate lines are wrong in NetSuite** — the source
-data says 20% where UK energy-saving materials relief makes it 0%.
+displaying 20% because **the tax codes on those Estimate lines were wrong in NetSuite** — the source
+data said 20% where UK energy-saving materials relief makes it 0%.
 
-v4.5.0 derives the rate that *should* apply and displays that. **It does not fix NetSuite.** Until
-the tax codes are corrected, the quote page and the Estimate will disagree — a quote showing £0.00
-VAT against an Estimate that will invoice £1,200 is a commercial problem, not a cosmetic one.
+v4.5.0 derives the rate that *should* apply and displays that. At the time of release it did not
+fix NetSuite, so until the tax codes were corrected the quote page and the Estimate disagreed — a
+quote showing £0.00 VAT against an Estimate that would invoice £1,200 is a commercial problem, not
+a cosmetic one.
 
 Every disagreement over 1p writes a **`VAT_MISMATCH`** audit entry naming the Estimate and both
-figures. **Those entries are the work-list for fixing the tax codes at source.**
+figures. Those entries were the work-list for fixing the tax codes at source; that work is now
+complete.
 
 ### Added
 - **`nuheat_vat_rates.js` v1.0.0 (NEW)** — shared module, `@NModuleScope Public`, imported by the
@@ -325,7 +332,7 @@ the passed-through `vatRate` / `busRate`, not `quoteType` string matching.
 ---
 
 ## [Quote Suitelet v4.4.0 / Master Proposal v1.7.0 / Send Quote SL v1.6.0 / BUS Module v1.0.0] — 18 August 2026
-**Status:** ⏳ Draft — pending Sandbox testing
+**Status:** ✅ Live in Production — deployed 20 August 2026
 **Components:** `nuheat_bus_grant.js` (NEW), `nuheat_quote_suitelet.js`, `nuheat_master_proposal.js`, `nuheat_send_quote_sl.js`, `nuheat_send_quote_cs (1).js`
 
 > ⚠️ **DEPLOYMENT ORDERING:** `nuheat_bus_grant.js` must be uploaded to `SuiteScripts/NuHeat`
@@ -432,7 +439,7 @@ Two related problems with the v4.3.70 blanket grant:
 ---
 
 ## [Quote Suitelet v4.3.70] — 22 April 2026
-**Status:** ⏳ Draft — pending Sandbox testing
+**Status:** ✅ Released — superseded by v4.4.0
 ### Changed
 - Heat pump display price now deducts £7,500 BUS grant (`HP_GRANT_AMOUNT` constant). `hpGrantedPrice = hpDisplayPrice - 7500` shown in the price card.
 - `hp-grant-banner` text updated from "may be eligible for a £7,500 Government grant" to "£7,500 grant funding has been applied to this quote" with asterisk line "*Subject to scheme eligibility" in smaller italic text.
@@ -445,7 +452,7 @@ Two related problems with the v4.3.70 blanket grant:
 ---
 
 ## [Master Proposal v1.6.7] — 22 April 2026
-**Status:** ⏳ Draft — pending Sandbox testing
+**Status:** ✅ Released — superseded by v1.7.0
 ### Changed
 - Heat Pump quote cards now display subtotal minus £7,500 BUS grant (`HP_GRANT_AMOUNT` constant). Uses `Math.max(0, subtotal - HP_GRANT_AMOUNT)` to prevent negative prices.
 - `generateBUSGrantBanner()` text updated to "£7,500 grant funding has been applied to this quote" with asterisk line "*Subject to scheme eligibility".
@@ -545,7 +552,7 @@ Two related problems with the v4.3.70 blanket grant:
 ## v4.3.66 — Style Design+ upgrade price to match pink CTA button
 **Date:** 31 March 2026
 **Component:** Quote Suitelet (`nuheat_quote_suitelet.js`)
-**Status:** ⏳ Draft — pending Sandbox testing
+**Status:** ✅ Released — superseded by v4.3.67
 
 ### Fixed
 - **Design+ upgrade price styling** — The price pill in the UFH Standard Design upgrade banner
@@ -563,7 +570,7 @@ Two related problems with the v4.3.70 blanket grant:
 ## v4.3.65 — Show Design+ upgrade price in UFH upgrade banner
 **Date:** 31 March 2026
 **Component:** Quote Suitelet (`nuheat_quote_suitelet.js`)
-**Status:** ⏳ Draft — pending Sandbox testing
+**Status:** ✅ Released — superseded by v4.3.66
 
 ### Added
 - **Design+ upgrade price in UFH upgrade banner** — The "Ask your AM to include this" CTA button
@@ -587,7 +594,7 @@ Two related problems with the v4.3.70 blanket grant:
 ## v4.3.64 — Move external link icon to left of plant room guidance link text
 **Date:** 31 March 2026
 **Component:** Quote Suitelet (`nuheat_quote_suitelet.js`)
-**Status:** ⏳ Draft — pending Sandbox testing
+**Status:** ✅ Released — superseded by v4.3.65
 
 ### Fixed
 - **External link icon position on plant room guidance link** — The `SVG_EXTERNAL_LINK` icon was
@@ -603,7 +610,7 @@ Two related problems with the v4.3.70 blanket grant:
 ## v4.3.63 — Add plant room layout guidance link to Heat Pump section
 **Date:** 31 March 2026
 **Component:** Quote Suitelet (`nuheat_quote_suitelet.js`)
-**Status:** ⏳ Draft — pending Sandbox testing
+**Status:** ✅ Released — superseded by v4.3.64
 
 ### Added
 - **Plant room guidance link in Heat Pump section** — A second paragraph now appears directly
@@ -622,7 +629,7 @@ Two related problems with the v4.3.70 blanket grant:
 ## v4.3.62 — Component Breakdown improvements
 **Date:** 31 March 2026
 **Component:** Quote Suitelet (`nuheat_quote_suitelet.js`)
-**Status:** ⏳ Draft — pending Sandbox testing
+**Status:** ✅ Released — superseded by v4.3.63
 
 ### Added
 - **"View product info" link in Component Breakdown** — Items that have a value in
@@ -645,7 +652,7 @@ Two related problems with the v4.3.70 blanket grant:
 ## v4.3.61 — Fix swapped DESIGN_PACKAGE_ITEMS constants
 **Date:** 31 March 2026
 **Component:** Quote Suitelet (`nuheat_quote_suitelet.js`)
-**Status:** ⏳ Draft — pending Sandbox testing
+**Status:** ✅ Released — superseded by v4.3.62
 
 ### Fixed
 - **Swapped design package item IDs** — `DESIGN_PACKAGE_ITEMS` had MPDPCD-C and MPDP-C mapped
@@ -661,7 +668,7 @@ Two related problems with the v4.3.70 blanket grant:
 ## v4.3.60 — Hide product card image placeholder when custitem_test_image is empty
 **Date:** 31 March 2026
 **Component:** Quote Suitelet (`nuheat_quote_suitelet.js`)
-**Status:** ⏳ Draft — pending Sandbox/Production testing
+**Status:** ✅ Released — superseded by v4.3.61
 
 ### Fixed
 - **Empty image placeholder box on product cards** — The image container (`product-image-column`
@@ -687,7 +694,7 @@ Two related problems with the v4.3.70 blanket grant:
 ## Send Quote SL v1.5.1 — Fix contact sublist ID
 **Date:** 31 March 2026
 **Component:** Send Quote Suitelet (`nuheat_send_quote_sl.js`)
-**Status:** ⏳ Draft — pending sandbox/production testing
+**Status:** ✅ Released — superseded by Send Quote SL v1.6.0
 
 ### Fixed
 - **Contact selector showing no contacts** — `getLineCount()` and `getSublistValue()` were
@@ -703,7 +710,7 @@ Two related problems with the v4.3.70 blanket grant:
 ## Send Quote SL v1.5.0 — Add contact selector dropdown to email field
 **Date:** 30 March 2026
 **Component:** Send Quote Suitelet (`nuheat_send_quote_sl.js`) + Client Script (`nuheat_send_quote_cs.js`)
-**Status:** ⏳ Draft — pending sandbox/production testing
+**Status:** ✅ Released — superseded by Send Quote SL v1.5.1
 
 ### Added
 - **Contact selector dropdown** — Users can now select a contact from the
@@ -720,7 +727,7 @@ Two related problems with the v4.3.70 blanket grant:
 ## v4.3.59 — Fix thermostat mini card image clipping
 **Date:** 30 March 2026
 **Component:** Quote Suitelet (`nuheat_quote_suitelet.js`)
-**Status:** ⏳ Draft — pending testing
+**Status:** ✅ Released — superseded by v4.3.60
 
 ### Fixed
 - **Thermostat mini card image clipping** — Images were being cropped at the top and
@@ -736,7 +743,7 @@ Two related problems with the v4.3.70 blanket grant:
 ## v4.3.58 — Fix thermostat upgrade card images not rendering
 **Date:** 30 March 2026
 **Component:** Quote Suitelet (`nuheat_quote_suitelet.js`)
-**Status:** ⏳ Draft — pending Sandbox/Production testing
+**Status:** ✅ Released — superseded by v4.3.59
 
 ### Fixed
 - **Thermostat upgrade card images** — Images were blank despite `custitem_test_image`
@@ -757,7 +764,7 @@ Two related problems with the v4.3.70 blanket grant:
 ## v4.3.56 — Thermostat upgrade cards: prefix-based exclusion on fixed card set
 **Date:** 29 March 2026
 **Component:** Quote Suitelet (`src/nuheat_quote_suitelet.js`)
-**Status:** ⏳ Pending Sandbox testing sign-off — do not deploy to Production until confirmed
+**Status:** ✅ Released
 
 ### Improvement
 Thermostat upgrade cards now use prefix-based exclusion against the main quote

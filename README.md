@@ -7,7 +7,7 @@
 ![Nu-Heat Brand](https://img.shields.io/badge/Brand-Nu--Heat-00857D)
 ![SuiteScript](https://img.shields.io/badge/SuiteScript-2.1-blue)
 ![Status](https://img.shields.io/badge/Status-Production%20Ready-green)
-![Version](https://img.shields.io/badge/Suitelet-v4.3.53-brightgreen)
+![Version](https://img.shields.io/badge/Suitelet-v4.6.0-brightgreen)
 
 ---
 
@@ -45,50 +45,49 @@ Opportunity ──▶ Send Quote SL ──▶ Master Proposal ──▶ HTML Fil
 1. **Trigger** — Estimate saved or "Regen quote" clicked
 2. **Load** — Quote data extracted from Estimate record
 3. **Render** — Self-contained HTML generated with embedded CSS and base64 logo
-4. **Save** — HTML file stored in File Cabinet (folder 26895192)
+4. **Save** — HTML file stored in the File Cabinet quote HTML folder
 5. **URL** — Stable proxy URL stored on Estimate record
 
 ---
 
 ## Project Structure
 
+> **Everything lives at the repository root.** There is no `src/` directory and no `docs/`
+> directory — scripts and documentation sit side by side. Older docs cite `src/…` and `docs/…`
+> paths that have not existed for some time.
+
 ```
-nuheat_netsuite_suitelet/
-│   (all scripts live at the repository root — there is no src/ directory)
+2026.03-Online-quote/
 │
-│   ├── nuheat_bus_grant.js            # Shared BUS grant resolution module (v1.0.0)
-│   ├── nuheat_vat_rates.js            # Shared VAT rate resolution module (v1.0.0)
-│   ├── nuheat_quote_suitelet.js       # Core quote HTML generation engine (v4.6.0)
-│   ├── nuheat_quote_ue.js             # User Event — auto-gen + "Regen quote" button (v4.0.9)
-│   ├── nuheat_quote_cs.js             # Client Script — button handler (v4.0.6)
-│   ├── nuheat_quote_viewer_sl.js      # Proxy Suitelet for stable URLs (v1.1.0)
-│   ├── nuheat_quote_generator_ss.js   # Scheduled Script fallback (v1.0.0)
-│   ├── nuheat_master_proposal.js      # Master Proposal generator (v1.6.2)
-│   ├── nuheat_send_quote_sl.js        # Quote selection Suitelet (v1.4.9)
-│   ├── nuheat_send_quote_cs.js        # Send Quote form handler (v1.1.1)
-│   ├── nuheat_opportunity_ue.js       # Opportunity "Send Quote" button (v1.0.0)
-│   ├── nuheat_opportunity_cs.js       # Opportunity button handler (v1.0.0)
-│   └── nuheat_analytics_sl.js         # Analytics Suitelet — records quote and proposal view events (v1.0.0)
-├── docs/
-│   ├── TECHNICAL_DOCUMENTATION.md     # Full technical reference
-│   ├── USER_GUIDE.md                  # End-user guide
-│   ├── AI_AGENT_CONTEXT.md            # Context document for AI development sessions
-│   ├── DEPLOYMENT_CHECKLIST.md        # Production deployment checklist
-│   ├── VERSION_HISTORY.md             # Detailed version history
-│   ├── CONFIGURATION_CHECKLIST.md     # Required custom fields
-│   ├── TESTING_GUIDE.md               # Test scenarios & checklist
-│   ├── EMAIL_TEMPLATE.md              # Email template for quotes
-│   ├── SETUP_INSTRUCTIONS.md          # Setup guide
-│   ├── DEBUG_GUIDE.md                 # Debug mode reference
-│   └── ... (additional guides)
-├── assets/                            # Logo images (source + cropped)
-├── mockups/                           # HTML mockups for design review
-├── CHANGELOG.md                       # Detailed changelog
-├── ARCHITECTURE.md                    # Architecture deep-dive
-├── DEVELOPER_GUIDE.md                 # Developer reference
-├── FIELD_REFERENCE.md                 # NetSuite field reference
-└── README.md                          # This file
+├── nuheat_bus_grant.js            # Shared BUS grant resolution module (v1.0.0)  ← upload first
+├── nuheat_vat_rates.js            # Shared VAT rate resolution module (v1.0.0)   ← upload first
+├── nuheat_quote_suitelet.js       # Core quote HTML generation engine (v4.6.0)
+├── nuheat_quote_ue.js             # User Event — auto-gen + "Regen quote" button (v4.0.9)
+├── nuheat_quote_cs.js             # Client Script — button handler (v4.0.6)
+├── nuheat_quote_viewer_sl.js      # Proxy Suitelet for stable URLs (v1.1.0)
+├── nuheat_quote_generator_ss.js   # Scheduled Script fallback (v1.0.0)
+├── nuheat_master_proposal.js      # Master Proposal generator (v1.8.3)
+├── nuheat_send_quote_sl.js        # Quote selection Suitelet (v1.7.0)
+├── nuheat_send_quote_cs (1).js    # Send Quote form handler (v1.4.0)
+├── nuheat_opportunity_ue.js       # Opportunity "Send Quote" button (v1.0.0)
+├── nuheat_opportunity_cs.js       # Opportunity button handler (v1.0.0)
+├── nuheat_analytics_sl.js         # Analytics Suitelet — quote and proposal view events (v1.0.1)
+│
+├── AI_AGENT_CONTEXT.md            # ⭐ Canonical context document — start here
+├── TECHNICAL_DOCUMENTATION.md     # Full technical reference
+├── SECTION_LOGIC_MAPPING.md       # BUS grant & VAT — where every figure is derived and rendered
+├── FIELD_REFERENCE.md             # NetSuite field reference
+├── DEPLOYMENT_CHECKLIST.md        # Deployment checklist
+├── TESTING_GUIDE.md               # Test scenarios & checklist
+├── USER_GUIDE.md                  # End-user guide
+├── CHANGELOG.md                   # Detailed changelog
+├── VERSION_HISTORY.md             # Detailed version history
+└── README.md                      # This file
 ```
+
+> The Send Quote client script really is named `nuheat_send_quote_cs (1).js`, space and parentheses
+> included. It is uploaded to the File Cabinet under that name; do not rename it in the repo without
+> also renaming it in NetSuite.
 
 ---
 
@@ -154,7 +153,8 @@ Ensure these fields exist on the Estimate record:
 - `custbody_project_name`, `custbody_project_address`, `custbody_project_id`
 - `custbody_rooms_html` (Rich Text) — room specifications
 
-See [Configuration Checklist](docs/CONFIGURATION_CHECKLIST.md) for the full list.
+See [FIELD_REFERENCE.md](FIELD_REFERENCE.md) for every field used, and
+[DEPLOYMENT_CHECKLIST.md](DEPLOYMENT_CHECKLIST.md) §1.2 for the pre-deployment field checklist.
 
 ### 4. Test
 
@@ -171,7 +171,7 @@ See [Configuration Checklist](docs/CONFIGURATION_CHECKLIST.md) for the full list
 
 | Setting | Value |
 |---------|-------|
-| File Cabinet Folder ID | `26895192` |
+| File Cabinet Folder ID | `26895192` (Production) / `21719365` (Sandbox) — hardcoded in **three** files |
 | Folder Path | `SuiteScripts > NuHeat > Quote HTML Files` |
 | Quote URL Field | `custbody_test_new_quote` |
 | Viewer Script ID | `3286` / `customscript_nuheat_quote_viewer` |
@@ -198,14 +198,15 @@ See [Configuration Checklist](docs/CONFIGURATION_CHECKLIST.md) for the full list
 
 | Document | Purpose | Audience |
 |----------|---------|----------|
-| [Technical Documentation](docs/TECHNICAL_DOCUMENTATION.md) | Architecture, configuration, API reference | Developers, Administrators |
-| [User Guide](docs/USER_GUIDE.md) | How to use the system | Account managers, Staff |
-| [AI Agent Context](docs/AI_AGENT_CONTEXT.md) | Context for AI development sessions | AI Agents (Claude, etc.) |
-| [Deployment Checklist](docs/DEPLOYMENT_CHECKLIST.md) | Step-by-step deployment | Administrators |
-| [Version History](docs/VERSION_HISTORY.md) | Detailed change log | All |
-| [Developer Guide](DEVELOPER_GUIDE.md) | Code structure, making changes | Developers |
-| [Field Reference](FIELD_REFERENCE.md) | All NetSuite fields used | Developers, Administrators |
-| [Testing Guide](docs/TESTING_GUIDE.md) | Test scenarios | QA, Developers |
+| [AI Agent Context](AI_AGENT_CONTEXT.md) | **Canonical context document** — read Section 0 first | AI Agents (Claude, etc.), new developers |
+| [Technical Documentation](TECHNICAL_DOCUMENTATION.md) | Architecture, configuration, API reference | Developers, Administrators |
+| [Section Logic Mapping](SECTION_LOGIC_MAPPING.md) | BUS grant & VAT — every derived figure and where it renders | Developers |
+| [Field Reference](FIELD_REFERENCE.md) | All NetSuite fields used, including the doubled/misspelled IDs | Developers, Administrators |
+| [Deployment Checklist](DEPLOYMENT_CHECKLIST.md) | Step-by-step deployment | Administrators |
+| [Testing Guide](TESTING_GUIDE.md) | Test scenarios | QA, Developers |
+| [User Guide](USER_GUIDE.md) | How to use the system | Account managers, Staff |
+| [Changelog](CHANGELOG.md) | Detailed change log | All |
+| [Version History](VERSION_HISTORY.md) | Detailed version history | All |
 
 ---
 
@@ -223,7 +224,7 @@ See [Configuration Checklist](docs/CONFIGURATION_CHECKLIST.md) for the full list
 | Opportunity UE | v1.0.0 | 28 Mar 2026 |
 | Opportunity CS | v1.0.0 | 28 Mar 2026 |
 | Scheduled Script | v1.0.0 | Mar 2026 |
-| Analytics Suitelet | v1.0.0 | Apr 2026 |
+| Analytics Suitelet | v1.0.1 | Apr 2026 |
 | BUS Grant Module | v1.0.0 | 18 Aug 2026 |
 | VAT Rates Module | v1.0.0 | 18 Aug 2026 |
 
@@ -249,8 +250,12 @@ This software is proprietary and confidential. Unauthorised copying, distributio
 
 ---
 
+**Last Updated:** 20 August 2026
+
+---
+
 ## Support
 
 - **Internal:** NetSuite Administrator
-- **Documentation:** `/docs` folder
+- **Documentation:** repository root — start with [AI_AGENT_CONTEXT.md](AI_AGENT_CONTEXT.md)
 - **Nu-Heat:** info@nu-heat.co.uk | 01404 540650

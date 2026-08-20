@@ -2,15 +2,18 @@
 
 ## VAT Rates Module (`nuheat_vat_rates.js`)
 
-### v1.0.0 — 18 August 2026 ⏳ Draft — pending Sandbox testing
+### v1.0.0 — 18 August 2026 ✅ Live in Production (deployed 20 August 2026)
 
 - NEW FILE: Shared VAT rate resolution module, `@NModuleScope Public`, imported by
   `nuheat_quote_suitelet.js` and `nuheat_send_quote_sl.js` as `'./nuheat_vat_rates'`.
 - CONTEXT: the scripts had **never** calculated VAT — there was no `0.2` multiplier anywhere in the
   codebase. Both surfaces echoed NetSuite's `taxtotal`, and heat pump quotes were showing 20%
   because **the tax codes on those Estimates are wrong**.
-- ⚠️ This module derives the rate that *should* apply. It is a **display stopgap** — NetSuite still
-  invoices from its own tax codes until they are corrected at source.
+- This module derives the rate that *should* apply, rather than echoing NetSuite's `taxtotal`.
+  At the time of release the two disagreed because the source tax codes were wrong.
+  ✅ **The tax codes were corrected in Production on 20 August 2026** — derived VAT and NetSuite's
+  `taxtotal` now agree, and the derivation serves as an ongoing consistency check on the source
+  data.
 - ADDED: `VAT_RATES` — Heat Pump 0%, Solar 0%, Underfloor Heating 20%, Other 20%.
   ⚠️ Solar 0% is an assumption; only HP and UFH were specified.
 - ADDED: `DEFAULT_VAT_RATE = 0.20` — unknown types default to the standard rate (never under-charge)
@@ -18,7 +21,9 @@
 - ADDED: `resolveVatRate(quoteType)` → `{rate, percent, matched, quoteType}`.
 - ADDED: `calculateVat(netAmount, rate)` — 2dp. `netAmount` is subtotal **minus discount**.
 - ADDED: `logVatMismatch(context, recordId, derivedVat, netsuiteTaxTotal, quoteType)` — audit-level
-  `VAT_MISMATCH` beyond a 1p tolerance. These entries are the work-list for fixing the tax codes.
+  `VAT_MISMATCH` beyond a 1p tolerance. Originally the work-list for fixing the tax codes; since
+  that work completed (20 August 2026) it is an **early-warning signal** — a new entry means
+  something has regressed at source.
 - ADDED: `normaliseQuoteType()` / `QUOTE_TYPE_ALIASES` — maps raw `custbody_quote_type` list values
   onto the display names `VAT_RATES` is keyed by. **Without this, `'Heat Pump (ASHP)'` would not
   match and would fall through to the 20% default** — charging a heat pump quote 20% VAT, silently.
@@ -29,7 +34,7 @@
 
 ## BUS Grant Module (`nuheat_bus_grant.js`)
 
-### v1.0.0 — 18 August 2026 ⏳ Draft — pending Sandbox testing
+### v1.0.0 — 18 August 2026 ✅ Live in Production (deployed 20 August 2026)
 
 - NEW FILE: Shared BUS (Boiler Upgrade Scheme) grant resolution module, `@NModuleScope Public`,
   imported by `nuheat_quote_suitelet.js` and `nuheat_send_quote_sl.js` as `'./nuheat_bus_grant'`.
@@ -53,7 +58,7 @@
 
 ## Master Proposal (`nuheat_master_proposal.js`)
 
-### v1.8.3 — 18 August 2026 ⏳ Draft — pending Sandbox testing
+### v1.8.3 — 18 August 2026 ✅ Live in Production (deployed 20 August 2026)
 
 **Copy only.**
 
@@ -65,7 +70,7 @@
 
 ---
 
-### v1.8.2 — 18 August 2026 ⏳ Draft — pending Sandbox testing
+### v1.8.2 — 18 August 2026 ✅ Live in Production (deployed 20 August 2026)
 
 **One CSS rule — no JavaScript, no HTML, no other file.**
 
@@ -87,7 +92,7 @@
 
 ---
 
-### v1.8.1 — 18 August 2026 ⏳ Draft — pending Sandbox testing
+### v1.8.1 — 18 August 2026 ✅ Live in Production (deployed 20 August 2026)
 
 **Presentation only — no calculation logic changed.**
 
@@ -113,7 +118,7 @@
 
 ---
 
-### v1.8.0 — 18 August 2026 ⏳ Draft — pending Sandbox testing
+### v1.8.0 — 18 August 2026 ✅ Live in Production (deployed 20 August 2026)
 
 - ADDED: `getVatRate(quote)` — parses the passed-through `vatRate` after its TEXT round trip,
   defaulting to 20% when absent so VAT is never under-stated.
@@ -133,7 +138,7 @@
 
 ---
 
-### v1.7.0 — 18 August 2026 ⏳ Draft — pending Sandbox testing
+### v1.7.0 — 18 August 2026 ✅ Live in Production (deployed 20 August 2026)
 
 - CHANGED: `generateQuoteCard()` shows the **balance after BUS** (`subtotal - busAmount`), which
   **may be negative**. Keyed off the resolved Suppak rate via `hasBusGrant(quote)`, **not**
@@ -156,7 +161,7 @@
 
 ---
 
-### v1.6.7 — 22 April 2026 ⏳ Draft — pending Sandbox testing
+### v1.6.7 — 22 April 2026 ✅ Released — superseded by v1.7.0
 
 - CHANGED: Heat Pump quote cards now display subtotal minus £7,500 BUS grant (`HP_GRANT_AMOUNT` constant). Uses `Math.max(0, subtotal - HP_GRANT_AMOUNT)` to prevent negative prices.
 - CHANGED: `generateBUSGrantBanner()` text updated to "£7,500 grant funding has been applied to this quote" with asterisk line "*Subject to scheme eligibility".
@@ -191,7 +196,7 @@
 
 ## Quote Suitelet (`nuheat_quote_suitelet.js`)
 
-### v4.6.0 — 18 August 2026 ⏳ Draft — pending Sandbox testing
+### v4.6.0 — 18 August 2026 ✅ Live in Production (deployed 20 August 2026)
 
 - FIXED: **the "Site address" row never rendered.** The row already existed in `renderHeader()`,
   conditionally rendered and correctly placed between "Customer name" and "System reference" — it
@@ -217,7 +222,7 @@
 
 ---
 
-### v4.5.1 — 18 August 2026 ⏳ Draft — pending Sandbox testing
+### v4.5.1 — 18 August 2026 ✅ Live in Production (deployed 20 August 2026)
 
 **Presentation only — no calculation logic changed.**
 
@@ -233,7 +238,7 @@
 
 ---
 
-### v4.5.0 — 18 August 2026 ⏳ Draft — pending Sandbox testing
+### v4.5.0 — 18 August 2026 ✅ Live in Production (deployed 20 August 2026)
 
 - ADDED: imports `'./nuheat_vat_rates'` as `vatRates`.
 - ADDED: `headerData.quoteTypeText` — `custbody_quote_type` read in `extractHeaderData()` inside a
@@ -258,7 +263,7 @@
 
 ---
 
-### v4.4.0 — 18 August 2026 ⏳ Draft — pending Sandbox testing
+### v4.4.0 — 18 August 2026 ✅ Live in Production (deployed 20 August 2026)
 
 - ADDED: imports `'./nuheat_bus_grant'` as `busGrant`.
 - ADDED: single BUS calculation block in `loadQuoteData()`, immediately after `categoryTotals`.
@@ -294,14 +299,14 @@
 
 ---
 
-### v4.3.70 — 22 April 2026 ⏳ Draft — pending Sandbox testing
+### v4.3.70 — 22 April 2026 ✅ Released — superseded by v4.4.0
 
 - CHANGED: Heat pump display price now deducts £7,500 BUS grant (`HP_GRANT_AMOUNT` constant). `hpGrantedPrice = hpDisplayPrice - 7500` shown in price card.
 - CHANGED: `hp-grant-banner` text updated from "may be eligible for a £7,500 Government grant" to "£7,500 grant funding has been applied to this quote" with asterisk line "*Subject to scheme eligibility" in smaller italic text.
 - ADDED: `HP_GRANT_AMOUNT = 7500` constant — blanket deduction, intended to become conditional on a NetSuite field in future.
 - ADDED: `.hp-grant-banner-text .hp-grant-banner-asterisk` CSS class for the smaller italic asterisk line.
 
-### v4.3.69 — 22 April 2026 ⏳ Draft — pending Sandbox testing
+### v4.3.69 — 22 April 2026 ✅ Released — superseded by v4.3.70
 
 - CHANGED: Design+ upgrade banner — price (`designUpgradePrice`) now renders above the mailto CTA button rather than replacing it. Both are visible when price is present; only the button renders when price is absent.
 - CHANGED: Button label "Ask your AM to include this" → "Email your AM to include this" (both branches).
@@ -356,14 +361,16 @@
 
 ## Send Quote Suitelet (`nuheat_send_quote_sl.js`) & Client Script (`nuheat_send_quote_cs (1).js`)
 
-### Send Quote SL v1.7.0 / Send Quote CS v1.4.0 — 18 August 2026 ⏳ Draft — pending Sandbox testing
+### Send Quote SL v1.7.0 / Send Quote CS v1.4.0 — 18 August 2026 ✅ Live in Production (deployed 20 August 2026)
 
 - ADDED (SL): imports `'./nuheat_vat_rates'`. `searchRelatedQuotes()` derives the VAT rate per
   Estimate alongside the existing BUS resolution.
 - ⚠️ CHANGED (SL): `taxTotal` and `amount` pushed to the proposal are now **derived**, not raw
   NetSuite values. This is **not** a regression of the v1.4.9 fix — that fix was about reading
   `subtotal` / `discounttotal` / `taxtotal` reliably via `record.load()`, and those reads are
-  unchanged. The tax figure is recalculated afterwards because the tax codes are wrong at source.
+  unchanged. The tax figure is recalculated afterwards because the tax codes were wrong at source at the
+  time. (Those tax codes were corrected in Production on 20 August 2026; the derivation stays as
+  a consistency check.)
 - ADDED (SL): when `record.load()` fails, the NetSuite fallback values are still used — deriving on
   that path would silently zero the quote's amount.
 - ⚠️ FIXED (SL): passes `quoteTypeDisplay`, **not** `rawQuoteType`, to `resolveVatRate()`.
@@ -378,7 +385,7 @@
 
 ---
 
-### Send Quote SL v1.6.0 / Send Quote CS v1.3.0 — 18 August 2026 ⏳ Draft — pending Sandbox testing
+### Send Quote SL v1.6.0 / Send Quote CS v1.3.0 — 18 August 2026 ✅ Live in Production (deployed 20 August 2026)
 
 - ADDED (SL): imports `'./nuheat_bus_grant'`. `searchRelatedQuotes()` reads the item sublist off the
   Estimate it already loads via `record.load()` and resolves the BUS grant there — the Master
@@ -399,7 +406,7 @@
 
 ---
 
-### v1.5.0 / v1.2.0 — 30 March 2026 ⏳ Draft — pending sandbox/production testing
+### v1.5.0 / v1.2.0 — 30 March 2026 ✅ Released — superseded by Send Quote SL v1.6.0 / Send Quote CS v1.3.0
 
 - ADDED: Contact selector dropdown (`custpage_contact_selector`) on the Send Quote form.
   Loads all contacts from the Opportunity contact sublist via `record.load()`.
@@ -424,7 +431,7 @@
   class — same pink background and white text as the button it replaces. `cursor: default` added
   since the element is not a link. Font size adjusted to match button text size.
 
-### v4.3.65 — 31 March 2026 ⏳ Draft — pending Sandbox testing
+### v4.3.65 — 31 March 2026 ✅ Released — superseded by v4.3.66
 
 - ADDED: `getUpgradePrice()` helper — looks up a price from parallel `*`-delimited fields
   `custbody_upgrades_optiontype` and `custbody_upgrades_itemprice` by matching a target type string.
@@ -434,19 +441,19 @@
   replaced by the Design+ price (e.g. "£450.00 plus VAT") when `designUpgradePrice` is non-empty.
   Falls back to the original button when no price is found.
 
-### v4.3.64 — 31 March 2026 ⏳ Draft — pending Sandbox testing
+### v4.3.64 — 31 March 2026 ✅ Released — superseded by v4.3.65
 
 - FIXED: External link icon on the plant room guidance link in the Heat Pump section now appears
   to the left of the link text, consistent with icon placement on product card links.
 
-### v4.3.63 — 31 March 2026 ⏳ Draft — pending Sandbox testing
+### v4.3.63 — 31 March 2026 ✅ Released — superseded by v4.3.64
 
 - ADDED: Plant room layout guidance link in Heat Pump section. A second paragraph below the
   existing intro copy links to the plant room layout and space requirements PDF, styled with
   the `.view-datasheet` class (teal, external link icon). Only renders on quotes with Heat Pump
   items (`renderHeatPumpTreeSection()`).
 
-### v4.3.62 — 31 March 2026 ⏳ Draft — pending Sandbox testing
+### v4.3.62 — 31 March 2026 ✅ Released — superseded by v4.3.63
 
 - ADDED: `COMPONENT_BREAKDOWN_EXCLUDED_ITEMS` constant — "Hidden UFH Discount", "Hidden HP Discount",
   and "Hidden Subtotal" are now filtered out of the Component Breakdown table. Items remain in
@@ -455,13 +462,13 @@
   items that have `custitem_prod_info_link` populated (`item.dataSheetUrl`). Matches behaviour on
   main product cards.
 
-### v4.3.61 — 31 March 2026 ⏳ Draft — pending Sandbox testing
+### v4.3.61 — 31 March 2026 ✅ Released — superseded by v4.3.62
 
 - FIXED: `DESIGN_PACKAGE_ITEMS` had MPDPCD-C (ID 5488) and MPDP-C (ID 480) mapped to the wrong
   keys. MPDPCD-C is the Standard UFH Design; MPDP-C is the UFH Design+ upgrade. The swap caused
   the wrong hardcoded card (and upgrade banner) to render for each item code.
 
-### v4.3.60 — 31 March 2026 ⏳ Draft — pending Sandbox/Production testing
+### v4.3.60 — 31 March 2026 ✅ Released — superseded by v4.3.61
 
 - FIXED: Product card image column (`product-image-column` + `product-image`) was always rendered,
   leaving an empty placeholder box on cards where `custitem_test_image` is blank. `renderProductCard()`
@@ -471,13 +478,13 @@
 - CHANGED: Removed `min-height: 150px` and `background: var(--color-bg)` from `.product-image` CSS
   rule to eliminate any residual empty-box appearance.
 
-### v4.3.59 — 30 March 2026 ⏳ Draft — pending testing
+### v4.3.59 — 30 March 2026 ✅ Released — superseded by v4.3.60
 
 - FIXED: Thermostat mini card images were cropped at top and bottom due to `object-fit: cover`.
   Changed to `object-fit: contain` in `generateCSS()` so the full image fits within the 120px
   container regardless of aspect ratio.
 
-### v4.3.58 — 30 March 2026 ⏳ Draft — pending Sandbox/Production testing
+### v4.3.58 — 30 March 2026 ✅ Released — superseded by v4.3.59
 
 - FIXED: Thermostat upgrade card images were blank despite `custitem_test_image` being
   populated. `loadThermostatOptionItems()` was calling `getFileUrl()` on a plain URL string,
@@ -487,7 +494,7 @@
   `custitem_test_image` (production image field) — affects `loadThermostatOptionItems()`
   and the main product card enhanced image debug block.
 
-### v4.3.56 — 29 March 2026 ⏳ Pending Sandbox testing
+### v4.3.56 — 29 March 2026 ✅ Released
 
 - IMPROVED: Thermostat upgrade cards now use prefix-based exclusion (`THERMOSTAT_EXCLUSION_PREFIXES`)
   against `quoteData.lineItems`. A card is hidden if the quote contains any item whose code begins

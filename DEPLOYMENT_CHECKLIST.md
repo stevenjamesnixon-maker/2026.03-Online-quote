@@ -1,8 +1,8 @@
 # Nu-Heat Quote System — Deployment Checklist
 
 **Version:** 2.0.0  
-**Last Updated:** 18 August 2026  
-**Applies to:** Full system deployment (all 10 scripts)
+**Last Updated:** 20 August 2026  
+**Applies to:** Full system deployment (11 scripts + 2 shared modules)
 
 ---
 
@@ -24,16 +24,23 @@
 
 | Script | File | Target Version |
 |--------|------|---------------|
-| Quote Suitelet | `nuheat_quote_suitelet.js` | v4.3.53 |
+| **BUS Grant Module** | `nuheat_bus_grant.js` | v1.0.0 |
+| **VAT Rates Module** | `nuheat_vat_rates.js` | v1.0.0 |
+| Quote Suitelet | `nuheat_quote_suitelet.js` | v4.6.0 |
 | Quote UE | `nuheat_quote_ue.js` | v4.0.9 |
 | Quote CS | `nuheat_quote_cs.js` | v4.0.6 |
 | Quote Viewer | `nuheat_quote_viewer_sl.js` | v1.1.0 |
 | Scheduled Script | `nuheat_quote_generator_ss.js` | v1.0.0 |
-| Master Proposal | `nuheat_master_proposal.js` | v1.6.2 |
-| Send Quote SL | `nuheat_send_quote_sl.js` | v1.4.9 |
-| Send Quote CS | `nuheat_send_quote_cs.js` | v1.1.1 |
+| Master Proposal | `nuheat_master_proposal.js` | v1.8.3 |
+| Send Quote SL | `nuheat_send_quote_sl.js` | v1.7.0 |
+| Send Quote CS | `nuheat_send_quote_cs (1).js` | v1.4.0 |
+| Analytics Suitelet | `nuheat_analytics_sl.js` | v1.0.1 |
 | Opportunity UE | `nuheat_opportunity_ue.js` | v1.0.0 |
 | Opportunity CS | `nuheat_opportunity_cs.js` | v1.0.0 |
+
+> Read each version from the `SCRIPT_VERSION` / `MODULE_VERSION` constant in the file, not from the
+> JSDoc header — the two drift. `nuheat_quote_ue.js` is currently out by one patch version
+> (`SCRIPT_VERSION = '4.0.9'`, header comment `Version: 4.0.8`).
 
 - [ ] All scripts have been tested in Sandbox
 - [ ] `CHANGELOG.md` is up to date
@@ -60,7 +67,8 @@
 
 - [ ] Folder `SuiteScripts > NuHeat` exists
 - [ ] Folder `SuiteScripts > NuHeat > Quote HTML Files` exists
-- [ ] Quote HTML Files folder ID is `21719365` (or update in scripts if different)
+- [ ] Quote HTML Files folder ID matches the **target environment** — Production `26895192`,
+      Sandbox `21719365` — in **all three** files (see the warning under Step 4)
 - [ ] Quote HTML Files folder has "Available Without Login" = ✅
 
 ### 1.4 Environment
@@ -185,7 +193,7 @@ Navigate to **Customization > Scripting > Scripts > New** for each:
   - Applies To: Opportunity
   - Status: Released
 
-> **Note:** `nuheat_send_quote_cs.js` does NOT need a separate script record — it's loaded inline by the Send Quote Suitelet.
+> **Note:** `nuheat_send_quote_cs (1).js` does NOT need a separate script record — it's loaded inline by the Send Quote Suitelet.
 
 ### Step 3: Verify Folder Permissions
 
@@ -194,12 +202,41 @@ Navigate to **Customization > Scripting > Scripts > New** for each:
 3. Ensure **"Available Without Login"** is checked ✅
 4. Save
 
-### Step 4: Update Script Parameters (if Folder ID differs)
+### Step 4: Verify the File Cabinet Folder ID for this environment
 
-If the File Cabinet folder ID is different from `21719365`:
-1. Update `QUOTE_HTML_FOLDER_ID` in `nuheat_quote_suitelet.js`
-2. Update `QUOTE_HTML_FOLDER_ID` in `nuheat_quote_viewer_sl.js`
-3. Re-upload both scripts
+> ### ⚠️ FOLDER IDs ARE ENVIRONMENT-SPECIFIC AND LIVE IN THREE FILES
+>
+> | Environment | Folder ID |
+> |---|---|
+> | **Production** | `26895192` |
+> | **Sandbox (472052_SB1)** | `21719365` |
+>
+> The value is hardcoded in **three** files, and **all three must agree**:
+>
+> | File | Constant | Line | Role |
+> |---|---|---|---|
+> | `nuheat_quote_suitelet.js` | `QUOTE_HTML_FOLDER_ID` | ~:105 | **writes** quote HTML |
+> | `nuheat_master_proposal.js` | `FOLDER_ID` | ~:225 | **writes** proposal HTML |
+> | `nuheat_quote_viewer_sl.js` | `QUOTE_HTML_FOLDER_ID` | ~:60 | **searches** for the latest file |
+>
+> Miss one and the writers and the searcher point at different folders: generation succeeds, the
+> record gets a URL, and the proxy URL then 404s or serves a stale file. A wrong ID surfaces as
+> `Invalid folder reference key <id>` in the Execution Log.
+>
+> ⚠️ **The repository holds the Production values.** Sandbox copies are hand-edited directly in the
+> File Cabinet and are never committed, so a Sandbox File Cabinet file and its repository
+> counterpart legitimately differ on this one line.
+>
+> **When deploying to Production, upload the repository version of each file.** Never upload a copy
+> downloaded from the Sandbox File Cabinet — it carries the Sandbox folder ID.
+
+Checklist:
+
+- [ ] Confirm which environment you are deploying to
+- [ ] `nuheat_quote_suitelet.js` — `QUOTE_HTML_FOLDER_ID` matches that environment
+- [ ] `nuheat_master_proposal.js` — `FOLDER_ID` matches that environment
+- [ ] `nuheat_quote_viewer_sl.js` — `QUOTE_HTML_FOLDER_ID` matches that environment
+- [ ] All three re-uploaded if any was changed
 
 ---
 
@@ -297,16 +334,15 @@ If scripts are causing errors on Estimate saves:
 |---------|---------|------------|
 | Account ID | 472052_SB1 | TBD |
 | Domain | 472052-sb1.extforms.netsuite.com | TBD |
-| Folder ID | 21719365 | **Must be created/identified** |
+| Folder ID | 21719365 | 26895192 |
 | Viewer Script ID | 3286 | **Will differ** |
 | Viewer Deploy ID | 1 | **Will differ** |
 | Log Level | Debug | Audit (recommended) |
 
 ### Pre-Production Steps
 
-- [ ] Create `Quote HTML Files` folder in Production File Cabinet
-- [ ] Note the Production folder ID
-- [ ] Update `QUOTE_HTML_FOLDER_ID` in scripts if different
+- [ ] Confirm the `Quote HTML Files` folder exists in the Production File Cabinet (ID `26895192`)
+- [ ] Confirm all three files carry the Production folder ID (see Step 4)
 - [ ] Note all script/deployment internal IDs after creation
 - [ ] Update `custscript_viewer_script_id` and `custscript_viewer_deploy_id` parameters
 - [ ] Set log levels to Audit (not Debug) for performance

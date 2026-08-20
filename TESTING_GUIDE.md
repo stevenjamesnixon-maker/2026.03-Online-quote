@@ -1,6 +1,6 @@
 # Testing Guide
 
-**Last Updated:** 18 August 2026
+**Last Updated:** 20 August 2026
 **Environment:** Sandbox (472052_SB1)
 
 ---
@@ -91,10 +91,14 @@ scenario 1 both ways before deciding:
 
 ## VAT by Technology (v4.5.0 / v1.8.0 / v1.7.0 / VAT Module v1.0.0)
 
-> ⚠️ **The display fix is a stopgap.** The scripts now derive the VAT rate that *should* apply and
-> show that. NetSuite still invoices from its own tax codes, which are wrong on heat pump Estimates.
-> **Every `VAT_MISMATCH` in the Execution Log is an Estimate whose tax codes need correcting.**
-> Treat that log as the deliverable of this test pass, not just a pass/fail signal.
+> ✅ **The tax codes were corrected in Production on 20 August 2026.** Derived VAT and NetSuite's
+> `taxtotal` should now **agree**, so `VAT_MISMATCH` is a pass/fail signal again rather than a
+> work-list to collect.
+>
+> **A `VAT_MISMATCH` entry is now a test failure to investigate**, not an expected finding — it
+> means either a quote type whose rate the module gets wrong, or an Estimate created with the wrong
+> tax code after the correction. Scenario V3 below is the exception: it deliberately constructs the
+> mismatch.
 
 ### Scenario matrix
 
@@ -102,7 +106,7 @@ scenario 1 both ways before deciding:
 |---|---|---|
 | V1 | HP-only quote page | `VAT at 0%: £0.00`; Total inc VAT = ex-VAT total; **no** "plus VAT" on the HP price card |
 | V2 | UFH-only quote page | `VAT at 20%: £x`; VAT = 20% of (subtotal − discount) |
-| V3 | HP quote whose Estimate has 20% tax codes | Page shows £0.00; `VAT_MISMATCH` logged with both figures |
+| V3 | HP quote whose Estimate has 20% tax codes (construct one deliberately — no longer occurs naturally) | Page shows £0.00; `VAT_MISMATCH` logged with both figures |
 | V4 | UFH quote with a discount | VAT calculated on subtotal **minus** discount, not gross |
 | V5 | Proposal, HP + UFH | Blended VAT = 0 + (UFH × 20%); **note line shown** |
 | V6 | Proposal, HP only | Correct VAT; **note line hidden** (stricter gate — see below) |
@@ -136,7 +140,7 @@ scenario 1 both ways before deciding:
 
 | Tag | Written by | What to check |
 |---|---|---|
-| `VAT_MISMATCH` | VAT module | **the work-list.** Each entry names an Estimate whose tax codes are wrong |
+| `VAT_MISMATCH` | VAT module | **expected only in V3.** Tax codes were fixed 20 Aug 2026, so an entry anywhere else is a regression at source — investigate it |
 | `VAT_RATE_UNMATCHED` | VAT module | expected only in V9; anywhere else means a quote type is missing from `QUOTE_TYPE_ALIASES` |
 | `VAT_QUOTE_TYPE` | Quote Suitelet | which route resolved the type — "inferred from grouped items" means `custbody_quote_type` was unreadable |
 | `VAT_FIGURES` | Quote Suitelet | all derived VAT figures as JSON |
