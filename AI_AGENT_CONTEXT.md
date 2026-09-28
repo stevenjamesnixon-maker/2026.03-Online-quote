@@ -39,9 +39,13 @@ Production `26895192`, Sandbox `21719365`. All three must change together —
 copies are hand-edited in the File Cabinet and never committed. A mismatch surfaces as
 `Invalid folder reference key <id>`. See §9, pitfall 12.
 
+**File Cabinet script folder:** every script — all 13, shared modules included — lives in
+`SuiteScripts/NuHeat/2026 Quote/`. Capitalisation is `NuHeat` (capital H), and the folder name
+`2026 Quote` contains a space. Relative `define()` paths resolve against this folder.
+
 **3. Two shared modules must be uploaded before their consumers.** `nuheat_bus_grant.js` and
 `nuheat_vat_rates.js` are `@NModuleScope Public` AMD modules with no `@NScriptType`. They need no
-script record and no deployment record — File Cabinet upload to `SuiteScripts/NuHeat` only — but
+script record and no deployment record — File Cabinet upload to `SuiteScripts/NuHeat/2026 Quote` only — but
 both must be present **before** `nuheat_quote_suitelet.js` or `nuheat_send_quote_sl.js` is
 redeployed, or both consumers fail at load time. See §9, pitfall 13.
 
@@ -287,10 +291,10 @@ that something has regressed at source. See §6.
 | Quote Viewer | v1.1.0 | `nuheat_quote_viewer_sl.js` | ✅ Live in Production |
 | Scheduled Script | v1.0.0 | `nuheat_quote_generator_ss.js` | ✅ Live in Production |
 | Master Proposal | v1.8.3 | `nuheat_master_proposal.js` | ✅ Live in Production |
-| Send Quote SL | v1.7.0 | `nuheat_send_quote_sl.js` | ✅ Live in Production |
-| Send Quote CS | v1.4.0 | `nuheat_send_quote_cs (1).js` | ✅ Live in Production |
-| Opportunity UE | v1.0.0 | `nuheat_opportunity_ue.js` | ✅ Live in Production |
-| Opportunity CS | v1.0.0 | `nuheat_opportunity_cs.js` | ✅ Live in Production |
+| Send Quote SL | 2.0.3 — pending Sandbox | `nuheat_send_quote_sl.js` | ⏳ Pending Sandbox testing (live: v1.7.0; 1.8.0 passed S1–S4, S6–S9; 2.0.0 Status reverted; 2.0.1 reorder fixed the revert; 2.0.2 Expected close passed R15; forecast flags ⚠️ open) |
+| Send Quote CS | v1.4.0 — detached in SL 2.0.0 (pending Sandbox) | `nuheat_send_quote_cs.js` | ✅ Live in Production today; **not attached** once SL 2.0.0 deploys — kept for reference |
+| Opportunity UE | 1.2.1 — pending Sandbox | `nuheat_opportunity_ue.js` | ⏳ Pending Sandbox testing (live: v1.0.0) |
+| Opportunity CS | 1.1.0 — pending Sandbox | `nuheat_opportunity_cs.js` | ⏳ Pending Sandbox testing (live: v1.0.0) |
 | Analytics Suitelet | v1.0.1 | `nuheat_analytics_sl.js` | ✅ Live in Production |
 | **BUS Grant Module** | **v1.0.0** | **`nuheat_bus_grant.js`** | ✅ Live in Production |
 | **VAT Rates Module** | **v1.0.0** | **`nuheat_vat_rates.js`** | ✅ Live in Production |
@@ -307,7 +311,7 @@ that something has regressed at source. See §6.
 
 > ⚠️ **`nuheat_bus_grant.js` and `nuheat_vat_rates.js` are shared custom modules.** Neither needs a
 > script deployment record, only a File Cabinet upload — but **both** must be uploaded to
-> `SuiteScripts/NuHeat` **before** the Quote Suitelet or the Send Quote SL is redeployed, or both
+> `SuiteScripts/NuHeat/2026 Quote` **before** the Quote Suitelet or the Send Quote SL is redeployed, or both
 > consumers fail at load time.
 
 ### Current Configuration
@@ -382,8 +386,8 @@ Two open items:
 | **Quote Viewer** | Proxy pattern — decouples the URL from the physical file. Without this, every regeneration would produce a different URL, breaking shared links. |
 | **Scheduled Script** | Fallback when UE script runs low on governance (1,000 units). The SS has 10,000 units. |
 | **Master Proposal** | Business requirement to combine multiple quotes. Separated as a module (not Suitelet) so it can be called from the Send Quote SL. |
-| **Send Quote SL** | UI for selecting which quotes to include in a proposal. Needed because the user must choose Main vs Alternative. |
-| **Opportunity UE/CS** | Entry point for Master Proposal workflow — "Send Quote" button on Opportunity form. |
+| **Send Quote SL** | UI for selecting which quotes to include in a proposal. Needed because the user must choose Main vs Alternative. From v1.8.0 also updates Opportunity fields after the email is sent (five from v2.0.2); from v2.0.0 sets the quotes' Include in Forecast and returns to the Opportunity. |
+| **Opportunity UE/CS** | Entry point for Master Proposal workflow — "Send Quote" button on Opportunity form, **VIEW mode only** from UE v1.1.0, same tab from CS v1.1.0. UE v1.2.0 also shows the Send Quote result banner. |
 
 ### Design Decisions and Rationale
 
@@ -401,6 +405,78 @@ Two open items:
 
 7. **Direct module import (UE → Suitelet)** — NetSuite blocks `https.get()` from UE to Suitelet in the same account. Direct `require()` import is the supported pattern.
 
+### Send proposal flow (SL v2.0.0) — and the Opportunity update rules (from v1.8.0)
+
+**Page.** The Suitelet GET renders a `serverWidget` form (NetSuite's header and menu stay) carrying
+**one** `INLINEHTML` field: header, "1 Choose quotes" (a Leave out / Main / Additional control per
+quote — every quote starts at Leave out unless there is exactly one), "2 Send to" (To tags, contact
+picker, CC/BCC), "3 Update the opportunity" (shown in this order: Status `entitystatus`, Build stage
+`custbody_build_stage`, Expected close `expectedclosedate` (v2.0.2), Next contact
+`custbody_next_contact`, Est. delivery date `custbody_opp_del_date`) and a sticky footer.
+**Adding a field** means `OPP_UPDATE_FIELDS` and `OPP_UPDATE_DISPLAY_ORDER` in the Suitelet **and**
+`BANNER_FIELDS` in `nuheat_opportunity_ue.js` — a key missing from the UE whitelist is silently
+dropped from the banner. **No native buttons, no sublists and no client script** —
+`nuheat_send_quote_cs.js` is **detached in 2.0.0** and kept for reference only. The page's static
+inline script (`PAGE_SCRIPT`) submits NetSuite's own `main_form` (see §9 pitfall 18).
+
+**POST order** (`handleFormSubmission()`):
+
+1. rebuild quotes with `searchRelatedQuotes()` and validate (selection, ≥1 Main, To/CC/BCC) →
+2. `generateMasterProposal()` (saves the file **and** writes `custbody_master_proposal_url` /
+   `custbody_last_proposal_sent_date` — unchanged, in the Master Proposal) →
+3. `sendProposalEmail()` → 4. **`updateForecastFlags()`** → 5. **`updateOpportunityFields()`** →
+6. **`redirect.toRecord`** to the Opportunity in VIEW with code-only parameters; UE v1.2.0 shows the
+   banner.
+
+A failure in steps 1–3 re-renders the page with an error panel and the user's selections, addresses
+and field values restored. Nothing further is written. ⚠️ If the **email** fails, step 2 has already
+saved the file and written the proposal URL and sent date — the Master Proposal does that before the
+email and is out of scope; the error panel says so.
+
+Decisions — **do not reverse without asking Steve**:
+
+- **The server rebuilds quote data; the browser sends only `{ estimateId: role }`.** Prices, VAT and
+  BUS come from NetSuite, never from the page, for both send and preview. An ID that is not one of
+  the Opportunity's quotes rejects the request. `toProposalQuote()` keeps the exact object shape the
+  pre-2.0 hidden sublist produced — `nuheat_master_proposal.js` depends on it (the test suite
+  compares against a fixture captured from 1.8.0).
+- **Write after the email, never before, never blocking it.** Steps 4 and 5 run only if the email
+  was sent, are independent of each other, and never throw; failures become an amber banner naming
+  the fields / quotes. NetSuite's error text goes to the log, never the URL or banner.
+- **Only changed, non-blank values are written**, in one `submitFields`. An untouched field is never
+  re-saved (no pointless sales-order syncs), and clearing a field does nothing — the programme rule
+  that an empty value never clears data. The POST knows what changed from hidden `custpage_orig_*`.
+- **Estimates are written before the Opportunity** (v2.0.1): the Opportunity update is the last record
+  write, because an Estimate save can re-sync its Status onto the Opportunity (§9 pitfall 20).
+- **Dates use `<input type="date">`** (v2.0.1): posts `yyyy-mm-dd`, validated as a real calendar date,
+  written as `new Date(y, m - 1, d)`; pre-fill built from the record Date's own parts, never
+  `toISOString()`. The picker's display order follows the **browser's** UI language, not NetSuite's
+  date preference.
+- **`enableSourcing: true` only when Status changed** (v2.0.0), so Probability follows the new
+  Status — with sourcing off it did not (1.8.0 Sandbox S5). Off otherwise.
+- **Options come from the record**, not list IDs: the Opportunity is loaded `isDynamic: true` and
+  `getField().getSelectOptions()` supplies both lists. All status options the record offers are
+  shown, closed ones included — the deployment runs as the **current role**.
+- **Forecast flags** (`includeinforecast`, ⚠️ assumed ID): true for Main, false for Additional and
+  Leave out, **only on quotes the page showed**, only where the value differs, one `submitFields`
+  per Estimate. The current value and the field's type are read off the Estimate record
+  `searchRelatedQuotes()` already loads — **not** a search column, because one invalid column aborts
+  the whole quote search. Not a checkbox / absent → no forecast writes, audit log only.
+- **Leave out is the default with several quotes.** Choosing Main is deliberate — it drives the forecast.
+- **Redirect parameters carry codes, never text** (`FIELD_REFERENCE.md` lists them). The banner's
+  words come from the record and a fixed key → label map; it expires after **300 seconds**.
+- **`custbody_opportunity_sub_status` is never written.** Some sub-status values create Design
+  Instruction rows. It is permanently out of scope for this Suitelet.
+- **The button is VIEW-only** (Opportunity UE v1.1.0) and opens the Suitelet **in the same tab**
+  (Opportunity CS v1.1.0). In EDIT, a Suitelet write followed by the user's save either fails with
+  "record has been changed" or silently overwrites the new values.
+- **The page keeps the NetSuite chrome.** A chrome-less `response.write` page needs Steve's decision.
+- Downstream scripts (sales-order sync, Design Instruction) see the writes as XEDIT and act only on
+  changed values. A delivery-date change syncs to linked sales orders' ship dates — intended. An
+  Estimate XEDIT does not regenerate the online quote (`nuheat_quote_ue.js` acts on CREATE/EDIT only).
+- **Field types are partly assumed** (dates and Build stage). The GET hides a field whose reported
+  type disagrees; the reported types are audit-logged as `SendQuoteSL.OppUpdate … reported field types`.
+
 ### The Master Proposal never loads an Estimate
 
 This is the single most important architectural constraint in the system, and it is not obvious
@@ -408,25 +484,25 @@ from reading `nuheat_master_proposal.js` in isolation. The module makes exactly 
 `record.load()` calls — **Opportunity** (~:440), **Customer** (~:480) and **Employee** (~:534).
 It never loads an Estimate and therefore has **no line-item access at all**.
 
-Every pricing figure it renders arrives as a pre-formatted currency **string**, assembled by
-`nuheat_send_quote_sl.js` and round-tripped through a `serverWidget` sublist whose fields are
-`FieldType.TEXT`.
+Every pricing figure it renders arrives as a pre-formatted currency **string** on the quote objects
+the Send Quote SL hands it.
 
 **The consequence: anything the proposal needs must be resolved in the Send Quote SL and passed
-through.** That is why these hidden sublist fields exist —
+through.** From SL 2.0.0 one function builds those objects for **both** send and preview —
+`toProposalQuote()` in `nuheat_send_quote_sl.js`, from `searchRelatedQuotes()`. These keys carry the
+values the proposal cannot resolve itself —
 
-| Field | Carries | Added |
+| Key | Carries | Added |
 |---|---|---|
-| `custpage_bus_amount` | resolved BUS grant amount | v1.6.0 |
-| `custpage_bus_rate` | `standard` / `enhanced` / `none` | v1.6.0 |
-| `custpage_vat_rate` | numeric rate (`0` / `0.2`) | v1.7.0 |
-| `custpage_vat_percent` | display string (`'0%'` / `'20%'`) | v1.7.0 |
+| `busAmount` | resolved BUS grant amount (number) | v1.6.0 |
+| `busRate` | `standard` / `enhanced` / `none` | v1.6.0 |
+| `vatRate` | numeric rate (`0` / `0.2`) | v1.7.0 |
+| `vatPercent` | display string (`'0%'` / `'20%'`) | v1.7.0 |
 
-⚠️ **The preview path and the submit path are separate.** `nuheat_send_quote_sl.js` reads these
-fields back off the POST (~:844–858), but the preview is driven client-side by
-`nuheat_send_quote_cs (1).js`, which collects the same fields independently (~:157–163). **A new
-field must be added in both places**, or preview and the saved/emailed proposal will disagree —
-which is exactly the symptom to look for if they ever do.
+**A new value is added in one place — `toProposalQuote()` — and nowhere else.** Before 2.0.0 these
+round-tripped through hidden TEXT sublist columns (`custpage_bus_amount`, …) and preview was
+assembled separately by `nuheat_send_quote_cs.js`; `toProposalQuote()` reproduces that round trip's
+exact output (key order, `'£0.00'` / `'none'` / `'20%'` defaults, numbers parsed back).
 
 ### BUS grant derivation — one calculation block
 
@@ -541,7 +617,7 @@ detectable. NetSuite's original `taxtotal` is retained alongside for comparison,
 │   ├── generateQuoteCards()     # System cards with benefits
 │   └── calculateTotals()        # Aggregate pricing
 │
-├── nuheat_send_quote_sl.js     # ~1,800 lines
+├── nuheat_send_quote_sl.js     # ~2,800 lines
 │   ├── onRequest()              # GET = form, POST = generate/preview/email
 │   ├── buildForm()              # NetSuite form with sublists
 │   └── searchRelatedQuotes()    # Find all Estimates for Opportunity
@@ -610,7 +686,10 @@ its call sites passed `showGrantBanner = false`, so it had been unreachable. If 
 
 1. **Master Proposal doesn't auto-update** — If individual quotes are regenerated after a Master Proposal is created, the proposal's pricing summary is NOT automatically updated. A new proposal must be generated manually.
 
-2. **No automated tests** — All testing is manual via the NetSuite UI. No unit tests or integration tests exist.
+2. **Almost no automated tests** — Testing is manual via the NetSuite UI, with one exception:
+   `test/send-quote-opp-update.js` (Send Quote SL v1.8.0), run with `node test/send-quote-opp-update.js`.
+   It stubs `define` and the `N/*` modules and loads the real Suitelet — the pattern to copy for any
+   new test. There is no `package.json` and no test runner.
 
 3. **Large script file** — `nuheat_quote_suitelet.js` is ~4,500 lines. Consider splitting into modules if it grows further.
 
@@ -816,6 +895,7 @@ To modify, edit `renderProductCard()` and update CSS in `generateCSS()`.
 5. **Test mobile** — use browser DevTools responsive mode
 6. **Check logs** — Customization > Scripting > Script Execution Log
 7. **Verify File Cabinet** — Documents > Files > SuiteScripts > NuHeat > Quote HTML Files
+8. **Run the committed tests** — `node test/send-quote-opp-update.js` (Send Quote SL); `node --check` every changed script
 
 ### Deployment Process
 
@@ -910,7 +990,7 @@ To modify, edit `renderProductCard()` and update CSS in `generateCSS()`.
 
 13. **Custom module load order** — `nuheat_bus_grant.js` and `nuheat_vat_rates.js` are
     `@NModuleScope Public` AMD modules with **no `@NScriptType`**. They therefore need no script
-    record and no deployment record; a File Cabinet upload to `SuiteScripts/NuHeat` is the entire
+    record and no deployment record; a File Cabinet upload to `SuiteScripts/NuHeat/2026 Quote` is the entire
     deployment. But `nuheat_quote_suitelet.js` and `nuheat_send_quote_sl.js` both `define()` them
     by relative path (`'./nuheat_bus_grant'`, `'./nuheat_vat_rates'`), so **both modules must be
     uploaded before either consumer is redeployed** or the consumers fail at load time. The
@@ -920,7 +1000,7 @@ To modify, edit `renderProductCard()` and update CSS in `generateCSS()`.
 
 14. **`custbody_quote_type` returns raw list values, not display names** — `'Heat Pump (ASHP)'`,
     `'Multizone (DZM)'`, `'Full System (DFD/DFP)'` and so on. `QUOTE_TYPE_MAPPING` in
-    `nuheat_send_quote_sl.js` (~:181) translates these to the four display names
+    `nuheat_send_quote_sl.js` (~:200) translates these to the four display names
     (`Heat Pump`, `Underfloor Heating`, `Solar`, `Other`). **Any lookup keyed on display names must
     normalise the raw value first.** `nuheat_vat_rates.js` does this internally via
     `QUOTE_TYPE_ALIASES`, so either form resolves correctly through that module.
@@ -963,6 +1043,48 @@ To modify, edit `renderProductCard()` and update CSS in `generateCSS()`.
     page. Any new code that loads an Opportunity from this ID needs the same guard.
 
 
+18. **Hand-written HTML inside a Suitelet (SL 2.0.0) — the inline-script rules** —
+    - Put record and user data **only** in element text and `data-` / `value` attributes, always
+      through `escapeHtml()` (`& < > " '`). Tag-strip titles and descriptions first — quote titles
+      can contain `<b>…</b>`.
+    - **Never interpolate anything into a `<script>` block.** A `</script>` sequence ends the block
+      whatever the HTML escaping, so the script must be a static string (`PAGE_SCRIPT`) that reads
+      its data from `data-` attributes. The test suite asserts no record data appears in it.
+    - Plain `<input>` / `<select>` elements inside an `INLINEHTML` field post with NetSuite's own
+      `main_form`, under their `name`. The page submits with
+      `HTMLFormElement.prototype.submit.call(form)` — immune to an input named `submit` shadowing the
+      method, and it bypasses NetSuite's own onsubmit (there is no client script to run).
+    - Prevent Enter in text inputs, or the browser submits `main_form` without the page's validation.
+
+19. **Redirect-driven banners must not trust the URL** — `redirect.toRecord` parameters are visible
+    and editable. Send only codes (whitelisted keys, counts, record IDs, a timestamp); build every
+    word of the message from the record in `beforeLoad`; verify IDs belong to the record; expire the
+    message (`nsqt`, 300 s); wrap the whole thing in try/catch so `beforeLoad` fails closed.
+
+20. ⚠️ **SUSPECTED — saving an Estimate can re-sync its Status to the Opportunity. Write Estimates
+    before the Opportunity.** Inferred from Sandbox (28 Sep 2026): with Send Quote SL 2.0.0 a Status
+    change did not stick (Quoted → "In Negotiation – Warm" stayed Quoted; Def Order → Quoted stayed Def
+    Order), where 1.8.0 had worked. 2.0.0 added `submitFields` on Estimates (`includeinforecast`)
+    *after* the Opportunity write, each Estimate still carrying the old Status. SL 2.0.1 reorders the
+    writes. **Not yet observed directly** — to be confirmed or corrected from the Opportunity's system
+    notes after Sandbox R13. The other change since 1.8.0, `enableSourcing: true` on a Status change,
+    is the second suspect and is deliberately unchanged until that evidence is in.
+    **Sandbox, 28 Sep 2026:** the 2.0.1 reorder fixed the reported revert. Stays ⚠️ suspected until
+    both R13 variants (with and without a forecast change) are reported as passed.
+
+21. **`<input type="date">` and NetSuite dates** — the value is always `yyyy-mm-dd` whatever the
+    display. Build it from `getFullYear()` / `getMonth() + 1` / `getDate()`, never `toISOString()`
+    (the UTC conversion moves a midnight date back a day in zones east of UTC); parse it back with
+    `new Date(y, m - 1, d)` after checking the parts round-trip (rejects `2026-02-30`).
+
+22. **Quote titles and descriptions can arrive entity-encoded; decode, then strip, then escape
+    once.** A title can hold literal `<b>Ground Floor</b>` **or** the already-encoded
+    `&lt;b&gt;Ground Floor&lt;/b&gt;`. `stripTags()` finds no tags in the second, and `escapeHtml()`
+    then encodes it again, so the user sees `&lt;b&gt;`. SL 2.0.3's `cleanCardText()` runs
+    `decodeEntities()` → `stripTags()` → whitespace collapse, and the caller escapes once. **Decode
+    before stripping, never after** — decoding after would turn `&lt;script&gt;` into a live tag.
+    The Master Proposal still receives the raw `title` / `description`; this is display only.
+
 ### NetSuite Record Types Used
 
 | Record Type | Internal ID | Usage |
@@ -984,7 +1106,7 @@ Order matters. Follow it exactly:
 
 1. **Upload `nuheat_bus_grant.js` and `nuheat_vat_rates.js` first.** Both consumers fail at load
    time if either is missing (§9, pitfall 13).
-2. **Upload the remaining changed scripts** to `SuiteScripts/NuHeat`.
+2. **Upload the remaining changed scripts** to `SuiteScripts/NuHeat/2026 Quote`.
 3. **Verify the folder IDs match the target environment** before uploading — Production `26895192`,
    Sandbox `21719365`, in all three files (§9, pitfall 12). Upload the **repository** versions to
    Production; never upload a hand-edited Sandbox copy.
@@ -1007,6 +1129,11 @@ The scripts log heavily on purpose. These are the keys that answer most question
 | `VAT_FIGURES` | `nuheat_quote_suitelet.js` | every derived VAT figure for the quote, as JSON |
 | `VAT_QUOTE_TYPE` | `nuheat_quote_suitelet.js` | which route resolved the quote type (field vs inferred) |
 | `SITE_ADDRESS` | `nuheat_quote_suitelet.js` | the resolved Opportunity ID and site address |
+| `SendQuoteSL.Forecast` | `nuheat_send_quote_sl.js` | each Estimate's Include in Forecast change (from → to), failures with messages, or why no forecast writes happened (field absent / not a checkbox) |
+| `SendQuoteSL.Selection` | `nuheat_send_quote_sl.js` | a POST or preview rejected because it named a quote not on the Opportunity (or was malformed) |
+| `SendQuoteSL.Redirect` | `nuheat_send_quote_sl.js` | the exact code parameters sent back to the Opportunity |
+| `OpportunityUE.banner` | `nuheat_opportunity_ue.js` | which banner was shown (audit) or why it was not (error) |
+| `SendQuoteSL.OppUpdate` | `nuheat_send_quote_sl.js` | GET: reported field types and any update field not shown (and why). POST: fields changed old → new, "no changes", skipped because the email failed, or the failed write (error level) |
 
 ### Starting a New Session
 
@@ -1030,7 +1157,7 @@ Current task: [describe what you need]
 ### How to Test Changes
 
 1. After making code changes, the updated script needs to be uploaded to NetSuite File Cabinet
-2. In NetSuite Sandbox: Documents > Files > SuiteScripts > NuHeat
+2. In NetSuite Sandbox: Documents > Files > SuiteScripts > NuHeat > 2026 Quote
 3. Upload the modified file (overwrite existing)
 4. Test by opening an Estimate and clicking "Regen quote"
 5. Check Script Execution Log for errors

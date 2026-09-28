@@ -359,7 +359,40 @@
 
 ---
 
-## Send Quote Suitelet (`nuheat_send_quote_sl.js`) & Client Script (`nuheat_send_quote_cs (1).js`)
+## Send Quote Suitelet (`nuheat_send_quote_sl.js`) & Client Script (`nuheat_send_quote_cs.js`)
+
+### Send Quote SL v2.0.3 — 28 September 2026 ⏳ Pending Sandbox testing
+
+- CHANGED: quote card shows `tranid · description` plus Created / type / BUS facts; title no longer shown.
+- FIXED: entity-encoded titles/descriptions shown raw and double-encoded (decode → strip → escape once).
+
+### Send Quote SL v2.0.2 / Opportunity UE v1.2.1 — 28 September 2026 — Sandbox: R15 passed
+
+- ADDED: Expected close (`expectedclosedate`) as a fifth update field; banner support in the UE.
+- CHANGED: section order Status, Build stage, Expected close, Next contact, Est. delivery date.
+
+### Send Quote SL v2.0.1 — 28 September 2026 — Sandbox: reorder fixed the Status revert
+
+- FIXED (suspected cause): Status change reverted after send — forecast (Estimate) writes now run
+  before the Opportunity update.
+- CHANGED: native date pickers for Next contact / Est. delivery date (`yyyy-mm-dd`, no day shift).
+
+### Send Quote SL v2.0.0 / Opportunity UE v1.2.0 / Opportunity CS v1.1.0 — 28 September 2026 — Sandbox: send and banner OK; Status reverted (fixed in 2.0.1)
+
+- REWRITTEN (SL): one inline-HTML "Send proposal" page; segmented Leave out / Main / Additional;
+  To tags; sticky footer. Client script detached.
+- SECURITY (SL): posts only quote IDs and roles; quotes rebuilt on the server for send and preview.
+- ADDED (SL): Include in Forecast set on the shown quotes (Main → true, others → false).
+- CHANGED (SL/UE/CS): returns to the Opportunity (same tab) with a record-built banner.
+- FIXED (SL): Probability follows Status (`enableSourcing` on when Status changes).
+
+### Send Quote SL v1.8.0 / Opportunity UE v1.1.0 — 28 September 2026 — passed Sandbox S1–S4, S6–S9; superseded by 2.0.0 before release
+
+- ADDED (SL): "Update opportunity" field group — Status, Next contact, Est. delivery date, Build
+  stage — written after a successful email, changed non-blank values only, one `submitFields`.
+  Never writes `custbody_opportunity_sub_status`. See `CHANGELOG.md`.
+- CHANGED (UE): Send Quote button in VIEW mode only.
+- RENAMED: `nuheat_send_quote_cs (1).js` → `nuheat_send_quote_cs.js` (content unchanged, v1.4.0).
 
 ### Send Quote SL v1.7.0 / Send Quote CS v1.4.0 — 18 August 2026 ✅ Live in Production (deployed 20 August 2026)
 

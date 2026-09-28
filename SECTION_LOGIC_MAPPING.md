@@ -260,7 +260,8 @@ blend.
 ## 11. Where VAT renders — Master Proposal
 
 The proposal cannot resolve VAT itself. `nuheat_send_quote_sl.js` derives it per Estimate and passes
-`vatRate` / `vatPercent` through hidden sublist fields (`custpage_vat_rate`, `custpage_vat_percent`),
+`vatRate` / `vatPercent` on the quote objects (from SL 2.0.0 built server-side by `toProposalQuote()`;
+before 2.0.0 via hidden sublist fields `custpage_vat_rate`, `custpage_vat_percent`),
 and **overrides `taxTotal` and `amount`** with the derived figures.
 
 > ⚠️ `taxTotal` and `amount` reaching the proposal are **derived, not raw NetSuite values.** This is

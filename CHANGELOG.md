@@ -1,3 +1,219 @@
+## [Send Quote SL v2.0.3] — 28 September 2026
+**Status:** ⏳ Pending Sandbox testing (amendment 5 to PR #28)
+**Components:** `nuheat_send_quote_sl.js`, `test/send-quote-opp-update.js`
+
+Sandbox (28 Sep): R15 (Expected close) **passed**. Forecast flags are "not quite working as expected" —
+⚠️ **open, parked**; no forecast code changed here.
+
+### Changed — quote card text
+- **Line 1** (bold): `tranid · description` — the title is **no longer shown** on the card (it repeated
+  the description). Empty description → the cleaned title; both empty → `tranid` alone (the search's
+  `'(Untitled)'` placeholder is not used on the card). Wraps to two lines at most, full text on hover.
+- **Line 2** (muted, one line): `Created <date>` · quote type (the raw value, e.g. `Full System (DFD)`) ·
+  `BUS grant £7,500 applied` — each only when present. The date is NetSuite's `datecreated` text with the
+  time removed, so it is already in the user's own date format; no parsing, no new lookups.
+
+### Fixed — double encoding
+- Titles and descriptions can arrive entity-encoded (`&lt;b&gt;Ground Floor&lt;/b&gt;`). `stripTags()`
+  found no tags and `escapeHtml()` encoded them again, so the card showed `&lt;b&gt;`. Card text is now
+  `decodeEntities()` → `stripTags()` → collapse whitespace → `escapeHtml()` once. Decode before strip,
+  never after.
+
+### Unchanged
+- The quote objects sent to the Master Proposal (raw `title` / `description`; the 1.8.0 shape fixture
+  still matches). Forecast logic, write order, `enableSourcing`.
+
+### Tests
+- 207 assertions (E1–E8). B2 changed: it asserted the title on the card.
+
+---
+
+## [Send Quote SL v2.0.2 / Opportunity UE v1.2.1] — 28 September 2026
+**Status:** ⏳ Pending Sandbox testing (amendment 4 to PR #28)
+**Components:** `nuheat_send_quote_sl.js`, `nuheat_opportunity_ue.js`, `test/send-quote-opp-update.js`
+
+Sandbox (28 Sep): the 2.0.1 reorder (forecast flags first, Opportunity last) **fixed the Status revert**.
+
+### Added — Expected close date
+- Fifth update field: **Expected close** — standard Opportunity field `expectedclosedate` (Date), key
+  `close_date`. Same rules as the other dates: runtime type check (hidden and audit-logged if not a
+  date), native picker posting `yyyy-mm-dd` pre-filled from the date's own parts, written only when
+  changed and never when blank, in the single Opportunity `submitFields` that is still the last write.
+- Section order: **Status, Build stage, Expected close, Next contact, Est. delivery date**
+  (`OPP_UPDATE_DISPLAY_ORDER`). `OPP_UPDATE_FIELDS` keeps its processing order with the new field
+  appended, so posted key lists and redirect parameters only gain `close_date`.
+- Layout: grid columns of at least 200 px — five in a row at the page's 1120 px (≈203 px each),
+  wrapping onto a second row when narrower.
+- **Opportunity UE v1.2.1:** `close_date` → "Expected close" added to `BANNER_FIELDS`; without it the
+  banner would silently drop the change.
+
+### Unchanged
+- Forecast logic, the write order and `enableSourcing`.
+
+### Tests
+- 190 assertions (D1–D7): pre-fill, display order, type mismatch, round trip in three time zones,
+  bad / unchanged / blank dates, same single `submitFields` still last, banner text from the record.
+
+---
+
+## [Send Quote SL v2.0.1] — 28 September 2026
+**Status:** ⏳ Pending Sandbox testing (amendment 3 to PR #28)
+**Components:** `nuheat_send_quote_sl.js`, `test/send-quote-opp-update.js`
+
+### Fixed — a Status change did not stick (suspected cause)
+- **Sandbox, 2.0.0:** from Quoted, choosing "In Negotiation – Warm" left the Opportunity at Quoted; from
+  Def Order, choosing Quoted left Def Order. 1.8.0 had worked (S4).
+- **Suspected cause:** 2.0.0 added forecast writes (`submitFields` on each Estimate whose
+  `includeinforecast` changes) and ran them **after** the Opportunity update. An Estimate carries its own
+  Status, and saving an Estimate linked to an Opportunity can push that (old) Status back onto the
+  Opportunity.
+- **Change:** `updateForecastFlags()` now runs **before** `updateOpportunityFields()`, so the Opportunity
+  update is the last record write. Both still run only after a successful email and stay independent.
+- **Not changed:** `enableSourcing` (the second suspect). Steve's system-notes check decides.
+- ⚠️ The reorder only matters in sends where at least one forecast flag changes. If Status still reverts
+  in a send where **no** Estimate was written, the cause is elsewhere (see R13).
+
+### Changed — date pickers
+- Next contact and Est. delivery date are `<input type="date">` (the browser's native picker). They post
+  `yyyy-mm-dd`, validated as a real calendar date and written as `new Date(y, m - 1, d)`; anything else
+  is skipped and audit-logged. Pre-fill and hidden originals are `yyyy-mm-dd` built from the record Date's
+  own parts (never `toISOString()`); the `format.format` text is kept for "Changed · was …".
+- The user-format `format.parse` path is **removed** — nothing posts the user's format any more (a page
+  restored after an error re-renders the posted `yyyy-mm-dd`).
+- Note: the picker's display order follows the browser's UI language, not NetSuite's date preference.
+
+### Tests
+- 160 assertions. Order now generate → email → forecast → field update → redirect; the Opportunity write
+  is asserted to be the last record write; dates round-trip with no day shift under Los Angeles,
+  Auckland and UTC; `2026-02-30`, `abc` and user-format dates are rejected; unchanged and blank dates are
+  not written.
+
+---
+
+## [Send Quote SL v2.0.0 / Opportunity UE v1.2.0 / Opportunity CS v1.1.0] — 28 September 2026
+**Status:** ⏳ Pending Sandbox testing (amendment 2 to PR #28; supersedes the unreleased 1.8.0 / 1.1.0)
+**Components:** `nuheat_send_quote_sl.js`, `nuheat_opportunity_ue.js`, `nuheat_opportunity_cs.js`,
+`nuheat_send_quote_cs.js` (header note only — detached), `test/send-quote-opp-update.js`
+
+No changes to `nuheat_master_proposal.js` — its inputs keep their exact shape.
+
+### Changed — the Send proposal page (SL 2.0.0)
+- **Redesigned** as one inline-HTML body inside the serverWidget form (NetSuite chrome kept): header
+  with back link and status, **1 Choose quotes** (Leave out / Main / Additional per quote; tag-stripped,
+  escaped titles; one-line description; inc- and ex-VAT prices; "View" link), **2 Send to** (To tags,
+  contact picker, CC/BCC), **3 Update the opportunity** (the four 1.8.0 fields with "Changed · was …"
+  markers) and a sticky footer (live summary, Cancel, Preview, Send proposal).
+- **Every quote starts at Leave out** unless there is exactly one, which starts at Main.
+- No native buttons, sublists or client script. A static inline script reads `data-` attributes and
+  submits NetSuite's `main_form`. `nuheat_send_quote_cs.js` is **detached**, kept for reference.
+
+### Security
+- **The page posts only `{ estimateId: role }`.** The Suitelet rebuilds every quote from
+  `searchRelatedQuotes()` for both send and preview; client-supplied prices are gone. An ID that is not
+  one of the Opportunity's quotes rejects the request. `toProposalQuote()` reproduces the pre-2.0
+  sublist round trip exactly (fixture captured from 1.8.0 in the test suite).
+
+### Added
+- **`updateForecastFlags()`** — after a successful email, sets Estimate `includeinforecast` (⚠️ assumed
+  ID, type-checked at runtime) true for Main and false otherwise, on the quotes the page showed, only
+  where it differs; one `submitFields` per Estimate, failures isolated and reported.
+- **Back to the Opportunity** — `redirect.toRecord` (VIEW, same tab) with code-only parameters.
+  **Opportunity UE v1.2.0** shows a green "Proposal sent" or amber "wasn't fully updated" banner built
+  from the record; expires after 300 s; fails closed.
+- **Opportunity CS v1.1.0** opens the Suitelet in the same tab.
+
+### Fixed
+- **Probability now follows Status**: `enableSourcing: true` on the Opportunity write only when Status
+  changed (1.8.0 Sandbox S5 found it stale with sourcing off).
+
+### Changed — failure handling
+- Validation, generation and email failures **re-render the page** with an error panel and the user's
+  selections, addresses and field values restored; nothing further is written. ⚠️ If the email fails,
+  the Master Proposal has already saved the file and written the proposal URL / sent date (before the
+  email, as since v1.6) — the panel says so.
+
+### Removed
+- `showSuccessPage()` and its panel, the sublists, `buildTwoColumnTopHTML()`, `buildInstructionsHTML()`,
+  `buildFormCSS()`, all `clientScriptModulePath` assignments.
+
+### Governance (Suitelet, 1,000 units)
+Standard unit costs: transaction load / submitFields 10, entity load 5, search page 10, file save 20,
+file load 10, email send 10.
+- **Per send (POST):** quote rebuild 10 + 10 × quotes on the Opportunity; Master Proposal 60 (Opportunity
+  10, customer 5, employee 5, file save 20, file load 10, proposal-URL write 10); email 30 (a second
+  `loadOpportunityData()` 20 + send 10); Opportunity field write 10 when anything changed; 10 per forecast
+  flag that changes. **≈ 110 + 10 × quotes + 10 × flags changed** — five quotes, all flags changing: ≈ 210.
+- **Per preview:** quote rebuild 10 + 10 × quotes, plus `generatePreviewHTML()`'s `loadOpportunityData()` 20.
+  **≈ 30 + 10 × quotes** — five quotes: ≈ 80 (was ≈ 20 before 2.0.0, when the browser supplied the prices).
+- **Page load (GET):** unchanged from 1.8.0. A failed send's re-render reuses the POST's quotes (≈ 21 more).
+
+### Tests
+- `node test/send-quote-opp-update.js` — 133 assertions: 1.8.0 field rules carried forward (A1–A13)
+  and the 2.0.0 brief's B1–B19.
+
+---
+
+## [Send Quote SL v1.8.0 / Opportunity UE v1.1.0] — 28 September 2026
+**Status:** ⏳ Pending Sandbox testing
+**Components:** `nuheat_send_quote_sl.js`, `nuheat_opportunity_ue.js`, `nuheat_send_quote_cs.js` (rename only),
+`test/send-quote-opp-update.js` (new)
+
+No changes to `nuheat_master_proposal.js` — the existing proposal-URL write
+(`updateOpportunityWithProposalUrl()`) stays where it is, before the email.
+
+### Added — update the opportunity when a proposal is sent
+- **"Update opportunity" field group** on the Send Quote form (only when quotes exist) with four
+  optional native fields, pre-populated from the Opportunity:
+
+  | Form field | Opportunity field | Type |
+  |---|---|---|
+  | `custpage_upd_entitystatus` | `entitystatus` (Status) | SELECT |
+  | `custpage_upd_next_contact` | `custbody_next_contact` (Next contact) | DATE |
+  | `custpage_upd_del_date` | `custbody_opp_del_date` (Est. delivery date) | DATE |
+  | `custpage_upd_build_stage` | `custbody_build_stage` (Build stage) | SELECT, blank first option |
+
+- SELECT options are read **from the Opportunity itself** (`getField().getSelectOptions()` on a
+  dynamic load), so no list or internal IDs are in code. A field is **not shown** (audit-logged under
+  `SendQuoteSL.OppUpdate`) if its options cannot be read, if NetSuite reports a type other than the
+  one assumed, or — for Status, which has no blank option — if the current value is not among the
+  options (the dropdown would otherwise default to its first entry and an untouched submit would
+  change the status).
+- **`updateOpportunityFields()`** runs after `generateMasterProposal()` **and a successful
+  `email.send`**. Only changed, non-blank values are written, in one `record.submitFields`
+  (`enableSourcing: false`, `ignoreMandatoryFields: true`), dates as `Date` objects. Nothing changed
+  → no write. It never throws: a failure shows a warning on the success page naming the fields to set
+  by hand. If the email failed, nothing is written.
+- **Success page** reports the outcome in a new "Opportunity update" panel.
+
+### Changed
+- The unconditional "The Opportunity record has been updated with the proposal URL" is now
+  "Proposal link saved to the opportunity." — always true by the time the page renders, because a
+  failed proposal-link write goes to the error page.
+- The existing Opportunity `record.load` in `showQuoteSelectionForm()` is now `isDynamic: true`
+  (required for `getSelectOptions()`). Same 10-unit cost; the values it reads are unchanged.
+- **Opportunity UE v1.1.0:** the "Send Quote" button is added in **VIEW mode only**. With the record
+  open in EDIT, the Suitelet's write followed by the user's save would fail with "record has been
+  changed" or silently overwrite the Suitelet's values.
+- **Client script renamed** `nuheat_send_quote_cs (1).js` → `nuheat_send_quote_cs.js` to match the
+  File Cabinet file and `clientScriptModulePath`. Content unchanged; stays v1.4.0; **no re-upload**.
+
+### Deliberate
+- `custbody_opportunity_sub_status` is **never** written — some values create Design Instruction rows.
+- Write after the email, never before, never blocking it. A blank never clears a field.
+- All status options the record offers are shown, closed ones included; the role's own permissions
+  (the deployment runs as the current role) govern what can be set.
+
+### Tests
+- `node test/send-quote-opp-update.js` — first committed test in the repository. Loads the real
+  Suitelet and Opportunity UE under stubbed `N/*` modules; 14 scenarios.
+
+### Governance (per Generate & Send)
+- GET: unchanged (the dynamic load replaces the standard one).
+- POST: + one Opportunity `submitFields` (10 units) only when something changed, + one
+  `search.lookupFields` (1 unit) for display text when a SELECT changed.
+
+---
+
 ## [Quote Suitelet v4.6.0 / Master Proposal v1.8.3] — 18 August 2026
 **Status:** ✅ Live in Production — deployed 20 August 2026
 **Components:** `nuheat_quote_suitelet.js`, `nuheat_master_proposal.js`
@@ -704,6 +920,9 @@ Two related problems with the v4.3.70 blanket grant:
 
 ### Files Changed
 - `nuheat_send_quote_sl.js` — Sublist ID corrected to `'contactroles'`; version bumped to v1.5.1
+
+> **Correction (Sep 2026):** the `'contactroles'` sublist did not work either. The code loads contacts
+> with an Opportunity search joined to `contact` — see `AI_AGENT_CONTEXT.md` §9, pitfall 11.
 
 ---
 

@@ -6,13 +6,18 @@
  * @name        Nu-Heat Opportunity Client Script
  * @description Client script for the Opportunity record.
  *              Handles the "Send Quote" button click — opens the Send Quote
- *              Selection Suitelet in a new browser tab.
- * @version     1.0.0
+ *              Suitelet in the same browser tab.
+ * @version     1.1.0
  * @author      Nu-Heat Development
  *
  * Script ID:      customscript_nuheat_opportunity_cs
  * Deployment ID:  customdeploy_nuheat_opportunity_cs
  * Applies To:     Opportunity
+ *
+ * CHANGELOG v1.1.0 (Send Quote SL 2.0.0):
+ *   - CHANGED: openSendQuoteSuitelet() navigates in the SAME tab (window.location.href) instead
+ *     of window.open(..., '_blank'). Send Quote SL 2.0.0 redirects back to this Opportunity after
+ *     a send, so the user ends up where they started with the result banner.
  */
 
 define(['N/url', 'N/currentRecord', 'N/log'],
@@ -20,7 +25,7 @@ function (url, currentRecord, log) {
 
     'use strict';
 
-    var SCRIPT_VERSION = '1.0.0';
+    var SCRIPT_VERSION = '1.1.0';
 
     // ─── Suitelet identifiers ─────────────────────────────────────────────────
     var SEND_QUOTE_SCRIPT_ID     = 'customscript_nuheat_send_quote_sl';
@@ -38,7 +43,7 @@ function (url, currentRecord, log) {
      *
      * Called by the "Send Quote" button added by nuheat_opportunity_ue.js.
      * Builds the Suitelet URL with the current Opportunity ID as a parameter
-     * and opens it in a new browser tab.
+     * and opens it in the same tab (v1.1.0).
      */
     function openSendQuoteSuitelet() {
         try {
@@ -63,8 +68,8 @@ function (url, currentRecord, log) {
                 }
             });
 
-            // Open in a new tab
-            window.open(suiteletUrl, '_blank');
+            // v1.1.0: same tab — the Suitelet returns here after a send
+            window.location.href = suiteletUrl;
 
         } catch (e) {
             log.error('OpportunityCS.openSendQuoteSuitelet', 'Error: ' + e.message);

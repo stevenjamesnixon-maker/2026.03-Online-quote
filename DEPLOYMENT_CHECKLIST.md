@@ -32,11 +32,11 @@
 | Quote Viewer | `nuheat_quote_viewer_sl.js` | v1.1.0 |
 | Scheduled Script | `nuheat_quote_generator_ss.js` | v1.0.0 |
 | Master Proposal | `nuheat_master_proposal.js` | v1.8.3 |
-| Send Quote SL | `nuheat_send_quote_sl.js` | v1.7.0 |
-| Send Quote CS | `nuheat_send_quote_cs (1).js` | v1.4.0 |
+| Send Quote SL | `nuheat_send_quote_sl.js` | 2.0.3 — pending Sandbox |
+| Send Quote CS | `nuheat_send_quote_cs.js` | v1.4.0 — detached (no upload needed) |
 | Analytics Suitelet | `nuheat_analytics_sl.js` | v1.0.1 |
-| Opportunity UE | `nuheat_opportunity_ue.js` | v1.0.0 |
-| Opportunity CS | `nuheat_opportunity_cs.js` | v1.0.0 |
+| Opportunity UE | `nuheat_opportunity_ue.js` | 1.2.1 — pending Sandbox |
+| Opportunity CS | `nuheat_opportunity_cs.js` | 1.1.0 — pending Sandbox |
 
 > Read each version from the `SCRIPT_VERSION` / `MODULE_VERSION` constant in the file, not from the
 > JSDoc header — the two drift. `nuheat_quote_ue.js` is currently out by one patch version
@@ -65,7 +65,7 @@
 
 ### 1.3 File Cabinet
 
-- [ ] Folder `SuiteScripts > NuHeat` exists
+- [ ] Folder `SuiteScripts > NuHeat > 2026 Quote` exists (all 13 scripts)
 - [ ] Folder `SuiteScripts > NuHeat > Quote HTML Files` exists
 - [ ] Quote HTML Files folder ID matches the **target environment** — Production `26895192`,
       Sandbox `21719365` — in **all three** files (see the warning under Step 4)
@@ -83,18 +83,18 @@
 
 ### Step 1: Upload Scripts to File Cabinet
 
-1. Navigate to **Documents > Files > SuiteScripts > NuHeat**
+1. Navigate to **Documents > Files > SuiteScripts > NuHeat > 2026 Quote**
 
 > ### ⚠️ UPLOAD ORDER MATTERS (v4.4.0, v4.5.0)
 >
 > **`nuheat_bus_grant.js` AND `nuheat_vat_rates.js` MUST be uploaded FIRST**, before
 > `nuheat_quote_suitelet.js` or `nuheat_send_quote_sl.js` are redeployed. Both consumers
 > `define()` them as `'./nuheat_bus_grant'` and `'./nuheat_vat_rates'`, and **both fail at load
-> time** if either module is not already present in `SuiteScripts/NuHeat`.
+> time** if either module is not already present in `SuiteScripts/NuHeat/2026 Quote`.
 >
 > Both are shared custom modules — they need **no script record and no script deployment record**,
 > only the File Cabinet upload. The relative path resolves against the calling script's own folder,
-> so all files must sit in the same `SuiteScripts/NuHeat` folder.
+> so all files must sit in the same `SuiteScripts/NuHeat/2026 Quote` folder.
 >
 > If you have already redeployed a consumer and it is erroring on load, upload the missing module
 > and the error clears — no redeploy of the consumer is needed.
@@ -109,7 +109,7 @@
    - `nuheat_quote_generator_ss.js`
    - `nuheat_master_proposal.js`
    - `nuheat_send_quote_sl.js`
-   - `nuheat_send_quote_cs (1).js`
+   - `nuheat_send_quote_cs.js`
    - `nuheat_opportunity_ue.js`
    - `nuheat_opportunity_cs.js`
 3. If updating existing files, select "Replace" when prompted
@@ -120,7 +120,7 @@ Navigate to **Customization > Scripting > Scripts > New** for each:
 
 #### 2a. Quote Suitelet
 - **Name:** Nu-Heat Quote Page Suitelet
-- **Script File:** `SuiteScripts/NuHeat/nuheat_quote_suitelet.js`
+- **Script File:** `SuiteScripts/NuHeat/2026 Quote/nuheat_quote_suitelet.js`
 - **Deployment:**
   - ID: `customdeploy1`
   - Title: Nu-Heat Quote Page
@@ -133,7 +133,7 @@ Navigate to **Customization > Scripting > Scripts > New** for each:
 
 #### 2b. Quote User Event
 - **Name:** Nu-Heat Quote UE
-- **Script File:** `SuiteScripts/NuHeat/nuheat_quote_ue.js`
+- **Script File:** `SuiteScripts/NuHeat/2026 Quote/nuheat_quote_ue.js`
 - **Deployment:**
   - ID: `customdeploy_nuheat_quote_ue`
   - Applies To: Estimate
@@ -142,7 +142,7 @@ Navigate to **Customization > Scripting > Scripts > New** for each:
 
 #### 2c. Quote Client Script
 - **Name:** Nu-Heat Quote CS
-- **Script File:** `SuiteScripts/NuHeat/nuheat_quote_cs.js`
+- **Script File:** `SuiteScripts/NuHeat/2026 Quote/nuheat_quote_cs.js`
 - **Deployment:**
   - ID: `customdeploy_nuheat_quote_cs`
   - Applies To: Estimate
@@ -150,7 +150,7 @@ Navigate to **Customization > Scripting > Scripts > New** for each:
 
 #### 2d. Quote Viewer Suitelet ⚠️ CRITICAL
 - **Name:** Nu-Heat Quote Viewer
-- **Script File:** `SuiteScripts/NuHeat/nuheat_quote_viewer_sl.js`
+- **Script File:** `SuiteScripts/NuHeat/2026 Quote/nuheat_quote_viewer_sl.js`
 - **Deployment:**
   - ID: `customdeploy_nuheat_quote_viewer`
   - Title: Nu-Heat Quote Viewer
@@ -162,7 +162,7 @@ Navigate to **Customization > Scripting > Scripts > New** for each:
 
 #### 2e. Scheduled Script
 - **Name:** Nu-Heat Quote Generator SS
-- **Script File:** `SuiteScripts/NuHeat/nuheat_quote_generator_ss.js`
+- **Script File:** `SuiteScripts/NuHeat/2026 Quote/nuheat_quote_generator_ss.js`
 - **Deployment:**
   - ID: `customdeploy_nuheat_quote_gen_ss`
   - Status: Released
@@ -171,14 +171,14 @@ Navigate to **Customization > Scripting > Scripts > New** for each:
 
 #### 2f. Send Quote Suitelet
 - **Name:** Nu-Heat Send Quote Selection
-- **Script File:** `SuiteScripts/NuHeat/nuheat_send_quote_sl.js`
+- **Script File:** `SuiteScripts/NuHeat/2026 Quote/nuheat_send_quote_sl.js`
 - **Deployment:**
   - ID: `customdeploy_nuheat_send_quote_sl`
   - Status: Released
 
 #### 2g. Opportunity User Event
 - **Name:** Nu-Heat Opportunity UE
-- **Script File:** `SuiteScripts/NuHeat/nuheat_opportunity_ue.js`
+- **Script File:** `SuiteScripts/NuHeat/2026 Quote/nuheat_opportunity_ue.js`
 - **Deployment:**
   - ID: `customdeploy_nuheat_opportunity_ue`
   - Applies To: Opportunity
@@ -187,13 +187,15 @@ Navigate to **Customization > Scripting > Scripts > New** for each:
 
 #### 2h. Opportunity Client Script
 - **Name:** Nu-Heat Opportunity CS
-- **Script File:** `SuiteScripts/NuHeat/nuheat_opportunity_cs.js`
+- **Script File:** `SuiteScripts/NuHeat/2026 Quote/nuheat_opportunity_cs.js`
 - **Deployment:**
   - ID: `customdeploy_nuheat_opportunity_cs`
   - Applies To: Opportunity
   - Status: Released
 
-> **Note:** `nuheat_send_quote_cs (1).js` does NOT need a separate script record — it's loaded inline by the Send Quote Suitelet.
+> **Note:** `nuheat_send_quote_cs.js` does NOT need a separate script record. From Send Quote SL 2.0.0 it is **not attached at all** (the page has its own inline script); it stays in the repository for reference.
+>
+> **Send Quote SL deployment Log Level must be Audit or Debug** — the `SendQuoteSL.OppUpdate`, `SendQuoteSL.Forecast` and `SendQuoteSL.Redirect` lines are audit-level.
 
 ### Step 3: Verify Folder Permissions
 

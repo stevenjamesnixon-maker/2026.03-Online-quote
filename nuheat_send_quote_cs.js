@@ -9,7 +9,12 @@
  * @version     1.4.0
  * @author      Nu-Heat Development
  *
- * NOTE: This script is loaded inline by the Suitelet via form.clientScriptModulePath.
+ * ⚠️ DETACHED in Send Quote SL 2.0.0; kept for reference. Do not reattach without removing the
+ *    inline script. SL 2.0.0 renders its page as one inline-HTML body whose static script owns all
+ *    behaviour (and sends only quote IDs and roles, never prices); this file's sublist handling
+ *    targets fields that no longer exist.
+ *
+ * NOTE (pre-2.0): This script was loaded inline by the Suitelet via form.clientScriptModulePath.
  *       It does NOT need a separate Script Record deployment.
  *
  * CHANGELOG v1.1.1 (Preview Data Fix):

@@ -3,7 +3,7 @@
 **Version:** 1.1.0  
 **Last Updated:** 20 August 2026  
 **Applies to:** Suitelet v4.6.0, UE v4.0.9, CS v4.0.6, Viewer v1.1.0, Master Proposal v1.8.3,
-Send Quote SL v1.7.0, Send Quote CS v1.4.0, BUS Grant Module v1.0.0, VAT Rates Module v1.0.0
+Send Quote SL 2.0.3 — pending Sandbox, Send Quote CS v1.4.0 (detached), Opportunity UE 1.2.1 — pending Sandbox, Opportunity CS 1.1.0 — pending Sandbox, BUS Grant Module v1.0.0, VAT Rates Module v1.0.0
 
 ---
 
@@ -170,10 +170,10 @@ EXTERNAL ACCESS:
 | Quote Viewer | `nuheat_quote_viewer_sl.js` | v1.1.0 | Suitelet | Proxy that serves latest quote HTML via stable URL |
 | Scheduled Script | `nuheat_quote_generator_ss.js` | v1.0.0 | ScheduledScript | Fallback for governance-limited UE contexts |
 | Master Proposal | `nuheat_master_proposal.js` | v1.8.3 | Module | Generates multi-quote master proposals |
-| Send Quote SL | `nuheat_send_quote_sl.js` | v1.7.0 | Suitelet | Quote selection UI for proposal generation |
-| Send Quote CS | `nuheat_send_quote_cs (1).js` | v1.4.0 | ClientScript | Handles Send Quote form interactions |
-| Opportunity UE | `nuheat_opportunity_ue.js` | v1.0.0 | UserEventScript | Adds "Send Quote" button to Opportunity form |
-| Opportunity CS | `nuheat_opportunity_cs.js` | v1.0.0 | ClientScript | Opens Send Quote Suitelet from Opportunity |
+| Send Quote SL | `nuheat_send_quote_sl.js` | 2.0.3 — pending Sandbox | Suitelet | "Send proposal" page: quotes, recipients, opportunity fields; generates, emails, updates, returns to the Opportunity |
+| Send Quote CS | `nuheat_send_quote_cs.js` | v1.4.0 — detached | ClientScript | **Not attached from SL 2.0.0** — kept for reference only |
+| Opportunity UE | `nuheat_opportunity_ue.js` | 1.2.1 — pending Sandbox | UserEventScript | Adds "Send Quote" button (VIEW only) and the Send Quote result banner |
+| Opportunity CS | `nuheat_opportunity_cs.js` | 1.1.0 — pending Sandbox | ClientScript | Opens Send Quote Suitelet from Opportunity (same tab) |
 
 ### 2.2 Dependencies Between Components
 
@@ -183,7 +183,7 @@ nuheat_quote_ue.js ──────────────▶ nuheat_quote_su
 nuheat_quote_generator_ss.js ───▶ nuheat_quote_suitelet.js (module import)
 nuheat_quote_suitelet.js ────────▶ nuheat_quote_viewer_sl.js (URL generation)
 nuheat_send_quote_sl.js ─────────▶ nuheat_master_proposal.js (module import)
-nuheat_send_quote_sl.js ─────────▶ nuheat_send_quote_cs (1).js (inline client script)
+nuheat_send_quote_sl.js ─────────▶ nuheat_opportunity_ue.js (redirect.toRecord → result banner)   ← v2.0.0
 nuheat_opportunity_ue.js ────────▶ nuheat_opportunity_cs.js (button handler)
 nuheat_opportunity_cs.js ────────▶ nuheat_send_quote_sl.js (opens Suitelet)
 nuheat_master_proposal.js ──────▶ nuheat_quote_viewer_sl.js (embed proxy URLs)
@@ -223,7 +223,7 @@ needed. `extractLineItems()` deliberately does **not** read `taxcode` / `taxrate
 |---|---|---|
 | `nuheat_quote_suitelet.js` | `custbody_quote_type` (try/catch), falling back to inference from grouped items | `quoteData.vat` |
 | `nuheat_send_quote_sl.js` | `quoteTypeDisplay` per Estimate | `vatRate` / `vatPercent` on the quote entry; also overrides `taxTotal` and `amount` |
-| `nuheat_master_proposal.js` | **Cannot resolve** — no line-item or record access | receives the values via hidden sublist fields |
+| `nuheat_master_proposal.js` | **Cannot resolve** — no line-item or record access | receives the values on the quote objects built by `toProposalQuote()` (SL 2.0.0) |
 
 **Arithmetic.** `netAmount = subtotal − discount` (VAT applies after discount, consistent with the
 documented invariant `total = subtotal − discount + tax`); `derivedVat = round(netAmount × rate, 2)`;
@@ -238,7 +238,7 @@ look correct. `QUOTE_TYPE_ALIASES` mirrors `QUOTE_TYPE_MAPPING` in `nuheat_send_
 quote type must be added in both.
 
 > ⚠️ **Deployment ordering.** Same rule as the BUS module — upload `nuheat_vat_rates.js` to
-> `SuiteScripts/NuHeat` **before** either consumer is redeployed.
+> `SuiteScripts/NuHeat/2026 Quote` **before** either consumer is redeployed.
 
 #### Shared BUS module dependency (v4.4.0)
 
@@ -264,12 +264,13 @@ resolution per quote.
 | `nuheat_send_quote_sl.js` | Reads the item sublist off each Estimate it already `record.load()`s | `busAmount` / `busRate` on the quote entry |
 | `nuheat_master_proposal.js` | **Cannot resolve** — it never loads an Estimate and has no line-item access | receives `busAmount` / `busRate` from the Send Quote SL |
 
-The Send Quote SL passes the values through a `serverWidget` sublist, which carries **TEXT**, so
-`busAmount` is stringified on the way out (`custpage_bus_amount`) and `parseFloat`'d on the way back
-in. `nuheat_send_quote_cs (1).js` collects the same two fields into the preview payload so preview
-and the saved proposal agree.
+From SL 2.0.0 the Send Quote SL builds the proposal's quote objects on the server with
+`toProposalQuote()`, from `searchRelatedQuotes()`, for **both** the send and the preview — the page
+posts only quote IDs and roles. (Before 2.0.0 the values round-tripped through hidden TEXT sublist
+columns, and preview was assembled separately by the client script; `toProposalQuote()` keeps that
+round trip's exact output shape, `busAmount` and `vatRate` as numbers included.)
 
-> ⚠️ **Deployment ordering.** `nuheat_bus_grant.js` must be uploaded to `SuiteScripts/NuHeat`
+> ⚠️ **Deployment ordering.** `nuheat_bus_grant.js` must be uploaded to `SuiteScripts/NuHeat/2026 Quote`
 > **before** either consumer is redeployed — both fail at load time otherwise. It requires no script
 > record and no script deployment record; the relative path resolves against the calling script's own
 > File Cabinet folder, so all files must live in the same folder. See `DEPLOYMENT_CHECKLIST.md`.
@@ -401,17 +402,21 @@ and the saved proposal agree.
 ```
 SuiteScripts/
 └── NuHeat/
-    ├── nuheat_quote_suitelet.js
-    ├── nuheat_quote_ue.js
-    ├── nuheat_quote_cs.js
-    ├── nuheat_quote_viewer_sl.js
-    ├── nuheat_quote_generator_ss.js
-    ├── nuheat_master_proposal.js
-    ├── nuheat_send_quote_sl.js
-    ├── nuheat_send_quote_cs (1).js
-    ├── nuheat_opportunity_ue.js
-    ├── nuheat_opportunity_cs.js
-    └── Quote HTML Files/          ← Folder ID: environment-specific (see below)
+    ├── 2026 Quote/                ← all 13 scripts live here (capital H in NuHeat)
+    │   ├── nuheat_bus_grant.js
+    │   ├── nuheat_vat_rates.js
+    │   ├── nuheat_quote_suitelet.js
+    │   ├── nuheat_quote_ue.js
+    │   ├── nuheat_quote_cs.js
+    │   ├── nuheat_quote_viewer_sl.js
+    │   ├── nuheat_quote_generator_ss.js
+    │   ├── nuheat_master_proposal.js
+    │   ├── nuheat_send_quote_sl.js
+    │   ├── nuheat_send_quote_cs.js
+    │   ├── nuheat_opportunity_ue.js
+    │   ├── nuheat_opportunity_cs.js
+    │   └── nuheat_analytics_sl.js
+    └── Quote HTML Files/          ← Folder ID: environment-specific (see below); scripts address it by ID, not path
         ├── quote_12345_67890_1711612800000.html
         ├── quote_12345_67890_1711612900000.html
         ├── proposal_67890_1711613000000.html
@@ -725,7 +730,7 @@ Refer to `PRODUCT_TYPE_ID_MAP` and `PRODUCT_CATEGORY_MAP` in `nuheat_quote_suite
 |---------|---------|------------|
 | Account ID | 472052_SB1 | — |
 | SuiteScript Version | 2.1 | 2.1 |
-| Script Folder | SuiteScripts > NuHeat | SuiteScripts > NuHeat |
+| Script Folder | SuiteScripts > NuHeat > 2026 Quote | SuiteScripts > NuHeat > 2026 Quote |
 | HTML Folder ID | `21719365` | `26895192` |
 | Domain (External) | 472052-sb1.extforms.netsuite.com | — |
 
