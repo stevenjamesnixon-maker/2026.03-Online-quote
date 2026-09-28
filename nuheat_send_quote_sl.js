@@ -8,11 +8,23 @@
  *              Additional), recipients and four Opportunity fields, then generate and email the
  *              Master Proposal, update the Opportunity and the quotes' forecast flags, and return
  *              to the Opportunity. Supports preview (generates HTML without saving).
- * @version     2.1.0
+ * @version     2.1.1
  * @author      Nu-Heat Development
  *
  * Script ID:      customscript_nuheat_send_quote_sl
  * Deployment ID:  customdeploy_nuheat_send_quote_sl
+ *
+ * CHANGELOG v2.1.1 (Proposal email — duplicated contact buttons, left drift):
+ *   - FIXED (buildEmailBody only): the CLICK TO CALL and SEND AN EMAIL Outlook fallbacks were wrapped
+ *     in <div style="display:none; mso-hide: none;">, so any viewer that strips inline styles
+ *     (NetSuite's message view, some webmail) showed each button twice. They now use
+ *     <!--[if mso]> … <![endif]-->, as the VIEW YOUR QUOTE(S) button has since v1.4.1.
+ *   - FIXED: both main-container tables were width="100%" with only an inline max-width:600px, so a
+ *     viewer that strips styles stretched them full width and the 600px content drifted left. The
+ *     attribute is now width="600" and the style width:100%;max-width:600px (styled clients unchanged;
+ *     the mobile media queries still force 100% with !important).
+ *   - Long-standing: buildEmailBody() was byte-identical from 539edc5 to 2.1.0 — not caused by 2.x.
+ *     No copy, colour, image, link or merge tag changed.
  *
  * CHANGELOG v2.1.0 (Extraction — no behaviour change):
  *   - MOVED to ./nuheat_opp_update_lib (1.0.0), unchanged: the update-field definitions and display
@@ -265,7 +277,7 @@ define([
 
     // ─── Constants ────────────────────────────────────────────────────────────────
 
-    var SCRIPT_VERSION = '2.1.0';
+    var SCRIPT_VERSION = '2.1.1';
 
     /**
      * Mapping from the NetSuite custbody_quote_type list values
@@ -1249,7 +1261,7 @@ define([
             '<tr>\n' +
             '<td align="center" width="100%">\n' +
             '<!--[if gte mso 9]><table width="600" cellpadding="0" cellspacing="0"><tr><td><![endif]-->\n' +
-            '<table class="width600 main-container" cellpadding="0" cellspacing="0" border="0" width="100%" style="max-width:600px;">\n' +
+            '<table class="width600 main-container" cellpadding="0" cellspacing="0" border="0" width="600" style="width:100%;max-width:600px;">\n' +
             '<tr>\n' +
             '<td width="100%">\n' +
             '<table cellpadding="0" cellspacing="0" border="0" width="100%" bgcolor="#ffffff" style="background-color:#ffffff;"><tr><td>\n' +
@@ -1652,7 +1664,8 @@ define([
             '</span>\n' +
             '</a>\n' +
             '<!--<![endif]-->\n' +
-            '<div style="display:none; mso-hide: none;">\n' +
+            '<!-- Button for Outlook/MSO clients only (v2.1.1: conditional comment, as the quote button since v1.4.1 — never a display:none div, which viewers that strip styles show as a second button) -->\n' +
+            '<!--[if mso]>\n' +
             '<table cellpadding="0" cellspacing="0" border="0" bgcolor="#ffb500" class="fluid-on-mobile" style="border-radius:5px;border-collapse:separate !important;background-color:#ffb500;">\n' +
             '<tr>\n' +
             '<td align="center" style="padding:15px;">\n' +
@@ -1666,7 +1679,7 @@ define([
             '</td>\n' +
             '</tr>\n' +
             '</table>\n' +
-            '</div>\n' +
+            '<![endif]-->\n' +
             '</td>\n' +
             '</tr>\n' +
             '</table>\n' +
@@ -1697,7 +1710,8 @@ define([
             '</span>\n' +
             '</a>\n' +
             '<!--<![endif]-->\n' +
-            '<div style="display:none; mso-hide: none;">\n' +
+            '<!-- Button for Outlook/MSO clients only (v2.1.1: conditional comment, as the quote button since v1.4.1 — never a display:none div, which viewers that strip styles show as a second button) -->\n' +
+            '<!--[if mso]>\n' +
             '<table cellpadding="0" cellspacing="0" border="0" bgcolor="#ffb500" class="fluid-on-mobile" style="border-radius:5px;border-collapse:separate !important;background-color:#ffb500;">\n' +
             '<tr>\n' +
             '<td align="center" style="padding:15px;">\n' +
@@ -1711,7 +1725,7 @@ define([
             '</td>\n' +
             '</tr>\n' +
             '</table>\n' +
-            '</div>\n' +
+            '<![endif]-->\n' +
             '</td>\n' +
             '</tr>\n' +
             '</table>\n' +
@@ -1759,7 +1773,7 @@ define([
             '<tr>\n' +
             '<td align="center" width="100%">\n' +
             '<!--[if gte mso 9]><table width="600" cellpadding="0" cellspacing="0"><tr><td><![endif]-->\n' +
-            '<table class="width600 main-container" cellpadding="0" cellspacing="0" border="0" width="100%" style="max-width:600px;">\n' +
+            '<table class="width600 main-container" cellpadding="0" cellspacing="0" border="0" width="600" style="width:100%;max-width:600px;">\n' +
             '<tr>\n' +
             '<td width="100%">\n' +
             '<table cellpadding="0" cellspacing="0" border="0" width="100%" bgcolor="#ffffff" style="background-color:#ffffff;"><tr><td>\n' +
