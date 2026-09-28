@@ -9,11 +9,30 @@
  *              categorise them as Main or Additional, and trigger proposal generation.
  *              Supports preview (generates HTML without saving) and email sending.
  *              Quotes are grouped into separate sections by type.
- * @version     1.7.0
+ * @version     1.8.0
  * @author      Nu-Heat Development
  *
  * Script ID:      customscript_nuheat_send_quote_sl
  * Deployment ID:  customdeploy_nuheat_send_quote_sl
+ *
+ * CHANGELOG v1.8.0 (Update opportunity on send):
+ *   - ADDED: "Update opportunity" field group on the form with four optional native fields —
+ *     Status (entitystatus), Next contact (custbody_next_contact), Est. delivery date
+ *     (custbody_opp_del_date) and Build stage (custbody_build_stage) — pre-populated from the
+ *     Opportunity. SELECT options are read from the record itself (dynamic load +
+ *     getSelectOptions()), so no list or internal IDs live in code. A field whose options cannot
+ *     be read, or whose NetSuite type is not the one assumed, is not shown (audit-logged).
+ *   - ADDED: updateOpportunityFields() — runs AFTER a successful email.send, writes only fields
+ *     the user changed, never writes a blank, one submitFields call. A failure never turns a
+ *     sent proposal into an error page; the success page shows a warning instead.
+ *   - CHANGED: The existing Opportunity record.load is now isDynamic (needed for
+ *     getSelectOptions()). Same 10-unit cost; the values read from it are unchanged.
+ *   - CHANGED: Success page no longer claims unconditionally that the Opportunity was updated;
+ *     it states the proposal link was saved and reports the field update outcome separately.
+ *   - ⚠️ custbody_opportunity_sub_status is NEVER written here — some sub-status values create
+ *     Design Instruction rows.
+ *   - NOTE: The Send Quote button is now VIEW-only (nuheat_opportunity_ue.js v1.1.0) so the
+ *     write cannot race an open EDIT session.
  *
  * CHANGELOG v1.7.0 (VAT by technology):
  *   - ADDED: Derives the VAT rate from the quote's technology via ./nuheat_vat_rates and passes
@@ -172,7 +191,7 @@ define([
 
     // ─── Constants ────────────────────────────────────────────────────────────────
 
-    var SCRIPT_VERSION = '1.7.0';
+    var SCRIPT_VERSION = '1.8.0';
 
     /**
      * Mapping from the NetSuite custbody_quote_type list values
@@ -237,6 +256,30 @@ define([
         border:     '#dee2e6',
         textMuted:  '#6c757d'
     };
+
+    /**
+     * v1.8.0: Opportunity fields the account manager can update when sending a proposal.
+     *
+     * `kind` is the field type ASSUMED for each field — the GET checks it against the type
+     * NetSuite reports (record.getField().type) and does not show a field that disagrees.
+     * The two date types and the Build stage type are assumptions awaiting confirmation.
+     *
+     * ⚠️ custbody_opportunity_sub_status must NEVER be added here. Some sub-status values
+     * create Design Instruction rows; this Suitelet does not own that field.
+     */
+    var OPP_UPDATE_FIELDS = [
+        { key: 'entitystatus', fieldId: 'entitystatus',          label: 'Status',             kind: 'select', blankOption: false },
+        { key: 'next_contact', fieldId: 'custbody_next_contact', label: 'Next contact',       kind: 'date' },
+        { key: 'del_date',     fieldId: 'custbody_opp_del_date', label: 'Est. delivery date', kind: 'date' },
+        { key: 'build_stage',  fieldId: 'custbody_build_stage',  label: 'Build stage',        kind: 'select', blankOption: true }
+    ];
+
+    var OPP_UPDATE_GROUP_ID  = 'custpage_grp_opp_update';
+    var OPP_UPDATE_KEYS_FIELD = 'custpage_upd_fields';   // hidden: keys of the fields actually shown
+
+    function updFieldId(def)     { return 'custpage_upd_' + def.key; }
+    function origFieldId(def)    { return 'custpage_orig_' + def.key; }
+    function origTextFieldId(def) { return 'custpage_origtxt_' + def.key; }
 
     // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -398,7 +441,8 @@ define([
         // ── Load Opportunity record ──────────────────────────────────────────────
         var oppRecord;
         try {
-            oppRecord = record.load({ type: record.Type.OPPORTUNITY, id: opportunityId });
+            // v1.8.0: isDynamic so getSelectOptions() works for the Update opportunity section
+            oppRecord = record.load({ type: record.Type.OPPORTUNITY, id: opportunityId, isDynamic: true });
         } catch (e) {
             log.error('SendQuoteSL.showForm', 'Failed to load Opportunity ' + opportunityId + ': ' + e.message);
             showErrorPage(context, 'Could not load Opportunity record (ID: ' + opportunityId + '). Please check the record exists and you have permission to view it.');
@@ -553,6 +597,9 @@ define([
             label: 'Instructions'
         });
         instructionsField.defaultValue = buildInstructionsHTML(quotes.length);
+
+        // ── Update opportunity (v1.8.0) ───────────────────────────────────────────
+        addOpportunityUpdateSection(form, oppRecord, opportunityId);
 
         // ── Group quotes by type ──────────────────────────────────────────────────
         var quotesByType = {};
@@ -931,6 +978,16 @@ define([
             emailResult = { success: false, error: emailErr.message };
         }
 
+        // ── Update Opportunity fields (v1.8.0) ─────────────────────────────────
+        // Only after the email has gone out: if the proposal was not sent, the Opportunity
+        // must not say it was. Never throws.
+        var oppUpdate = { attempted: false, changed: [], error: '' };
+        if (emailResult.success) {
+            oppUpdate = updateOpportunityFields(opportunityId, request);
+        } else {
+            log.audit('SendQuoteSL.OppUpdate', 'Opportunity ' + opportunityId + ' — skipped, email was not sent');
+        }
+
         // ── Show Success Page ────────────────────────────────────────────────────
         showSuccessPage(context, opportunityId, mainQuotes, additionalQuotes, proposalResult, {
             sent:    emailResult.success,
@@ -938,7 +995,245 @@ define([
             to:      emailTo,
             cc:      emailCc,
             bcc:     emailBcc
+        }, oppUpdate);
+    }
+
+    // ─── Update opportunity (v1.8.0) ──────────────────────────────────────────────
+
+    /**
+     * Adds the "Update opportunity" field group to the selection form.
+     *
+     * Each field is shown only if NetSuite reports the assumed type and, for SELECTs, the
+     * record returns options. Options come from the Opportunity itself (dynamic record,
+     * getSelectOptions()), so the list is exactly what NetSuite offers on this record and no
+     * internal IDs appear in code. Each shown field also gets a hidden original value so the
+     * POST can tell what the user changed.
+     *
+     * @param {serverWidget.Form} form
+     * @param {record.Record} oppRecord - Opportunity, loaded with isDynamic: true
+     * @param {string} opportunityId
+     */
+    function addOpportunityUpdateSection(form, oppRecord, opportunityId) {
+        var prepared = [];
+        var typeReport = [];
+
+        OPP_UPDATE_FIELDS.forEach(function (def) {
+            try {
+                var nsField = oppRecord.getField({ fieldId: def.fieldId });
+                if (!nsField) {
+                    typeReport.push(def.fieldId + '=(not on record)');
+                    log.audit('SendQuoteSL.OppUpdate', 'Opportunity ' + opportunityId + ' — ' + def.fieldId +
+                        ' not available on the record; field not shown');
+                    return;
+                }
+
+                var reportedType = String(nsField.type || '').toLowerCase();
+                typeReport.push(def.fieldId + '=' + reportedType);
+                if (reportedType !== def.kind) {
+                    log.audit('SendQuoteSL.OppUpdate', 'Opportunity ' + opportunityId + ' — ' + def.fieldId +
+                        ' reports type "' + reportedType + '" but "' + def.kind + '" was assumed; field not shown');
+                    return;
+                }
+
+                var raw = oppRecord.getValue({ fieldId: def.fieldId });
+
+                if (def.kind === 'select') {
+                    var options = nsField.getSelectOptions() || [];
+                    if (!options.length) {
+                        log.audit('SendQuoteSL.OppUpdate', 'Opportunity ' + opportunityId + ' — ' + def.fieldId +
+                            ' returned no select options; field not shown');
+                        return;
+                    }
+                    var rawStr = (raw === null || raw === undefined) ? '' : String(raw);
+                    var origText = '';
+                    options.forEach(function (o) {
+                        if (String(o.value) === rawStr) origText = o.text;
+                    });
+                    // Without a blank option the dropdown would default to its first entry, and an
+                    // untouched submit would then write a value the user never chose.
+                    if (!def.blankOption && !origText) {
+                        log.audit('SendQuoteSL.OppUpdate', 'Opportunity ' + opportunityId + ' — current ' + def.fieldId +
+                            ' value "' + rawStr + '" is not among its ' + options.length + ' options; field not shown');
+                        return;
+                    }
+                    prepared.push({ def: def, options: options, orig: rawStr, origText: origText });
+                } else {
+                    var dateStr = '';
+                    if (raw instanceof Date) {
+                        dateStr = format.format({ value: raw, type: format.Type.DATE });
+                    } else if (raw) {
+                        dateStr = String(raw);
+                    }
+                    prepared.push({ def: def, orig: dateStr, origText: dateStr });
+                }
+            } catch (e) {
+                log.audit('SendQuoteSL.OppUpdate', 'Opportunity ' + opportunityId + ' — ' + def.fieldId +
+                    ' could not be prepared (' + e.message + '); field not shown');
+            }
         });
+
+        // F3 check: the reported types are the evidence for the assumed ones.
+        log.audit('SendQuoteSL.OppUpdate', 'Opportunity ' + opportunityId + ' — reported field types: ' + typeReport.join(', '));
+
+        if (prepared.length === 0) {
+            return;
+        }
+
+        form.addFieldGroup({ id: OPP_UPDATE_GROUP_ID, label: 'Update opportunity' });
+
+        prepared.forEach(function (p) {
+            var def = p.def;
+            if (def.kind === 'select') {
+                var sel = form.addField({
+                    id:        updFieldId(def),
+                    type:      serverWidget.FieldType.SELECT,
+                    label:     def.label,
+                    container: OPP_UPDATE_GROUP_ID
+                });
+                if (def.blankOption) {
+                    sel.addSelectOption({ value: '', text: '', isSelected: p.orig === '' });
+                }
+                p.options.forEach(function (o) {
+                    var v = String(o.value);
+                    sel.addSelectOption({ value: v, text: o.text, isSelected: v === p.orig });
+                });
+            } else {
+                var dt = form.addField({
+                    id:        updFieldId(def),
+                    type:      serverWidget.FieldType.DATE,
+                    label:     def.label,
+                    container: OPP_UPDATE_GROUP_ID
+                });
+                if (p.orig) dt.defaultValue = p.orig;
+            }
+            addHiddenField(form, origFieldId(def), p.orig);
+            addHiddenField(form, origTextFieldId(def), p.origText);
+        });
+
+        addHiddenField(form, OPP_UPDATE_KEYS_FIELD, prepared.map(function (p) { return p.def.key; }).join(','));
+    }
+
+    function addHiddenField(form, id, value) {
+        var f = form.addField({ id: id, type: serverWidget.FieldType.TEXT, label: id });
+        f.defaultValue = value || '';
+        f.updateDisplayType({ displayType: serverWidget.FieldDisplayType.HIDDEN });
+        return f;
+    }
+
+    /**
+     * Parses a user-formatted date string to a Date, or returns null.
+     */
+    function parseDateValue(str) {
+        if (!str) return null;
+        try {
+            var d = format.parse({ value: str, type: format.Type.DATE });
+            return (d instanceof Date && !isNaN(d.getTime())) ? d : null;
+        } catch (e) {
+            return null;
+        }
+    }
+
+    /**
+     * Writes the Opportunity fields the user changed in the "Update opportunity" section.
+     *
+     * Called only after the proposal email has been sent. Rules:
+     *   - Only fields that were shown on the form are considered.
+     *   - A blank submitted value is never written (clearing here does nothing).
+     *   - An unchanged value is never written; nothing changed → no write at all.
+     *   - Everything that did change goes in ONE record.submitFields; dates as Date objects.
+     *   - Never throws. A failure is logged and returned in `error`.
+     *   - custbody_opportunity_sub_status is never written (not in OPP_UPDATE_FIELDS).
+     *
+     * @param {string} opportunityId
+     * @param {ServerRequest} request
+     * @returns {{attempted: boolean, changed: Array<{label: string, from: string, to: string}>, error: string}}
+     *          On error, `changed` lists the fields that were attempted but not saved.
+     */
+    function updateOpportunityFields(opportunityId, request) {
+        var result = { attempted: false, changed: [], error: '' };
+        var values = {};
+        var logParts = [];
+
+        try {
+            var params = request.parameters || {};
+            var shownKeys = String(params[OPP_UPDATE_KEYS_FIELD] || '').split(',').filter(function (k) { return k; });
+
+            OPP_UPDATE_FIELDS.forEach(function (def) {
+                if (shownKeys.indexOf(def.key) === -1) return;
+
+                var submitted = String(params[updFieldId(def)] || '').trim();
+                var orig      = String(params[origFieldId(def)] || '').trim();
+                var origText  = String(params[origTextFieldId(def)] || '').trim();
+
+                if (!submitted) return;   // a blank never clears data
+
+                if (def.kind === 'select') {
+                    if (submitted === orig) return;
+                    values[def.fieldId] = submitted;
+                    result.changed.push({ label: def.label, fieldId: def.fieldId, from: origText || orig, to: submitted });
+                    logParts.push(def.fieldId + ': ' + (orig || '(blank)') + ' → ' + submitted);
+                } else {
+                    var newDate = parseDateValue(submitted);
+                    if (!newDate) {
+                        log.audit('SendQuoteSL.OppUpdate', 'Opportunity ' + opportunityId + ' — ' + def.fieldId +
+                            ' value "' + submitted + '" could not be parsed as a date; not written');
+                        return;
+                    }
+                    var origDate = parseDateValue(orig);
+                    if (origDate && origDate.getTime() === newDate.getTime()) return;
+                    values[def.fieldId] = newDate;
+                    result.changed.push({ label: def.label, fieldId: def.fieldId, from: orig, to: submitted });
+                    logParts.push(def.fieldId + ': ' + (orig || '(blank)') + ' → ' + submitted);
+                }
+            });
+
+            if (result.changed.length === 0) {
+                log.audit('SendQuoteSL.OppUpdate', 'Opportunity ' + opportunityId + ' — no changes');
+                return result;
+            }
+
+            result.attempted = true;
+            record.submitFields({
+                type:    record.Type.OPPORTUNITY,
+                id:      opportunityId,
+                values:  values,
+                options: {
+                    enableSourcing:        false,
+                    ignoreMandatoryFields: true
+                }
+            });
+
+            log.audit('SendQuoteSL.OppUpdate', 'Opportunity ' + opportunityId + ' — updated ' + logParts.join('; '));
+
+        } catch (e) {
+            log.error('SendQuoteSL.OppUpdate', 'Opportunity ' + opportunityId + ' — update FAILED. Attempted: ' +
+                (logParts.join('; ') || '(none)') + ' | Error: ' + e.message);
+            result.error = e.message || String(e);
+            return result;
+        }
+
+        // Display text for changed SELECTs. Cosmetic only — a failure here leaves raw values
+        // on the success page and never turns a saved update into an error.
+        var selectChanges = result.changed.filter(function (c) {
+            return OPP_UPDATE_FIELDS.some(function (d) { return d.fieldId === c.fieldId && d.kind === 'select'; });
+        });
+        if (selectChanges.length) {
+            try {
+                var looked = search.lookupFields({
+                    type:    search.Type.OPPORTUNITY,
+                    id:      opportunityId,
+                    columns: selectChanges.map(function (c) { return c.fieldId; })
+                });
+                selectChanges.forEach(function (c) {
+                    var v = looked[c.fieldId];
+                    if (Array.isArray(v) && v.length && v[0].text) c.to = v[0].text;
+                });
+            } catch (lookupErr) {
+                log.debug('SendQuoteSL.OppUpdate', 'Display text lookup failed: ' + lookupErr.message);
+            }
+        }
+
+        return result;
     }
 
     // ─── Email Sending ────────────────────────────────────────────────────────────
@@ -2321,7 +2616,7 @@ define([
     /**
      * Shows the success confirmation page after submission.
      */
-    function showSuccessPage(context, opportunityId, mainQuotes, additionalQuotes, proposalResult, emailInfo) {
+    function showSuccessPage(context, opportunityId, mainQuotes, additionalQuotes, proposalResult, emailInfo, oppUpdate) {
         var form = serverWidget.createForm({ title: 'Quote Proposal — Generated Successfully' });
 
         var cssField = form.addField({ id: 'custpage_css', type: serverWidget.FieldType.INLINEHTML, label: ' ' });
@@ -2334,7 +2629,8 @@ define([
 
         var html = '<div class="nuheat-success">' +
             '<h3>✅ Master Proposal Generated Successfully</h3>' +
-            '<p>The proposal has been generated and saved. The Opportunity record has been updated with the proposal URL.</p>';
+            // v1.8.0: always true here — a failed proposal-link write goes to the error page
+            '<p>The proposal has been generated and saved. Proposal link saved to the opportunity.</p>';
 
         // Proposal link
         if (proposalResult && proposalResult.proposalUrl) {
@@ -2369,6 +2665,9 @@ define([
                 html += '</div>';
             }
         }
+
+        // v1.8.0: Opportunity update outcome
+        html += buildOppUpdatePanelHTML(emailInfo, oppUpdate);
 
         // Main quotes table
         if (mainQuotes.length > 0) {
@@ -2419,6 +2718,47 @@ define([
         form.clientScriptModulePath = './nuheat_send_quote_cs.js';
 
         context.response.writePage(form);
+    }
+
+    /**
+     * v1.8.0: Builds the "Opportunity update" panel for the success page. All text escaped.
+     */
+    function buildOppUpdatePanelHTML(emailInfo, oppUpdate) {
+        var upd = oppUpdate || { attempted: false, changed: [], error: '' };
+        var html = '';
+
+        if (!emailInfo || !emailInfo.sent) {
+            html += '<div class="nuheat-email-warn">';
+            html += '<h4>⚠️ Opportunity Update</h4>';
+            html += '<p style="font-size:13px; color:#856404;">Opportunity fields were not updated because the email was not sent.</p>';
+            html += '</div>';
+            return html;
+        }
+
+        if (upd.error) {
+            var labels = upd.changed.map(function (c) { return c.label; }).join(', ');
+            html += '<div class="nuheat-email-warn">';
+            html += '<h4>⚠️ Opportunity Update Failed</h4>';
+            html += '<p style="font-size:13px; color:#856404;">' +
+                escapeHtml('The proposal was sent, but the opportunity could not be updated: ' + upd.error +
+                    '. Please set ' + (labels || 'the fields') + ' on the opportunity.') +
+                '</p>';
+            html += '</div>';
+            return html;
+        }
+
+        html += '<div class="nuheat-email-confirm">';
+        html += '<h4>Opportunity Update</h4>';
+        if (upd.changed.length === 0) {
+            html += '<div class="nuheat-email-item">No opportunity fields changed.</div>';
+        } else {
+            upd.changed.forEach(function (c) {
+                html += '<div class="nuheat-email-item"><span class="nuheat-email-label">' + escapeHtml(c.label) + ':</span> ' +
+                    escapeHtml(c.to) + '</div>';
+            });
+        }
+        html += '</div>';
+        return html;
     }
 
     /**

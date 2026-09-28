@@ -1,7 +1,47 @@
 # Testing Guide
 
-**Last Updated:** 20 August 2026
+**Last Updated:** 28 September 2026
 **Environment:** Sandbox (472052_SB1)
+
+---
+
+## Send Quote — update opportunity on send (Send Quote SL v1.8.0 / Opportunity UE v1.1.0)
+
+> **Upload:** `nuheat_send_quote_sl.js` and `nuheat_opportunity_ue.js` only. The client script
+> (`nuheat_send_quote_cs.js`) is unchanged and needs no re-upload. Read the version header back off
+> each uploaded file.
+>
+> **Run these as a non-admin account-manager role.** The deployment runs as the current role.
+
+### Automated (before uploading)
+
+```bash
+node test/send-quote-opp-update.js      # must end "N passed, 0 failed"
+node --check nuheat_send_quote_sl.js && node --check nuheat_opportunity_ue.js
+```
+
+### Sandbox scenarios
+
+| # | Scenario | Expected |
+|---|---|---|
+| S1 | Send Quote button in view mode / edit mode | Present / absent |
+| S2 | Form layout | "Update opportunity" section with current values; Status list matches the record's own dropdown; Build stage list correct with a blank first entry. Note where the section renders relative to "Select Contact" |
+| S3 | Send with no changes | Proposal sent; panel "No opportunity fields changed."; system notes show only the proposal URL / sent-date write |
+| S4 | Send with all four changed | All four updated on the Opportunity; system notes show the Suitelet write; panel lists the new values as display text |
+| S5 | After S4, check **Probability** | Record whether it followed the new status (`enableSourcing: false` may leave it stale). **Report; do not fix in 1.8.0** |
+| S6 | Change Est. delivery date on an Opportunity that has a sales order | The order's ship date updates via the sync, as for a UI edit |
+| S7 | Change status on an Opportunity at Design Required | No new Design Instruction row; sub-status unchanged |
+| S8 | A role without edit rights on one field (or the field made read-only) | Proposal still sent; yellow warning naming the fields to set |
+| S9 | Preview with changed values | Nothing written |
+| S10 | Upload check | Version header read back off every uploaded file: SL 1.8.0, UE 1.1.0 |
+
+Also: clear Est. delivery date and send — the date must **not** be cleared on the Opportunity.
+
+### Execution Log greps
+
+| Key | Expect |
+|---|---|
+| `SendQuoteSL.OppUpdate` | On every form load: `reported field types: entitystatus=select, custbody_next_contact=date, custbody_opp_del_date=date, custbody_build_stage=select`. **Anything else means the assumed type was wrong** — report it; the field will have been hidden. On send: `no changes` or `updated <field>: old → new; …` |
 
 ---
 
@@ -53,7 +93,7 @@ Check **both** the quote page and the Master Proposal for every scenario.
       they deliberately do not use `formatSignedCurrency()`.)
 - [ ] Master Proposal card totals and the headline total bar agree.
 - [ ] Master Proposal **preview** and the saved/emailed proposal show the same grant. (Preview reads
-      the grant from the client-script payload — a mismatch means `nuheat_send_quote_cs (1).js` was
+      the grant from the client-script payload — a mismatch means `nuheat_send_quote_cs.js` was
       not redeployed.)
 - [ ] Grant card is hidden entirely on scenarios 6, 7 and 9 — not rendered with a £0 amount.
 - [ ] UFH-only and solar-only quotes render **exactly** as before v4.4.0.

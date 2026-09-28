@@ -32,10 +32,10 @@
 | Quote Viewer | `nuheat_quote_viewer_sl.js` | v1.1.0 |
 | Scheduled Script | `nuheat_quote_generator_ss.js` | v1.0.0 |
 | Master Proposal | `nuheat_master_proposal.js` | v1.8.3 |
-| Send Quote SL | `nuheat_send_quote_sl.js` | v1.7.0 |
-| Send Quote CS | `nuheat_send_quote_cs (1).js` | v1.4.0 |
+| Send Quote SL | `nuheat_send_quote_sl.js` | v1.8.0 |
+| Send Quote CS | `nuheat_send_quote_cs.js` | v1.4.0 |
 | Analytics Suitelet | `nuheat_analytics_sl.js` | v1.0.1 |
-| Opportunity UE | `nuheat_opportunity_ue.js` | v1.0.0 |
+| Opportunity UE | `nuheat_opportunity_ue.js` | v1.1.0 |
 | Opportunity CS | `nuheat_opportunity_cs.js` | v1.0.0 |
 
 > Read each version from the `SCRIPT_VERSION` / `MODULE_VERSION` constant in the file, not from the
@@ -109,7 +109,7 @@
    - `nuheat_quote_generator_ss.js`
    - `nuheat_master_proposal.js`
    - `nuheat_send_quote_sl.js`
-   - `nuheat_send_quote_cs (1).js`
+   - `nuheat_send_quote_cs.js`
    - `nuheat_opportunity_ue.js`
    - `nuheat_opportunity_cs.js`
 3. If updating existing files, select "Replace" when prompted
@@ -193,7 +193,7 @@ Navigate to **Customization > Scripting > Scripts > New** for each:
   - Applies To: Opportunity
   - Status: Released
 
-> **Note:** `nuheat_send_quote_cs (1).js` does NOT need a separate script record — it's loaded inline by the Send Quote Suitelet.
+> **Note:** `nuheat_send_quote_cs.js` does NOT need a separate script record — it's loaded inline by the Send Quote Suitelet.
 
 ### Step 3: Verify Folder Permissions
 

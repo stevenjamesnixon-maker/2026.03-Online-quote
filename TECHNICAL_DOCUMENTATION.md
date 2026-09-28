@@ -3,7 +3,7 @@
 **Version:** 1.1.0  
 **Last Updated:** 20 August 2026  
 **Applies to:** Suitelet v4.6.0, UE v4.0.9, CS v4.0.6, Viewer v1.1.0, Master Proposal v1.8.3,
-Send Quote SL v1.7.0, Send Quote CS v1.4.0, BUS Grant Module v1.0.0, VAT Rates Module v1.0.0
+Send Quote SL v1.8.0, Send Quote CS v1.4.0, Opportunity UE v1.1.0, BUS Grant Module v1.0.0, VAT Rates Module v1.0.0
 
 ---
 
@@ -170,9 +170,9 @@ EXTERNAL ACCESS:
 | Quote Viewer | `nuheat_quote_viewer_sl.js` | v1.1.0 | Suitelet | Proxy that serves latest quote HTML via stable URL |
 | Scheduled Script | `nuheat_quote_generator_ss.js` | v1.0.0 | ScheduledScript | Fallback for governance-limited UE contexts |
 | Master Proposal | `nuheat_master_proposal.js` | v1.8.3 | Module | Generates multi-quote master proposals |
-| Send Quote SL | `nuheat_send_quote_sl.js` | v1.7.0 | Suitelet | Quote selection UI for proposal generation |
-| Send Quote CS | `nuheat_send_quote_cs (1).js` | v1.4.0 | ClientScript | Handles Send Quote form interactions |
-| Opportunity UE | `nuheat_opportunity_ue.js` | v1.0.0 | UserEventScript | Adds "Send Quote" button to Opportunity form |
+| Send Quote SL | `nuheat_send_quote_sl.js` | v1.8.0 | Suitelet | Quote selection UI for proposal generation |
+| Send Quote CS | `nuheat_send_quote_cs.js` | v1.4.0 | ClientScript | Handles Send Quote form interactions |
+| Opportunity UE | `nuheat_opportunity_ue.js` | v1.1.0 | UserEventScript | Adds "Send Quote" button to Opportunity form (VIEW mode only) |
 | Opportunity CS | `nuheat_opportunity_cs.js` | v1.0.0 | ClientScript | Opens Send Quote Suitelet from Opportunity |
 
 ### 2.2 Dependencies Between Components
@@ -183,7 +183,7 @@ nuheat_quote_ue.js ──────────────▶ nuheat_quote_su
 nuheat_quote_generator_ss.js ───▶ nuheat_quote_suitelet.js (module import)
 nuheat_quote_suitelet.js ────────▶ nuheat_quote_viewer_sl.js (URL generation)
 nuheat_send_quote_sl.js ─────────▶ nuheat_master_proposal.js (module import)
-nuheat_send_quote_sl.js ─────────▶ nuheat_send_quote_cs (1).js (inline client script)
+nuheat_send_quote_sl.js ─────────▶ nuheat_send_quote_cs.js (inline client script)
 nuheat_opportunity_ue.js ────────▶ nuheat_opportunity_cs.js (button handler)
 nuheat_opportunity_cs.js ────────▶ nuheat_send_quote_sl.js (opens Suitelet)
 nuheat_master_proposal.js ──────▶ nuheat_quote_viewer_sl.js (embed proxy URLs)
@@ -266,7 +266,7 @@ resolution per quote.
 
 The Send Quote SL passes the values through a `serverWidget` sublist, which carries **TEXT**, so
 `busAmount` is stringified on the way out (`custpage_bus_amount`) and `parseFloat`'d on the way back
-in. `nuheat_send_quote_cs (1).js` collects the same two fields into the preview payload so preview
+in. `nuheat_send_quote_cs.js` collects the same two fields into the preview payload so preview
 and the saved proposal agree.
 
 > ⚠️ **Deployment ordering.** `nuheat_bus_grant.js` must be uploaded to `SuiteScripts/NuHeat`
@@ -408,7 +408,7 @@ SuiteScripts/
     ├── nuheat_quote_generator_ss.js
     ├── nuheat_master_proposal.js
     ├── nuheat_send_quote_sl.js
-    ├── nuheat_send_quote_cs (1).js
+    ├── nuheat_send_quote_cs.js
     ├── nuheat_opportunity_ue.js
     ├── nuheat_opportunity_cs.js
     └── Quote HTML Files/          ← Folder ID: environment-specific (see below)

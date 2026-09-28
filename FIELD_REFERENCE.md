@@ -20,6 +20,18 @@ All custom NetSuite fields used by this solution, organised by record type and p
 | custbody_opp_quote_last_viewed | DateTime | Timestamp of most recent proposal view |
 | custbody_opp_view_count | Integer | Running total of proposal views |
 | custbody_opp_site_adress | Text | Site address — displayed in the Customer Information section of **both** the Master Proposal and (from Quote Suitelet v4.6.0) the quote page (note: field ID has single 'd' in "adress") |
+| custbody_master_proposal_url | URL/Text *(type assumed)* | **Written** by `nuheat_master_proposal.js` `updateOpportunityWithProposalUrl()` on every Generate & Send, before the email. ID confirmed (live code) |
+| custbody_last_proposal_sent_date | Date *(type assumed)* | **Written** alongside the proposal URL. ID confirmed (live code). Was once read-only in NetSuite, which blocked the write — see `AI_AGENT_CONTEXT.md` |
+| entitystatus | List (standard) — confirmed | Status. Read by the Send Quote SL; **written** by Send Quote SL v1.8.0 when the user changes it on send |
+| custbody_next_contact | Date — **assumed** | Next contact. **Written** by Send Quote SL v1.8.0 when changed on send. ID confirmed by Steve |
+| custbody_opp_del_date | Date — **assumed** | Est. delivery date. **Written** by Send Quote SL v1.8.0 when changed on send. Changes sync to linked sales orders' ship dates (separate repo) — wanted. ID confirmed by Steve |
+| custbody_build_stage | List/Record — **assumed** | Build stage. **Written** by Send Quote SL v1.8.0 when changed on send. ID confirmed by Steve |
+| custbody_opportunity_sub_status | List | ⚠️ **Never written by this repository.** Some values create Design Instruction rows. Listed only so nobody adds it to the Send Quote update |
+
+> **Assumed types.** The Send Quote SL checks each update field's type as NetSuite reports it
+> (`record.getField().type`) and does not show a field whose type is not the one assumed. The reported
+> types are logged at audit under `SendQuoteSL.OppUpdate` ("reported field types: …") on every form
+> load — read them there to confirm or correct this table.
 
 > ⚠️ **`custbody_opp_site_adress` is an OPPORTUNITY field, not an Estimate field.** The `opp_` prefix
 > is the clue. Reading it off an Estimate returns empty every time — which is exactly what the Quote
@@ -32,7 +44,7 @@ All custom NetSuite fields used by this solution, organised by record type and p
 > | Script | Where |
 > |---|---|
 > | `nuheat_master_proposal.js` | `loadOppData()` ~:463 |
-> | `nuheat_send_quote_sl.js` | ~:415 |
+> | `nuheat_send_quote_sl.js` | ~:461 |
 > | `nuheat_quote_suitelet.js` | `loadQuoteData()` — **new in v4.6.0**, logged as `SITE_ADDRESS` |
 >
 > The Quote Suitelet keeps its two Estimate-level fallbacks after the Opportunity value

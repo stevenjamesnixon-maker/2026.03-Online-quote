@@ -359,7 +359,15 @@
 
 ---
 
-## Send Quote Suitelet (`nuheat_send_quote_sl.js`) & Client Script (`nuheat_send_quote_cs (1).js`)
+## Send Quote Suitelet (`nuheat_send_quote_sl.js`) & Client Script (`nuheat_send_quote_cs.js`)
+
+### Send Quote SL v1.8.0 / Opportunity UE v1.1.0 — 28 September 2026 ⏳ Pending Sandbox testing
+
+- ADDED (SL): "Update opportunity" field group — Status, Next contact, Est. delivery date, Build
+  stage — written after a successful email, changed non-blank values only, one `submitFields`.
+  Never writes `custbody_opportunity_sub_status`. See `CHANGELOG.md`.
+- CHANGED (UE): Send Quote button in VIEW mode only.
+- RENAMED: `nuheat_send_quote_cs (1).js` → `nuheat_send_quote_cs.js` (content unchanged, v1.4.0).
 
 ### Send Quote SL v1.7.0 / Send Quote CS v1.4.0 — 18 August 2026 ✅ Live in Production (deployed 20 August 2026)
 

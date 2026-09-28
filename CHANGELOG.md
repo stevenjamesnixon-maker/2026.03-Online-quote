@@ -1,3 +1,64 @@
+## [Send Quote SL v1.8.0 / Opportunity UE v1.1.0] — 28 September 2026
+**Status:** ⏳ Pending Sandbox testing
+**Components:** `nuheat_send_quote_sl.js`, `nuheat_opportunity_ue.js`, `nuheat_send_quote_cs.js` (rename only),
+`test/send-quote-opp-update.js` (new)
+
+No changes to `nuheat_master_proposal.js` — the existing proposal-URL write
+(`updateOpportunityWithProposalUrl()`) stays where it is, before the email.
+
+### Added — update the opportunity when a proposal is sent
+- **"Update opportunity" field group** on the Send Quote form (only when quotes exist) with four
+  optional native fields, pre-populated from the Opportunity:
+
+  | Form field | Opportunity field | Type |
+  |---|---|---|
+  | `custpage_upd_entitystatus` | `entitystatus` (Status) | SELECT |
+  | `custpage_upd_next_contact` | `custbody_next_contact` (Next contact) | DATE |
+  | `custpage_upd_del_date` | `custbody_opp_del_date` (Est. delivery date) | DATE |
+  | `custpage_upd_build_stage` | `custbody_build_stage` (Build stage) | SELECT, blank first option |
+
+- SELECT options are read **from the Opportunity itself** (`getField().getSelectOptions()` on a
+  dynamic load), so no list or internal IDs are in code. A field is **not shown** (audit-logged under
+  `SendQuoteSL.OppUpdate`) if its options cannot be read, if NetSuite reports a type other than the
+  one assumed, or — for Status, which has no blank option — if the current value is not among the
+  options (the dropdown would otherwise default to its first entry and an untouched submit would
+  change the status).
+- **`updateOpportunityFields()`** runs after `generateMasterProposal()` **and a successful
+  `email.send`**. Only changed, non-blank values are written, in one `record.submitFields`
+  (`enableSourcing: false`, `ignoreMandatoryFields: true`), dates as `Date` objects. Nothing changed
+  → no write. It never throws: a failure shows a warning on the success page naming the fields to set
+  by hand. If the email failed, nothing is written.
+- **Success page** reports the outcome in a new "Opportunity update" panel.
+
+### Changed
+- The unconditional "The Opportunity record has been updated with the proposal URL" is now
+  "Proposal link saved to the opportunity." — always true by the time the page renders, because a
+  failed proposal-link write goes to the error page.
+- The existing Opportunity `record.load` in `showQuoteSelectionForm()` is now `isDynamic: true`
+  (required for `getSelectOptions()`). Same 10-unit cost; the values it reads are unchanged.
+- **Opportunity UE v1.1.0:** the "Send Quote" button is added in **VIEW mode only**. With the record
+  open in EDIT, the Suitelet's write followed by the user's save would fail with "record has been
+  changed" or silently overwrite the Suitelet's values.
+- **Client script renamed** `nuheat_send_quote_cs (1).js` → `nuheat_send_quote_cs.js` to match the
+  File Cabinet file and `clientScriptModulePath`. Content unchanged; stays v1.4.0; **no re-upload**.
+
+### Deliberate
+- `custbody_opportunity_sub_status` is **never** written — some values create Design Instruction rows.
+- Write after the email, never before, never blocking it. A blank never clears a field.
+- All status options the record offers are shown, closed ones included; the role's own permissions
+  (the deployment runs as the current role) govern what can be set.
+
+### Tests
+- `node test/send-quote-opp-update.js` — first committed test in the repository. Loads the real
+  Suitelet and Opportunity UE under stubbed `N/*` modules; 14 scenarios.
+
+### Governance (per Generate & Send)
+- GET: unchanged (the dynamic load replaces the standard one).
+- POST: + one Opportunity `submitFields` (10 units) only when something changed, + one
+  `search.lookupFields` (1 unit) for display text when a SELECT changed.
+
+---
+
 ## [Quote Suitelet v4.6.0 / Master Proposal v1.8.3] — 18 August 2026
 **Status:** ✅ Live in Production — deployed 20 August 2026
 **Components:** `nuheat_quote_suitelet.js`, `nuheat_master_proposal.js`
@@ -704,6 +765,9 @@ Two related problems with the v4.3.70 blanket grant:
 
 ### Files Changed
 - `nuheat_send_quote_sl.js` — Sublist ID corrected to `'contactroles'`; version bumped to v1.5.1
+
+> **Correction (Sep 2026):** the `'contactroles'` sublist did not work either. The code loads contacts
+> with an Opportunity search joined to `contact` — see `AI_AGENT_CONTEXT.md` §9, pitfall 11.
 
 ---
 
