@@ -361,7 +361,16 @@
 
 ## Send Quote Suitelet (`nuheat_send_quote_sl.js`) & Client Script (`nuheat_send_quote_cs.js`)
 
-### Send Quote SL v1.8.0 / Opportunity UE v1.1.0 — 28 September 2026 ⏳ Pending Sandbox testing
+### Send Quote SL v2.0.0 / Opportunity UE v1.2.0 / Opportunity CS v1.1.0 — 28 September 2026 ⏳ Pending Sandbox testing
+
+- REWRITTEN (SL): one inline-HTML "Send proposal" page; segmented Leave out / Main / Additional;
+  To tags; sticky footer. Client script detached.
+- SECURITY (SL): posts only quote IDs and roles; quotes rebuilt on the server for send and preview.
+- ADDED (SL): Include in Forecast set on the shown quotes (Main → true, others → false).
+- CHANGED (SL/UE/CS): returns to the Opportunity (same tab) with a record-built banner.
+- FIXED (SL): Probability follows Status (`enableSourcing` on when Status changes).
+
+### Send Quote SL v1.8.0 / Opportunity UE v1.1.0 — 28 September 2026 — passed Sandbox S1–S4, S6–S9; superseded by 2.0.0 before release
 
 - ADDED (SL): "Update opportunity" field group — Status, Next contact, Est. delivery date, Build
   stage — written after a successful email, changed non-blank values only, one `submitFields`.

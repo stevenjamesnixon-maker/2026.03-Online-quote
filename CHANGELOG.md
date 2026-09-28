@@ -1,3 +1,66 @@
+## [Send Quote SL v2.0.0 / Opportunity UE v1.2.0 / Opportunity CS v1.1.0] — 28 September 2026
+**Status:** ⏳ Pending Sandbox testing (amendment 2 to PR #28; supersedes the unreleased 1.8.0 / 1.1.0)
+**Components:** `nuheat_send_quote_sl.js`, `nuheat_opportunity_ue.js`, `nuheat_opportunity_cs.js`,
+`nuheat_send_quote_cs.js` (header note only — detached), `test/send-quote-opp-update.js`
+
+No changes to `nuheat_master_proposal.js` — its inputs keep their exact shape.
+
+### Changed — the Send proposal page (SL 2.0.0)
+- **Redesigned** as one inline-HTML body inside the serverWidget form (NetSuite chrome kept): header
+  with back link and status, **1 Choose quotes** (Leave out / Main / Additional per quote; tag-stripped,
+  escaped titles; one-line description; inc- and ex-VAT prices; "View" link), **2 Send to** (To tags,
+  contact picker, CC/BCC), **3 Update the opportunity** (the four 1.8.0 fields with "Changed · was …"
+  markers) and a sticky footer (live summary, Cancel, Preview, Send proposal).
+- **Every quote starts at Leave out** unless there is exactly one, which starts at Main.
+- No native buttons, sublists or client script. A static inline script reads `data-` attributes and
+  submits NetSuite's `main_form`. `nuheat_send_quote_cs.js` is **detached**, kept for reference.
+
+### Security
+- **The page posts only `{ estimateId: role }`.** The Suitelet rebuilds every quote from
+  `searchRelatedQuotes()` for both send and preview; client-supplied prices are gone. An ID that is not
+  one of the Opportunity's quotes rejects the request. `toProposalQuote()` reproduces the pre-2.0
+  sublist round trip exactly (fixture captured from 1.8.0 in the test suite).
+
+### Added
+- **`updateForecastFlags()`** — after a successful email, sets Estimate `includeinforecast` (⚠️ assumed
+  ID, type-checked at runtime) true for Main and false otherwise, on the quotes the page showed, only
+  where it differs; one `submitFields` per Estimate, failures isolated and reported.
+- **Back to the Opportunity** — `redirect.toRecord` (VIEW, same tab) with code-only parameters.
+  **Opportunity UE v1.2.0** shows a green "Proposal sent" or amber "wasn't fully updated" banner built
+  from the record; expires after 300 s; fails closed.
+- **Opportunity CS v1.1.0** opens the Suitelet in the same tab.
+
+### Fixed
+- **Probability now follows Status**: `enableSourcing: true` on the Opportunity write only when Status
+  changed (1.8.0 Sandbox S5 found it stale with sourcing off).
+
+### Changed — failure handling
+- Validation, generation and email failures **re-render the page** with an error panel and the user's
+  selections, addresses and field values restored; nothing further is written. ⚠️ If the email fails,
+  the Master Proposal has already saved the file and written the proposal URL / sent date (before the
+  email, as since v1.6) — the panel says so.
+
+### Removed
+- `showSuccessPage()` and its panel, the sublists, `buildTwoColumnTopHTML()`, `buildInstructionsHTML()`,
+  `buildFormCSS()`, all `clientScriptModulePath` assignments.
+
+### Governance (Suitelet, 1,000 units)
+Standard unit costs: transaction load / submitFields 10, entity load 5, search page 10, file save 20,
+file load 10, email send 10.
+- **Per send (POST):** quote rebuild 10 + 10 × quotes on the Opportunity; Master Proposal 60 (Opportunity
+  10, customer 5, employee 5, file save 20, file load 10, proposal-URL write 10); email 30 (a second
+  `loadOpportunityData()` 20 + send 10); Opportunity field write 10 when anything changed; 10 per forecast
+  flag that changes. **≈ 110 + 10 × quotes + 10 × flags changed** — five quotes, all flags changing: ≈ 210.
+- **Per preview:** quote rebuild 10 + 10 × quotes, plus `generatePreviewHTML()`'s `loadOpportunityData()` 20.
+  **≈ 30 + 10 × quotes** — five quotes: ≈ 80 (was ≈ 20 before 2.0.0, when the browser supplied the prices).
+- **Page load (GET):** unchanged from 1.8.0. A failed send's re-render reuses the POST's quotes (≈ 21 more).
+
+### Tests
+- `node test/send-quote-opp-update.js` — 133 assertions: 1.8.0 field rules carried forward (A1–A13)
+  and the 2.0.0 brief's B1–B19.
+
+---
+
 ## [Send Quote SL v1.8.0 / Opportunity UE v1.1.0] — 28 September 2026
 **Status:** ⏳ Pending Sandbox testing
 **Components:** `nuheat_send_quote_sl.js`, `nuheat_opportunity_ue.js`, `nuheat_send_quote_cs.js` (rename only),

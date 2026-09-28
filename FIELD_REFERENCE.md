@@ -20,7 +20,7 @@ All custom NetSuite fields used by this solution, organised by record type and p
 | custbody_opp_quote_last_viewed | DateTime | Timestamp of most recent proposal view |
 | custbody_opp_view_count | Integer | Running total of proposal views |
 | custbody_opp_site_adress | Text | Site address — displayed in the Customer Information section of **both** the Master Proposal and (from Quote Suitelet v4.6.0) the quote page (note: field ID has single 'd' in "adress") |
-| custbody_master_proposal_url | URL/Text *(type assumed)* | **Written** by `nuheat_master_proposal.js` `updateOpportunityWithProposalUrl()` on every Generate & Send, before the email. ID confirmed (live code) |
+| custbody_master_proposal_url | URL/Text *(type assumed)* | **Written** by `nuheat_master_proposal.js` `updateOpportunityWithProposalUrl()` on every send (Generate & Send / Send proposal), before the email. ID confirmed (live code) |
 | custbody_last_proposal_sent_date | Date *(type assumed)* | **Written** alongside the proposal URL. ID confirmed (live code). Was once read-only in NetSuite, which blocked the write — see `AI_AGENT_CONTEXT.md` |
 | entitystatus | List (standard) — confirmed | Status. Read by the Send Quote SL; **written** by Send Quote SL v1.8.0 when the user changes it on send |
 | custbody_next_contact | Date — **assumed** | Next contact. **Written** by Send Quote SL v1.8.0 when changed on send. ID confirmed by Steve |
@@ -57,6 +57,29 @@ All custom NetSuite fields used by this solution, organised by record type and p
 > that Opportunity — a data issue, not a code one.
 
 ---
+
+## Send Quote SL 2.0.0 — forecast flag and redirect parameters
+
+### Estimate (standard field)
+
+| Field ID | Type | Purpose |
+|---|---|---|
+| `includeinforecast` | Checkbox — ⚠️ **ID and type ASSUMED, not yet confirmed** | "Include in Forecast". **Written** by Send Quote SL 2.0.0 after a successful send: `true` on quotes sent as Main, `false` on Additional / Leave out — only quotes shown on the page, only where the value differs. The SL reads the type off each Estimate it loads and writes nothing (audit log `SendQuoteSL.Forecast`) unless NetSuite reports `checkbox`. Confirm the ID in Sandbox (R4/R11) |
+
+### Redirect parameters (Send Quote SL → Opportunity, read by Opportunity UE v1.2.0)
+
+After a successful send the Suitelet redirects to the Opportunity in VIEW with these parameters.
+**Codes only — never text, addresses or error messages.** The banner builds every word from the
+record; unknown values are dropped.
+
+| Param | Value | Meaning |
+|---|---|---|
+| `nsq` | `ok` \| `warn` | Banner type: green confirmation, or amber "wasn't fully updated". Anything else → no banner |
+| `nsqt` | epoch seconds | When the send finished. Missing, non-numeric or older than **300 s** → no banner (a refresh or shared link cannot replay it) |
+| `nsqf` | comma list of keys | Opportunity fields changed: `entitystatus`, `next_contact`, `del_date`, `build_stage`. Values are read from the record |
+| `nsqff` | comma list of keys | Opportunity fields the write failed on — "Please set … on this record." |
+| `nsqfi` / `nsqfx` | counts | Quotes now included / excluded from the forecast (target states of the quotes on the page). Sent only when at least one flag changed |
+| `nsqqf` | comma list of Estimate IDs | Forecast writes that failed. Shown by `tranid`, and only for Estimates linked to this Opportunity |
 
 ## Doubled and misspelled field IDs — correct as written
 

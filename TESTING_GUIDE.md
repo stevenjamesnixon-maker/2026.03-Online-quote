@@ -5,7 +5,59 @@
 
 ---
 
+## Send proposal redesign, return to the opportunity, forecast flags (Send Quote SL v2.0.0 / Opportunity UE v1.2.0 / Opportunity CS v1.1.0)
+
+> **Upload** `nuheat_send_quote_sl.js`, `nuheat_opportunity_ue.js` and `nuheat_opportunity_cs.js` to
+> `SuiteScripts/NuHeat/2026 Quote/`. `nuheat_send_quote_cs.js` is detached and needs no upload.
+>
+> **Set the Send Quote SL deployment's Log Level to Audit or Debug** — `SendQuoteSL.OppUpdate`,
+> `SendQuoteSL.Forecast` and `SendQuoteSL.Redirect` are audit-level (the 1.8.0 S2 log line did not
+> appear at the previous setting).
+>
+> **Run as an account-manager role**, not Administrator.
+
+### Automated (before uploading)
+
+```bash
+node test/send-quote-opp-update.js      # must end "133 passed, 0 failed" (or more)
+for f in nuheat_send_quote_sl.js nuheat_opportunity_ue.js nuheat_opportunity_cs.js; do node --check "$f"; done
+```
+
+### Sandbox scenarios
+
+| # | Scenario | Expected |
+|---|---|---|
+| R1 | From the Opportunity (view), click **Send Quote** | Opens in the **same tab**; the page matches the design (screen 1) inside NetSuite's header and menu |
+| R2 | Segmented control, To tags (add, remove, invalid shows red), contact picker, + Add CC / BCC, "Changed · was …" markers, live total | Behave as designed. Send stays disabled with a reason until there is a Main quote and a valid To |
+| R3 | Send with one Main, one Additional, one Leave out; change Status and Next contact | Lands on the Opportunity with a green banner: "Opportunity updated: Status → … · Next contact → …" and "Forecast: 1 quote included, 2 excluded", plus "View proposal" |
+| R4 | The Opportunity's Estimates subtab | **Include in Forecast** ticked only on the Main quote. (This also confirms the assumed `includeinforecast` ID — if nothing changed, read `SendQuoteSL.Forecast` in the log) |
+| R5 | **Probability** after R3 | Follows the new Status |
+| R6 | Refresh the Opportunity 6 minutes later | No banner |
+| R7 | Make one field read-only for the role, then send | Amber banner naming the field; proposal sent |
+| R8 | Break the email (e.g. an address the server rejects) | Stays on the page with the error panel; selections, addresses and fields kept; no field or forecast writes. ⚠️ The proposal file, URL and sent date **are** written — the Master Proposal does that before the email (unchanged behaviour) |
+| R9 | Preview | Opens in a new tab; nothing written; prices match the sent proposal |
+| R10 | An Estimate after a forecast write | Online quote **not** regenerated; margin fields unchanged (checks the legacy SS1 margin script on XEDIT) |
+| R11 | Read the Execution Log | `SendQuoteSL.Forecast`, `SendQuoteSL.OppUpdate` and `SendQuoteSL.Redirect` lines present |
+| R12 | Upload check | Version header read back off every uploaded file: SL 2.0.0, UE 1.2.0, Opportunity CS 1.1.0 |
+
+Also worth a look: the banner's "View proposal" link renders as a link (not as literal HTML), and a
+single-quote Opportunity starts with that quote at **Main**.
+
+### Execution Log greps
+
+| Key | Expect |
+|---|---|
+| `SendQuoteSL.Forecast` | One line per Estimate changed (`false → true`), then a summary. `… reported as "…", expected "checkbox"; no forecast writes` means the `includeinforecast` assumption is wrong — report it |
+| `SendQuoteSL.Redirect` | The code parameters sent back, e.g. `{"nsq":"ok","nsqt":"…","nsqf":"entitystatus,next_contact","nsqfi":"1","nsqfx":"2"}` |
+| `SendQuoteSL.Selection` | Only when a request named a quote not on the Opportunity — should never appear in normal use |
+| `OpportunityUE.banner` | Which banner was shown |
+
+---
+
 ## Send Quote — update opportunity on send (Send Quote SL v1.8.0 / Opportunity UE v1.1.0)
+
+> ✅ Passed in Sandbox 28 Sep 2026 (S1–S4, S6–S9). S5 found Probability stale — fixed in 2.0.0 (R5).
+> Superseded by 2.0.0 before release; the field rules below still apply.
 
 > **Upload:** `nuheat_send_quote_sl.js` and `nuheat_opportunity_ue.js` only. The client script
 > (`nuheat_send_quote_cs.js`) is unchanged and needs no re-upload. Read the version header back off
@@ -92,9 +144,9 @@ Check **both** the quote page and the Master Proposal for every scenario.
       (`header.discountTotal` is `Math.abs()`'d and those two call sites hand-roll their own sign —
       they deliberately do not use `formatSignedCurrency()`.)
 - [ ] Master Proposal card totals and the headline total bar agree.
-- [ ] Master Proposal **preview** and the saved/emailed proposal show the same grant. (Preview reads
-      the grant from the client-script payload — a mismatch means `nuheat_send_quote_cs.js` was
-      not redeployed.)
+- [ ] Master Proposal **preview** and the saved/emailed proposal show the same grant. (From Send
+      Quote SL 2.0.0 both are rebuilt on the server by `toProposalQuote()`, so a mismatch is a
+      Suitelet defect; before 2.0.0 it meant the client script was not redeployed.)
 - [ ] Grant card is hidden entirely on scenarios 6, 7 and 9 — not rendered with a £0 amount.
 - [ ] UFH-only and solar-only quotes render **exactly** as before v4.4.0.
 

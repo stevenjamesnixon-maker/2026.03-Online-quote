@@ -32,11 +32,11 @@
 | Quote Viewer | `nuheat_quote_viewer_sl.js` | v1.1.0 |
 | Scheduled Script | `nuheat_quote_generator_ss.js` | v1.0.0 |
 | Master Proposal | `nuheat_master_proposal.js` | v1.8.3 |
-| Send Quote SL | `nuheat_send_quote_sl.js` | 1.8.0 — pending Sandbox |
-| Send Quote CS | `nuheat_send_quote_cs.js` | v1.4.0 |
+| Send Quote SL | `nuheat_send_quote_sl.js` | 2.0.0 — pending Sandbox |
+| Send Quote CS | `nuheat_send_quote_cs.js` | v1.4.0 — detached (no upload needed) |
 | Analytics Suitelet | `nuheat_analytics_sl.js` | v1.0.1 |
-| Opportunity UE | `nuheat_opportunity_ue.js` | 1.1.0 — pending Sandbox |
-| Opportunity CS | `nuheat_opportunity_cs.js` | v1.0.0 |
+| Opportunity UE | `nuheat_opportunity_ue.js` | 1.2.0 — pending Sandbox |
+| Opportunity CS | `nuheat_opportunity_cs.js` | 1.1.0 — pending Sandbox |
 
 > Read each version from the `SCRIPT_VERSION` / `MODULE_VERSION` constant in the file, not from the
 > JSDoc header — the two drift. `nuheat_quote_ue.js` is currently out by one patch version
@@ -193,7 +193,9 @@ Navigate to **Customization > Scripting > Scripts > New** for each:
   - Applies To: Opportunity
   - Status: Released
 
-> **Note:** `nuheat_send_quote_cs.js` does NOT need a separate script record — it's loaded inline by the Send Quote Suitelet.
+> **Note:** `nuheat_send_quote_cs.js` does NOT need a separate script record. From Send Quote SL 2.0.0 it is **not attached at all** (the page has its own inline script); it stays in the repository for reference.
+>
+> **Send Quote SL deployment Log Level must be Audit or Debug** — the `SendQuoteSL.OppUpdate`, `SendQuoteSL.Forecast` and `SendQuoteSL.Redirect` lines are audit-level.
 
 ### Step 3: Verify Folder Permissions
 

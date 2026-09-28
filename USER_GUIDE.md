@@ -136,35 +136,42 @@ A Master Proposal combines multiple quotes from a single Opportunity into one pr
 
 ### Step 1: Open the Opportunity
 
-1. Navigate to the Opportunity record in NetSuite
-2. Click the **"Send Quote"** button in the toolbar
+1. Navigate to the Opportunity record in NetSuite (view mode — the button is not shown while editing)
+2. Click the **"Send Quote"** button in the toolbar. The Send proposal page opens in the same tab
 
-### Step 2: Select Quotes
+### Step 2: Choose quotes
 
-The Send Quote page shows all Estimates linked to this Opportunity, grouped by type:
+The page lists every Estimate on this Opportunity that has an online quote, grouped by type
+(Underfloor Heating, Heat Pump, Solar, Other). For each quote choose:
 
-- **Underfloor Heating** quotes
-- **Heat Pump** quotes
-- **Solar Thermal** quotes
-- **Other** quotes
+- **Leave out** — not in the proposal (the starting choice when there are several quotes)
+- **Main** — in the proposal's total, and marked **Include in Forecast** on the Estimate
+- **Additional** — shown as an alternative option, not in the total
 
-For each quote:
-1. Tick the checkbox to include it
-2. Choose whether it's a **Main** or **Alternative** quote
-3. Main quotes appear in the primary section; Alternative quotes appear separately
+Use **View** to open a quote's online page. You need at least one Main quote.
 
-### Step 3: Enter Email Recipients (Optional)
+### Step 3: Send to
 
-If you want to email the proposal:
-1. Enter recipient email addresses in the **To**, **CC**, and/or **BCC** fields
-2. Multiple addresses can be separated by commas or semicolons
+The **To** box starts with the customer's email. Type an address and press Enter to add it, click ×
+to remove one, or pick someone from **Add a contact on this opportunity**. Use **+ Add CC** /
+**+ Add BCC** for copies.
 
-### Step 4: Generate or Preview
+### Step 4: Update the opportunity (optional)
 
-- Click **"Preview"** to see the proposal without saving
-- Click **"Generate & Send"** to create the proposal, save it, and optionally email it
+Change **Status**, **Next contact**, **Est. delivery date** or **Build stage** if the send moves the
+opportunity on. Changed fields are outlined and show what they were. Clearing a field here does not
+clear it on the record.
 
-### Step 5: Review
+### Step 5: Preview or send
+
+- **Preview** opens the proposal in a new tab without saving anything
+- **Send proposal** generates the proposal, emails it, updates the opportunity and the quotes'
+  forecast flags, and takes you back to the opportunity with a confirmation banner. If something
+  could not be updated, the banner says what to set by hand
+- If the email cannot be sent you stay on the page with everything you entered, and nothing on the
+  opportunity is changed except the proposal link and last-sent date
+
+### Step 6: Review
 
 The generated Master Proposal includes:
 
