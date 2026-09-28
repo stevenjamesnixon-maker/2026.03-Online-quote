@@ -361,6 +361,11 @@
 
 ## Send Quote Suitelet (`nuheat_send_quote_sl.js`) & Client Script (`nuheat_send_quote_cs.js`)
 
+### Send Quote SL v2.1.1 — 29 September 2026 ⏳ Pending Sandbox testing
+
+- FIXED: proposal email — contact buttons shown twice, and left drift, in viewers that strip styles
+  (long-standing; `buildEmailBody()` only).
+
 ### Update Opportunity SL v1.0.0 / Opportunity Update Library v1.0.0 / Send Quote SL v2.1.0 / Opportunity UE v1.3.0 / Opportunity CS v1.2.0 — 29 September 2026 ⏳ Pending Sandbox testing
 
 - ADDED: Update Opportunity page — log a phone call, update the opportunity (Next contact required),

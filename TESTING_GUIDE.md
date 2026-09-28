@@ -20,7 +20,7 @@
 ### Automated (before uploading)
 
 ```bash
-node test/send-quote-opp-update.js   # must end "217 passed, 0 failed" (or more) — includes G1, Send Quote byte-identical to 2.0.4
+node test/send-quote-opp-update.js   # must end "228 passed, 0 failed" (or more) — includes G1, Send Quote byte-identical to 2.0.4
 node test/update-opp.js              # must end "93 passed, 0 failed" (or more)
 for f in nuheat_opp_update_lib.js nuheat_send_quote_sl.js nuheat_update_opp_sl.js nuheat_opportunity_ue.js nuheat_opportunity_cs.js; do node --check "$f"; done
 ```
@@ -98,6 +98,7 @@ for f in nuheat_send_quote_sl.js nuheat_opportunity_ue.js nuheat_opportunity_cs.
 | R14 | **2.0.1:** pick Next contact and Est. delivery date with the picker | The saved dates match what was picked, no day shift. Note the picker's display order (it follows the browser's language, not NetSuite's date preference) |
 | R15 | **2.0.2:** change **Expected close** with the picker (the section now shows Status, Build stage, Expected close, Next contact, Est. delivery date) | Saves with no day shift; the green banner shows "Expected close → <date>"; the "Changed · was …" marker and the footer summary include it |
 | R16 | **2.0.3:** look at the quote cards | Card shows ref · description, then Created / type / BUS facts; no raw `&lt;`. Line 1 wraps to two lines at most, full text on hover |
+| R17 | **2.1.1:** send a proposal to yourself; open it in the **NetSuite message view** (the opportunity's Communication › Messages), **Outlook** and **Gmail**. (A reference render is in `docs/samples/send-quote-email-2.1.1.html`.) | CLICK TO CALL, SEND AN EMAIL and VIEW YOUR QUOTE(S) HERE each appear **once**, and the email is **centred** (header, images and button in a 600 px column), in all three |
 
 Also worth a look: the banner's "View proposal" link renders as a link (not as literal HTML), and a
 single-quote Opportunity starts with that quote at **Main**.
