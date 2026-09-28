@@ -11,6 +11,7 @@
  *            B — 2.0.0 scenarios from the amendment-2 brief (B1–B19)
  *            C — 2.0.1: write order (status revert) and date pickers (C1–C5)
  *            D — 2.0.2 / UE 1.2.1: Expected close date (D1–D7)
+ *            E — 2.0.3: quote card text (E1–E8)
  */
 'use strict';
 
@@ -215,7 +216,7 @@ function filterValue(filters, name) {
 
 function estimateResult(e) {
     var vals = { internalid: e.id, tranid: e.tranid, title: e.title, total: String(e.total),
-                 custbody_test_new_quote: e.url, datecreated: '01/09/2026', custbody_quote_description: e.desc };
+                 custbody_test_new_quote: e.url, datecreated: e.created || '28/09/2026 2:32 pm', custbody_quote_description: e.desc };
     return {
         getValue: function (o) { return vals[typeof o === 'string' ? o : o.name] || ''; },
         getText: function (o) { return (typeof o === 'string' ? o : o.name) === 'custbody_quote_type' ? e.type : ''; }
@@ -526,8 +527,9 @@ state.estimates = state.estimates.filter(function (e) { return e.id !== '902' &&
 ok(rowRole(pageHtml(runGet()), '901') === 'main', 'exactly one quote → starts at Main');
 
 console.log('B2. Title with HTML');
-ok(/EST901 &middot; Ground &amp; &quot;x&quot;<\/div>/.test(h1), 'rendered as "Ground &amp; &quot;x&quot;"');
-ok(!/<b>Ground/.test(h1), 'no <b> tag');
+// changed in 2.0.3: the card shows tranid · description, not the title (E1–E5 cover the title fallback)
+ok(/>EST901 · Air source heat pump<\/div>/.test(h1), 'card line 1 is tranid · description');
+ok(!/<b>Ground/.test(h1) && !/Ground &amp; &quot;x&quot;/.test(h1), 'title (with its <b>) not rendered when a description exists');
 
 console.log('B3. Hostile description / contact name');
 ok(blocks[0].indexOf('alert') === -1 && blocks[0].indexOf('EST90') === -1 && blocks[0].indexOf('example.com') === -1, 'no record data inside the script block');
@@ -891,6 +893,82 @@ ok(state.pageMessages[0] && /Please set Expected close on this record\./.test(st
 
 console.log('D7. Sub-status still never written');
 ok(ALL_WRITES.every(function (w) { return !('custbody_opportunity_sub_status' in w.values); }), 'no write ever carries custbody_opportunity_sub_status (' + ALL_WRITES.length + ' writes)');
+
+// ═══ E — 2.0.3: quote card text ════════════════════════════════════════════════
+
+function card(html, id) {
+    var i = html.indexOf('data-qid="' + id + '"');
+    if (i === -1) return '';
+    var j = html.indexOf('<div class="nsq-row', i);
+    return html.substring(html.lastIndexOf('<div class="nsq-row', i), j === -1 ? html.indexOf('</section>', i) : j);
+}
+function cardLines(c) {
+    var t = /<div class="nsq-q-title" title="([^"]*)">([^<]*)<\/div>/.exec(c);
+    var d = /<div class="nsq-q-desc" title="([^"]*)">([^<]*)<\/div>/.exec(c);
+    return { line1: t ? t[2] : null, line1Title: t ? t[1] : null, line2: d ? d[2] : null };
+}
+function addEstimate(fields) {
+    var e = { id: '904', opp: '123', tranid: 'UFH305732', title: '', type: 'Full System (DFD)', subtotal: 5000, discount: 0,
+              tax: 1000, total: 6000, items: [], url: 'https://acct.example/q/904', desc: '', forecast: false };
+    Object.keys(fields).forEach(function (k) { e[k] = fields[k]; });
+    state.estimates.push(e);
+}
+
+console.log('E1. Entity-encoded title with a description present');
+resetState();
+addEstimate({ title: 'Underfloor heating using a Boiler &lt;b&gt;Ground Floor&lt;/b&gt;: SC14', desc: 'Ground Floor: SC14 - Sand cement screed. 14mm Cliptrack' });
+var c1 = cardLines(card(pageHtml(runGet()), '904'));
+ok(c1.line1 === 'UFH305732 · Ground Floor: SC14 - Sand cement screed. 14mm Cliptrack', 'line 1 is tranid · description (' + c1.line1 + ')');
+ok(card(pageHtml(runGet()), '904').indexOf('Underfloor heating using a Boiler') === -1, 'the title is not rendered');
+
+console.log('E2. Encoded tags and real tags in the description');
+resetState();
+addEstimate({ desc: '&lt;b&gt;Ground&lt;/b&gt; and a real <i>x</i> &amp; more &#39;q&#39; &#x41;&nbsp;B' });
+var c2h = card(pageHtml(runGet()), '904');
+var c2 = cardLines(c2h);
+ok(c2.line1 === "UFH305732 · Ground and a real x &amp; more &#039;q&#039; A B", 'decoded, stripped, escaped once (' + c2.line1 + ')');
+ok(!/&amp;lt;|&amp;amp;|&lt;b|<b>|<i>/.test(c2h), 'no tags, no visible entities, no double encoding');
+
+console.log('E3. Encoded <script> in the description');
+resetState();
+addEstimate({ desc: '&lt;script&gt;alert(1)&lt;/script&gt;' });
+var c3h = card(pageHtml(runGet()), '904');
+ok(cardLines(c3h).line1 === 'UFH305732 · alert(1)', 'rendered as the text alert(1)');
+ok(!/<script/i.test(c3h) && !/&lt;script/i.test(c3h), 'no <script anywhere in the card');
+
+console.log('E4. Empty description → cleaned title');
+resetState();
+addEstimate({ title: 'Boiler &lt;b&gt;Ground Floor&lt;/b&gt;  <i>SC14</i>' });
+ok(cardLines(card(pageHtml(runGet()), '904')).line1 === 'UFH305732 · Boiler Ground Floor SC14', 'falls back to the cleaned title');
+
+console.log('E5. Empty description and title → tranid alone');
+resetState();
+addEstimate({});
+ok(cardLines(card(pageHtml(runGet()), '904')).line1 === 'UFH305732', 'tranid alone (the "(Untitled)" placeholder is not shown)');
+
+console.log('E6. BUS fact');
+resetState();
+var h6 = pageHtml(runGet());
+ok(/BUS grant £7,500 applied/.test(cardLines(card(h6, '901')).line2), 'busAmount 7500 → "BUS grant £7,500 applied"');
+ok(!/BUS grant/.test(cardLines(card(h6, '902')).line2 || ''), 'busAmount 0 → absent');
+
+console.log('E7. Line 2 facts');
+ok(cardLines(card(h6, '901')).line2 === 'Created 28/09/2026 · Heat Pump (ASHP) · BUS grant £7,500 applied', 'Created <date> · type · BUS (' + cardLines(card(h6, '901')).line2 + ')');
+ok(cardLines(card(h6, '902')).line2 === 'Created 28/09/2026 · Heat Emitter', 'without BUS');
+resetState();
+addEstimate({ desc: 'x', created: '28 September, 2026 14:32' });
+ok(/^Created 28 September, 2026 · /.test(cardLines(card(pageHtml(runGet()), '904')).line2), 'a date format with spaces keeps its date, loses the time');
+ok(/\.nsq-q-title\{[^}]*-webkit-line-clamp:2/.test(h6) && /\.nsq-q-desc\{[^}]*white-space:nowrap/.test(h6), 'line 1 clamps at two lines; line 2 one line');
+ok(cardLines(card(h6, '901')).line1Title === cardLines(card(h6, '901')).line1, 'full line 1 in the title attribute (hover)');
+
+console.log('E8. Proposal quote objects unchanged');
+resetState();
+runPost(basePost());
+var gE = {};
+(state.generated || []).forEach(function (q) { gE[q.quoteId] = q; });
+ok(JSON.stringify(gE['901']) === JSON.stringify(PRE_2_0_FIXTURE['901']) && JSON.stringify(gE['902']) === JSON.stringify(PRE_2_0_FIXTURE['902']),
+   'identical to the 1.8.0 fixture (B6 itself untouched)');
+ok((state.generated || []).every(function (q) { return !('titleRaw' in q) && !('dateCreatedRaw' in q); }), 'page-only card fields never reach the proposal');
 
 console.log('\n' + passes + ' passed, ' + failures + ' failed');
 process.exit(failures ? 1 : 0);

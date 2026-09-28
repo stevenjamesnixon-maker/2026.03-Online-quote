@@ -8,11 +8,21 @@
  *              Additional), recipients and four Opportunity fields, then generate and email the
  *              Master Proposal, update the Opportunity and the quotes' forecast flags, and return
  *              to the Opportunity. Supports preview (generates HTML without saving).
- * @version     2.0.2
+ * @version     2.0.3
  * @author      Nu-Heat Development
  *
  * Script ID:      customscript_nuheat_send_quote_sl
  * Deployment ID:  customdeploy_nuheat_send_quote_sl
+ *
+ * CHANGELOG v2.0.3 (Quote card text):
+ *   - CHANGED: card line 1 is "tranid · description" (the title is no longer shown; it repeated the
+ *     description). Falls back to the title, then to the tranid alone. Wraps to two lines at most,
+ *     full text on hover. Line 2 is "Created <date> · <quote type> · BUS grant £x applied", each
+ *     only when present.
+ *   - FIXED: titles/descriptions arriving entity-encoded (&lt;b&gt;) were shown raw and encoded twice.
+ *     Card text is now decodeEntities() → stripTags() → whitespace collapse → escapeHtml() once.
+ *     Decode BEFORE strip: decoding after would turn &lt;script&gt; into a live tag.
+ *   - Display only — the quote objects sent to the Master Proposal are unchanged.
  *
  * CHANGELOG v2.0.2 (Expected close date):
  *   - ADDED: fifth update field, Expected close (standard expectedclosedate, date). Same rules as the
@@ -236,7 +246,7 @@ define([
 
     // ─── Constants ────────────────────────────────────────────────────────────────
 
-    var SCRIPT_VERSION = '2.0.2';
+    var SCRIPT_VERSION = '2.0.3';
 
     /**
      * Mapping from the NetSuite custbody_quote_type list values
@@ -2383,6 +2393,8 @@ define([
                 quotes.push({
                     id:               estimateId,
                     dateCreated:      formatDate(result.getValue({ name: 'datecreated' })),
+                    dateCreatedRaw:   result.getValue({ name: 'datecreated' }) || '',   // v2.0.3: user-format text, for the card
+                    titleRaw:         result.getValue({ name: 'title' }) || '',         // v2.0.3: card fallback (no '(Untitled)')
                     tranId:           result.getValue({ name: 'tranid' }) || '',
                     title:            result.getValue({ name: 'title' })  || '(Untitled)',
                     quoteTypeRaw:     rawQuoteType,
@@ -2447,8 +2459,35 @@ define([
         return String(str || '').replace(/<[^>]*>/g, '').replace(/\s+/g, ' ').trim();
     }
 
-    function truncate(str, max) {
-        return str.length > max ? str.substring(0, max - 1).replace(/\s+$/, '') + '…' : str;
+    /**
+     * v2.0.3: Decodes HTML entities — &amp; &lt; &gt; &quot; &#39; &apos; &nbsp; and numeric
+     * &#nnn; / &#xhh;. Single pass. ⚠️ Call BEFORE stripTags(), never after: decoding after
+     * stripping would turn "&lt;script&gt;" into a live tag.
+     */
+    function decodeEntities(str) {
+        var named = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", nbsp: ' ' };
+        return String(str || '').replace(/&(#x[0-9a-f]+|#\d+|[a-z]+);/gi, function (m, e) {
+            var code;
+            if (e.charAt(0) === '#') {
+                code = (e.charAt(1) === 'x' || e.charAt(1) === 'X') ? parseInt(e.substring(2), 16) : parseInt(e.substring(1), 10);
+                return (code > 0 && code <= 0x10FFFF) ? String.fromCodePoint(code) : m;
+            }
+            var k = e.toLowerCase();
+            return Object.prototype.hasOwnProperty.call(named, k) ? named[k] : m;
+        });
+    }
+
+    /**
+     * v2.0.3: Card text — decode, then strip tags, then collapse whitespace. The caller escapes
+     * the result exactly once with escapeHtml().
+     */
+    function cleanCardText(str) {
+        return stripTags(decodeEntities(str));
+    }
+
+    /** v2.0.3: "28/09/2026 2:32 pm" → "28/09/2026" — the user's own date format, time removed. */
+    function createdDateText(raw) {
+        return String(raw || '').trim().replace(/[\sT]+\d{1,2}:\d{2}(:\d{2})?(\s*[ap]\.?m\.?)?$/i, '').trim();
     }
 
     function money(n) {
@@ -2579,8 +2618,19 @@ define([
      * posted except the role, which the script collects into custpage_sel.
      */
     function buildQuoteRowHTML(q, role) {
-        var title = stripTags(q.title);
-        var desc  = truncate(stripTags(q.description), 140);
+        // v2.0.3: line 1 = tranid · description (falls back to the title, then tranid alone);
+        // line 2 = facts. Every text: decode → strip → collapse → escape once.
+        var desc  = cleanCardText(q.description);
+        var main  = desc || cleanCardText(q.titleRaw);
+        var line1 = main ? q.tranId + ' · ' + main : String(q.tranId || '');
+        var facts = [];
+        var created = createdDateText(q.dateCreatedRaw);
+        if (created) facts.push('Created ' + created);
+        var qType = cleanCardText(q.quoteTypeRaw);
+        if (qType) facts.push(qType);
+        var bus = parseFloat(q.busAmount);
+        if (bus > 0) facts.push('BUS grant ' + formatCurrency(bus).replace(/\.00$/, '') + ' applied');
+        var line2 = facts.join(' · ');
         var roles = [['leave', 'Leave out'], [ROLE_MAIN, 'Main'], [ROLE_ADDITIONAL, 'Additional']];
         var seg = roles.map(function (r) {
             return '<button type="button" class="nsq-seg-btn" data-set-role="' + r[0] + '" aria-pressed="' +
@@ -2593,8 +2643,8 @@ define([
         return '<div class="nsq-row' + (role === ROLE_MAIN ? ' nsq-row-main' : '') + '" data-qid="' + escapeHtml(String(q.id)) +
             '" data-role="' + role + '" data-total="' + escapeHtml(String(q.totalValue || 0)) + '">' +
             '<div class="nsq-seg" role="group" aria-label="Include as">' + seg + '</div>' +
-            '<div class="nsq-q"><div class="nsq-q-title">' + escapeHtml(q.tranId) + ' &middot; ' + escapeHtml(title) + '</div>' +
-            (desc ? '<div class="nsq-q-desc" title="' + escapeHtml(stripTags(q.description)) + '">' + escapeHtml(desc) + '</div>' : '') +
+            '<div class="nsq-q"><div class="nsq-q-title" title="' + escapeHtml(line1) + '">' + escapeHtml(line1) + '</div>' +
+            (line2 ? '<div class="nsq-q-desc" title="' + escapeHtml(line2) + '">' + escapeHtml(line2) + '</div>' : '') +
             '</div>' +
             '<div class="nsq-price"><strong>' + escapeHtml(q.amount) + '</strong>' + exVat + '</div>' +
             (q.quoteUrl ? '<a class="nsq-view" href="' + escapeHtml(q.quoteUrl) + '" target="_blank" rel="noopener">View</a>' : '<span class="nsq-view"></span>') +
@@ -2665,7 +2715,7 @@ define([
             '.nsq-seg-btn+.nsq-seg-btn{border-left:1px solid ' + c.border + ';}' +
             '.nsq-seg-btn[aria-pressed="true"]{background:' + c.accent + ';color:#fff;font-weight:600;}' +
             '.nsq-q{min-width:0;}' +
-            '.nsq-q-title{font-weight:600;}' +
+            '.nsq-q-title{font-weight:600;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;text-overflow:ellipsis;overflow-wrap:anywhere;}' +
             '.nsq-q-desc{color:' + c.muted + ';font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}' +
             '.nsq-price{text-align:right;white-space:nowrap;}' +
             '.nsq-price strong{display:block;font-size:16px;}' +
