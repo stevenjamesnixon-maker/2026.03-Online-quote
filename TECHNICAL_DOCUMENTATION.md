@@ -3,7 +3,7 @@
 **Version:** 1.1.0  
 **Last Updated:** 20 August 2026  
 **Applies to:** Suitelet v4.6.0, UE v4.0.9, CS v4.0.6, Viewer v1.1.0, Master Proposal v1.8.3,
-Send Quote SL 2.0.0 — pending Sandbox, Send Quote CS v1.4.0 (detached), Opportunity UE 1.2.0 — pending Sandbox, Opportunity CS 1.1.0 — pending Sandbox, BUS Grant Module v1.0.0, VAT Rates Module v1.0.0
+Send Quote SL 2.0.1 — pending Sandbox, Send Quote CS v1.4.0 (detached), Opportunity UE 1.2.0 — pending Sandbox, Opportunity CS 1.1.0 — pending Sandbox, BUS Grant Module v1.0.0, VAT Rates Module v1.0.0
 
 ---
 
@@ -170,7 +170,7 @@ EXTERNAL ACCESS:
 | Quote Viewer | `nuheat_quote_viewer_sl.js` | v1.1.0 | Suitelet | Proxy that serves latest quote HTML via stable URL |
 | Scheduled Script | `nuheat_quote_generator_ss.js` | v1.0.0 | ScheduledScript | Fallback for governance-limited UE contexts |
 | Master Proposal | `nuheat_master_proposal.js` | v1.8.3 | Module | Generates multi-quote master proposals |
-| Send Quote SL | `nuheat_send_quote_sl.js` | 2.0.0 — pending Sandbox | Suitelet | "Send proposal" page: quotes, recipients, opportunity fields; generates, emails, updates, returns to the Opportunity |
+| Send Quote SL | `nuheat_send_quote_sl.js` | 2.0.1 — pending Sandbox | Suitelet | "Send proposal" page: quotes, recipients, opportunity fields; generates, emails, updates, returns to the Opportunity |
 | Send Quote CS | `nuheat_send_quote_cs.js` | v1.4.0 — detached | ClientScript | **Not attached from SL 2.0.0** — kept for reference only |
 | Opportunity UE | `nuheat_opportunity_ue.js` | 1.2.0 — pending Sandbox | UserEventScript | Adds "Send Quote" button (VIEW only) and the Send Quote result banner |
 | Opportunity CS | `nuheat_opportunity_cs.js` | 1.1.0 — pending Sandbox | ClientScript | Opens Send Quote Suitelet from Opportunity (same tab) |

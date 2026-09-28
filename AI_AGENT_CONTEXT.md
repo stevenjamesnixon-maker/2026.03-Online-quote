@@ -291,7 +291,7 @@ that something has regressed at source. See §6.
 | Quote Viewer | v1.1.0 | `nuheat_quote_viewer_sl.js` | ✅ Live in Production |
 | Scheduled Script | v1.0.0 | `nuheat_quote_generator_ss.js` | ✅ Live in Production |
 | Master Proposal | v1.8.3 | `nuheat_master_proposal.js` | ✅ Live in Production |
-| Send Quote SL | 2.0.0 — pending Sandbox | `nuheat_send_quote_sl.js` | ⏳ Pending Sandbox testing (live: v1.7.0; 1.8.0 passed Sandbox S1–S4, S6–S9) |
+| Send Quote SL | 2.0.1 — pending Sandbox | `nuheat_send_quote_sl.js` | ⏳ Pending Sandbox testing (live: v1.7.0; 1.8.0 passed S1–S4, S6–S9; 2.0.0 submitted and bannered but Status reverted) |
 | Send Quote CS | v1.4.0 — detached in SL 2.0.0 (pending Sandbox) | `nuheat_send_quote_cs.js` | ✅ Live in Production today; **not attached** once SL 2.0.0 deploys — kept for reference |
 | Opportunity UE | 1.2.0 — pending Sandbox | `nuheat_opportunity_ue.js` | ⏳ Pending Sandbox testing (live: v1.0.0) |
 | Opportunity CS | 1.1.0 — pending Sandbox | `nuheat_opportunity_cs.js` | ⏳ Pending Sandbox testing (live: v1.0.0) |
@@ -421,7 +421,7 @@ inline script (`PAGE_SCRIPT`) submits NetSuite's own `main_form` (see §9 pitfal
 1. rebuild quotes with `searchRelatedQuotes()` and validate (selection, ≥1 Main, To/CC/BCC) →
 2. `generateMasterProposal()` (saves the file **and** writes `custbody_master_proposal_url` /
    `custbody_last_proposal_sent_date` — unchanged, in the Master Proposal) →
-3. `sendProposalEmail()` → 4. **`updateOpportunityFields()`** → 5. **`updateForecastFlags()`** →
+3. `sendProposalEmail()` → 4. **`updateForecastFlags()`** → 5. **`updateOpportunityFields()`** →
 6. **`redirect.toRecord`** to the Opportunity in VIEW with code-only parameters; UE v1.2.0 shows the
    banner.
 
@@ -443,6 +443,12 @@ Decisions — **do not reverse without asking Steve**:
 - **Only changed, non-blank values are written**, in one `submitFields`. An untouched field is never
   re-saved (no pointless sales-order syncs), and clearing a field does nothing — the programme rule
   that an empty value never clears data. The POST knows what changed from hidden `custpage_orig_*`.
+- **Estimates are written before the Opportunity** (v2.0.1): the Opportunity update is the last record
+  write, because an Estimate save can re-sync its Status onto the Opportunity (§9 pitfall 20).
+- **Dates use `<input type="date">`** (v2.0.1): posts `yyyy-mm-dd`, validated as a real calendar date,
+  written as `new Date(y, m - 1, d)`; pre-fill built from the record Date's own parts, never
+  `toISOString()`. The picker's display order follows the **browser's** UI language, not NetSuite's
+  date preference.
 - **`enableSourcing: true` only when Status changed** (v2.0.0), so Probability follows the new
   Status — with sourcing off it did not (1.8.0 Sandbox S5). Off otherwise.
 - **Options come from the record**, not list IDs: the Opportunity is loaded `isDynamic: true` and
@@ -1051,6 +1057,20 @@ To modify, edit `renderProductCard()` and update CSS in `generateCSS()`.
     and editable. Send only codes (whitelisted keys, counts, record IDs, a timestamp); build every
     word of the message from the record in `beforeLoad`; verify IDs belong to the record; expire the
     message (`nsqt`, 300 s); wrap the whole thing in try/catch so `beforeLoad` fails closed.
+
+20. ⚠️ **SUSPECTED — saving an Estimate can re-sync its Status to the Opportunity. Write Estimates
+    before the Opportunity.** Inferred from Sandbox (28 Sep 2026): with Send Quote SL 2.0.0 a Status
+    change did not stick (Quoted → "In Negotiation – Warm" stayed Quoted; Def Order → Quoted stayed Def
+    Order), where 1.8.0 had worked. 2.0.0 added `submitFields` on Estimates (`includeinforecast`)
+    *after* the Opportunity write, each Estimate still carrying the old Status. SL 2.0.1 reorders the
+    writes. **Not yet observed directly** — to be confirmed or corrected from the Opportunity's system
+    notes after Sandbox R13. The other change since 1.8.0, `enableSourcing: true` on a Status change,
+    is the second suspect and is deliberately unchanged until that evidence is in.
+
+21. **`<input type="date">` and NetSuite dates** — the value is always `yyyy-mm-dd` whatever the
+    display. Build it from `getFullYear()` / `getMonth() + 1` / `getDate()`, never `toISOString()`
+    (the UTC conversion moves a midnight date back a day in zones east of UTC); parse it back with
+    `new Date(y, m - 1, d)` after checking the parts round-trip (rejects `2026-02-30`).
 
 ### NetSuite Record Types Used
 

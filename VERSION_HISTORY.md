@@ -361,7 +361,13 @@
 
 ## Send Quote Suitelet (`nuheat_send_quote_sl.js`) & Client Script (`nuheat_send_quote_cs.js`)
 
-### Send Quote SL v2.0.0 / Opportunity UE v1.2.0 / Opportunity CS v1.1.0 — 28 September 2026 ⏳ Pending Sandbox testing
+### Send Quote SL v2.0.1 — 28 September 2026 ⏳ Pending Sandbox testing
+
+- FIXED (suspected cause): Status change reverted after send — forecast (Estimate) writes now run
+  before the Opportunity update.
+- CHANGED: native date pickers for Next contact / Est. delivery date (`yyyy-mm-dd`, no day shift).
+
+### Send Quote SL v2.0.0 / Opportunity UE v1.2.0 / Opportunity CS v1.1.0 — 28 September 2026 — Sandbox: send and banner OK; Status reverted (fixed in 2.0.1)
 
 - REWRITTEN (SL): one inline-HTML "Send proposal" page; segmented Leave out / Main / Additional;
   To tags; sticky footer. Client script detached.

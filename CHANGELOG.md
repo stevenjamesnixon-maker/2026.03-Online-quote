@@ -1,3 +1,37 @@
+## [Send Quote SL v2.0.1] — 28 September 2026
+**Status:** ⏳ Pending Sandbox testing (amendment 3 to PR #28)
+**Components:** `nuheat_send_quote_sl.js`, `test/send-quote-opp-update.js`
+
+### Fixed — a Status change did not stick (suspected cause)
+- **Sandbox, 2.0.0:** from Quoted, choosing "In Negotiation – Warm" left the Opportunity at Quoted; from
+  Def Order, choosing Quoted left Def Order. 1.8.0 had worked (S4).
+- **Suspected cause:** 2.0.0 added forecast writes (`submitFields` on each Estimate whose
+  `includeinforecast` changes) and ran them **after** the Opportunity update. An Estimate carries its own
+  Status, and saving an Estimate linked to an Opportunity can push that (old) Status back onto the
+  Opportunity.
+- **Change:** `updateForecastFlags()` now runs **before** `updateOpportunityFields()`, so the Opportunity
+  update is the last record write. Both still run only after a successful email and stay independent.
+- **Not changed:** `enableSourcing` (the second suspect). Steve's system-notes check decides.
+- ⚠️ The reorder only matters in sends where at least one forecast flag changes. If Status still reverts
+  in a send where **no** Estimate was written, the cause is elsewhere (see R13).
+
+### Changed — date pickers
+- Next contact and Est. delivery date are `<input type="date">` (the browser's native picker). They post
+  `yyyy-mm-dd`, validated as a real calendar date and written as `new Date(y, m - 1, d)`; anything else
+  is skipped and audit-logged. Pre-fill and hidden originals are `yyyy-mm-dd` built from the record Date's
+  own parts (never `toISOString()`); the `format.format` text is kept for "Changed · was …".
+- The user-format `format.parse` path is **removed** — nothing posts the user's format any more (a page
+  restored after an error re-renders the posted `yyyy-mm-dd`).
+- Note: the picker's display order follows the browser's UI language, not NetSuite's date preference.
+
+### Tests
+- 160 assertions. Order now generate → email → forecast → field update → redirect; the Opportunity write
+  is asserted to be the last record write; dates round-trip with no day shift under Los Angeles,
+  Auckland and UTC; `2026-02-30`, `abc` and user-format dates are rejected; unchanged and blank dates are
+  not written.
+
+---
+
 ## [Send Quote SL v2.0.0 / Opportunity UE v1.2.0 / Opportunity CS v1.1.0] — 28 September 2026
 **Status:** ⏳ Pending Sandbox testing (amendment 2 to PR #28; supersedes the unreleased 1.8.0 / 1.1.0)
 **Components:** `nuheat_send_quote_sl.js`, `nuheat_opportunity_ue.js`, `nuheat_opportunity_cs.js`,
