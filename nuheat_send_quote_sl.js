@@ -8,11 +8,16 @@
  *              Additional), recipients and four Opportunity fields, then generate and email the
  *              Master Proposal, update the Opportunity and the quotes' forecast flags, and return
  *              to the Opportunity. Supports preview (generates HTML without saving).
- * @version     2.0.3
+ * @version     2.0.4
  * @author      Nu-Heat Development
  *
  * Script ID:      customscript_nuheat_send_quote_sl
  * Deployment ID:  customdeploy_nuheat_send_quote_sl
+ *
+ * CHANGELOG v2.0.4 (Header title decode):
+ *   - FIXED: the page header's opportunity title went through stripTags() without decoding, so an
+ *     entity-encoded title showed raw entities (&lt;b&gt;) — the 2.0.3 card defect, in the header.
+ *     It now goes through cleanCardText() (decode → strip → collapse) and is escaped once.
  *
  * CHANGELOG v2.0.3 (Quote card text):
  *   - CHANGED: card line 1 is "tranid · description" (the title is no longer shown; it repeated the
@@ -246,7 +251,7 @@ define([
 
     // ─── Constants ────────────────────────────────────────────────────────────────
 
-    var SCRIPT_VERSION = '2.0.3';
+    var SCRIPT_VERSION = '2.0.4';
 
     /**
      * Mapping from the NetSuite custbody_quote_type list values
@@ -2510,7 +2515,7 @@ define([
         h.push('<a class="nsq-back" href="' + escapeHtml(page.oppUrl) + '">&larr; Back to opportunity ' + escapeHtml(page.tranId) + '</a>');
         h.push('<h1 class="nsq-h1">Send proposal</h1>');
         var meta = [];
-        if (page.title)        meta.push('<span>' + escapeHtml(stripTags(page.title)) + '</span>');
+        if (page.title)        meta.push('<span>' + escapeHtml(cleanCardText(page.title)) + '</span>');   // v2.0.4: decode first
         if (page.customerName) meta.push('<span>' + escapeHtml(page.customerName) + '</span>');
         if (page.siteAddress)  meta.push('<span>Site: ' + escapeHtml(page.siteAddress) + '</span>');
         if (page.status)       meta.push('<span class="nsq-badge">' + escapeHtml(page.status) + '</span>');

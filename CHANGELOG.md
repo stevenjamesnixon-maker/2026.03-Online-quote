@@ -1,3 +1,15 @@
+## [Send Quote SL v2.0.4] — 29 September 2026
+**Status:** ⏳ Pending Sandbox testing (first commit of the Update Opportunity PR)
+**Components:** `nuheat_send_quote_sl.js`, `test/send-quote-opp-update.js`
+
+### Fixed — header title decode
+- The page header's opportunity title went through `stripTags()` without decoding, so an entity-encoded
+  title (`&lt;b&gt;`) showed raw entities — the same defect 2.0.3 fixed on the quote cards. It now goes
+  through `cleanCardText()` (decode → strip → collapse) and `escapeHtml()` once.
+- `TESTING_GUIDE.md` R12 named SL 2.0.2 after 2.0.3 shipped; corrected.
+
+---
+
 ## [Send Quote SL v2.0.3] — 28 September 2026
 **Status:** ⏳ Pending Sandbox testing (amendment 5 to PR #28)
 **Components:** `nuheat_send_quote_sl.js`, `test/send-quote-opp-update.js`

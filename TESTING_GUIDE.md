@@ -42,7 +42,7 @@ for f in nuheat_send_quote_sl.js nuheat_opportunity_ue.js nuheat_opportunity_cs.
 | R9 | Preview | Opens in a new tab; nothing written; prices match the sent proposal |
 | R10 | An Estimate after a forecast write | Online quote **not** regenerated; margin fields unchanged (checks the legacy SS1 margin script on XEDIT) |
 | R11 | Read the Execution Log | `SendQuoteSL.Forecast`, `SendQuoteSL.OppUpdate` and `SendQuoteSL.Redirect` lines present |
-| R12 | Upload check | Version header read back off every uploaded file: SL **2.0.2**, UE **1.2.1**, Opportunity CS 1.1.0 |
+| R12 | Upload check | Version header read back off every uploaded file: SL **2.0.3**, UE **1.2.1**, Opportunity CS 1.1.0 (2.0.2 until amendment 5) |
 | R13 | **2.0.1:** change Status in a send where **at least one forecast flag also changes** (e.g. make a different quote Main) | Status sticks; Probability follows it. **Read the Opportunity's system notes** for the send: the order and source of the Status changes is the evidence for §9 pitfall 20 (and whether `enableSourcing` is involved). Also try a Status change with **no** forecast change — if that reverts too, the Estimate re-sync is not the cause |
 | R14 | **2.0.1:** pick Next contact and Est. delivery date with the picker | The saved dates match what was picked, no day shift. Note the picker's display order (it follows the browser's language, not NetSuite's date preference) |
 | R15 | **2.0.2:** change **Expected close** with the picker (the section now shows Status, Build stage, Expected close, Next contact, Est. delivery date) | Saves with no day shift; the green banner shows "Expected close → <date>"; the "Changed · was …" marker and the footer summary include it |

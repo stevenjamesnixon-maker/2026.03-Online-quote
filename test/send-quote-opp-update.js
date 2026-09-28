@@ -970,5 +970,15 @@ ok(JSON.stringify(gE['901']) === JSON.stringify(PRE_2_0_FIXTURE['901']) && JSON.
    'identical to the 1.8.0 fixture (B6 itself untouched)');
 ok((state.generated || []).every(function (q) { return !('titleRaw' in q) && !('dateCreatedRaw' in q); }), 'page-only card fields never reach the proposal');
 
+// ═══ F — 2.0.4: header title decode ════════════════════════════════════════════
+
+console.log('F1. Entity-encoded opportunity title in the header');
+resetState();
+state.oppValues.title = 'Barn &lt;b&gt;conversion&lt;/b&gt; &amp; <i>annex</i> &lt;script&gt;x&lt;/script&gt;';
+var hF = pageHtml(runGet());
+var metaF = /<div class="nsq-meta">([\s\S]*?)<\/div>/.exec(hF);
+ok(metaF && metaF[1].indexOf('<span>Barn conversion &amp; annex x</span>') === 0, 'decoded, stripped, escaped once (' + (metaF && metaF[1].substring(0, 60)) + ')');
+ok(metaF && !/&amp;lt;|&lt;b|<i>|<script/i.test(metaF[1]), 'no visible entities, tags or double encoding');
+
 console.log('\n' + passes + ' passed, ' + failures + ' failed');
 process.exit(failures ? 1 : 0);
