@@ -39,15 +39,16 @@ Production `26895192`, Sandbox `21719365`. All three must change together —
 copies are hand-edited in the File Cabinet and never committed. A mismatch surfaces as
 `Invalid folder reference key <id>`. See §9, pitfall 12.
 
-**File Cabinet script folder:** every script — all 13, shared modules included — lives in
+**File Cabinet script folder:** every script — all 15, shared modules included — lives in
 `SuiteScripts/NuHeat/2026 Quote/`. Capitalisation is `NuHeat` (capital H), and the folder name
 `2026 Quote` contains a space. Relative `define()` paths resolve against this folder.
 
-**3. Two shared modules must be uploaded before their consumers.** `nuheat_bus_grant.js` and
-`nuheat_vat_rates.js` are `@NModuleScope Public` AMD modules with no `@NScriptType`. They need no
-script record and no deployment record — File Cabinet upload to `SuiteScripts/NuHeat/2026 Quote` only — but
-both must be present **before** `nuheat_quote_suitelet.js` or `nuheat_send_quote_sl.js` is
-redeployed, or both consumers fail at load time. See §9, pitfall 13.
+**3. Three shared modules must be uploaded before their consumers.** `nuheat_bus_grant.js`,
+`nuheat_vat_rates.js` and `nuheat_opp_update_lib.js` are `@NModuleScope Public` AMD modules with no
+`@NScriptType`. They need no script record and no deployment record — File Cabinet upload to
+`SuiteScripts/NuHeat/2026 Quote` only — but each must be present **before** a consumer is
+redeployed (`nuheat_quote_suitelet.js`, `nuheat_send_quote_sl.js`, `nuheat_update_opp_sl.js`), or
+the consumer fails at load time. See §9, pitfall 13.
 
 **4. `custbody_quote_type` holds raw values, not display names.** It returns
 `'Heat Pump (ASHP)'`, `'Multizone (DZM)'` and so on; `QUOTE_TYPE_MAPPING` translates those to four
@@ -291,10 +292,12 @@ that something has regressed at source. See §6.
 | Quote Viewer | v1.1.0 | `nuheat_quote_viewer_sl.js` | ✅ Live in Production |
 | Scheduled Script | v1.0.0 | `nuheat_quote_generator_ss.js` | ✅ Live in Production |
 | Master Proposal | v1.8.3 | `nuheat_master_proposal.js` | ✅ Live in Production |
-| Send Quote SL | 2.0.3 — pending Sandbox | `nuheat_send_quote_sl.js` | ⏳ Pending Sandbox testing (live: v1.7.0; 1.8.0 passed S1–S4, S6–S9; 2.0.0 Status reverted; 2.0.1 reorder fixed the revert; 2.0.2 Expected close passed R15; forecast flags ⚠️ open) |
+| Send Quote SL | 2.1.0 — pending Sandbox | `nuheat_send_quote_sl.js` | ⏳ Pending Sandbox testing (live: v1.7.0; 1.8.0 passed S1–S4, S6–S9; 2.0.0 Status reverted; 2.0.1 reorder fixed the revert; 2.0.2 Expected close passed R15; forecast flags ⚠️ open) |
 | Send Quote CS | v1.4.0 — detached in SL 2.0.0 (pending Sandbox) | `nuheat_send_quote_cs.js` | ✅ Live in Production today; **not attached** once SL 2.0.0 deploys — kept for reference |
-| Opportunity UE | 1.2.1 — pending Sandbox | `nuheat_opportunity_ue.js` | ⏳ Pending Sandbox testing (live: v1.0.0) |
-| Opportunity CS | 1.1.0 — pending Sandbox | `nuheat_opportunity_cs.js` | ⏳ Pending Sandbox testing (live: v1.0.0) |
+| Update Opportunity SL | 1.0.0 — pending Sandbox | `nuheat_update_opp_sl.js` | ⏳ New — pending Sandbox U1–U10 |
+| Opportunity Update Library | 1.0.0 — pending Sandbox | `nuheat_opp_update_lib.js` | ⏳ New — pending Sandbox (upload first) |
+| Opportunity UE | 1.3.0 — pending Sandbox | `nuheat_opportunity_ue.js` | ⏳ Pending Sandbox testing (live: v1.0.0) |
+| Opportunity CS | 1.2.0 — pending Sandbox | `nuheat_opportunity_cs.js` | ⏳ Pending Sandbox testing (live: v1.0.0) |
 | Analytics Suitelet | v1.0.1 | `nuheat_analytics_sl.js` | ✅ Live in Production |
 | **BUS Grant Module** | **v1.0.0** | **`nuheat_bus_grant.js`** | ✅ Live in Production |
 | **VAT Rates Module** | **v1.0.0** | **`nuheat_vat_rates.js`** | ✅ Live in Production |
@@ -309,10 +312,10 @@ that something has regressed at source. See §6.
 > `SCRIPT_VERSION = '4.0.9'` (~:106) but its header comment still reads `Version: 4.0.8` (~:13).
 > The table follows `SCRIPT_VERSION`. See §6 — JSDoc `@version` drift.
 
-> ⚠️ **`nuheat_bus_grant.js` and `nuheat_vat_rates.js` are shared custom modules.** Neither needs a
-> script deployment record, only a File Cabinet upload — but **both** must be uploaded to
-> `SuiteScripts/NuHeat/2026 Quote` **before** the Quote Suitelet or the Send Quote SL is redeployed, or both
-> consumers fail at load time.
+> ⚠️ **`nuheat_bus_grant.js`, `nuheat_vat_rates.js` and `nuheat_opp_update_lib.js` are shared custom
+> modules.** None needs a script deployment record, only a File Cabinet upload — but each must be
+> uploaded to `SuiteScripts/NuHeat/2026 Quote` **before** a consumer (Quote Suitelet, Send Quote SL,
+> Update Opportunity SL) is redeployed, or the consumer fails at load time.
 
 ### Current Configuration
 
@@ -388,6 +391,8 @@ Two open items:
 | **Master Proposal** | Business requirement to combine multiple quotes. Separated as a module (not Suitelet) so it can be called from the Send Quote SL. |
 | **Send Quote SL** | UI for selecting which quotes to include in a proposal. Needed because the user must choose Main vs Alternative. From v1.8.0 also updates Opportunity fields after the email is sent (five from v2.0.2); from v2.0.0 sets the quotes' Include in Forecast and returns to the Opportunity. |
 | **Opportunity UE/CS** | Entry point for Master Proposal workflow — "Send Quote" button on Opportunity form, **VIEW mode only** from UE v1.1.0, same tab from CS v1.1.0. UE v1.2.0 also shows the Send Quote result banner. |
+| **Update Opportunity SL** | One place to log a call, update the opportunity and record customer objections, instead of three separate NetSuite screens. |
+| **Opportunity Update Library** | The update-field rules, required gate and page building blocks shared by Send Quote and Update Opportunity, so the two pages cannot drift. |
 
 ### Design Decisions and Rationale
 
@@ -476,6 +481,51 @@ Decisions — **do not reverse without asking Steve**:
   Estimate XEDIT does not regenerate the online quote (`nuheat_quote_ue.js` acts on CREATE/EDIT only).
 - **Field types are partly assumed** (dates and Build stage). The GET hides a field whose reported
   type disagrees; the reported types are audit-logged as `SendQuoteSL.OppUpdate … reported field types`.
+
+### Update Opportunity flow (Update Opportunity SL 1.0.0, library 1.0.0, UE 1.3.0)
+
+A second VIEW-only button, **Update opportunity**, opens `nuheat_update_opp_sl.js` in the same tab: one
+inline-HTML page in the Send Quote style with **1 Log the call → 2 Update the opportunity → 3 Log any
+objections (optional)** and a sticky footer with Cancel and **Save**.
+
+- **1 Log the call:** a "Standard title" select (`customlist_nh_call_title`, read at runtime) copied into
+  an editable **Title** (only when Title is empty or still equals the previous standard title — typing
+  is never overwritten; max `CALL_TITLE_MAX` = 99, ⚠️ assumed); **Call date** (native picker, today by
+  default, not in the future); optional **Contact** (the opportunity's contacts); **What was discussed**
+  (required, max 3,900).
+- **2 Update the opportunity:** the shared fields from `nuheat_opp_update_lib.js`, with rules
+  `{ required: ['next_contact'] }`.
+- **3 Log any objections:** one chip per Objection Type (`customrecord_nh_objection_type`), grouped by
+  group; each ticked chip shows an optional one-line note (max 300); one optional **About quote** (every
+  Estimate on the opportunity).
+
+**Save:** validate everything → **phone call** → **one Customer Objection per tick** → **Opportunity fields
+last** (`lib.updateFields`) → `redirect.toRecord` with codes `nsqs=upd, nsq, nsqt, nsqf/nsqff, nsqc, nsqo,
+nsqof`. UE 1.3.0 builds the banner from the records.
+
+Decisions — **settled, do not re-open without Steve** (brief of 29 Sep 2026):
+
+| # | Decision |
+|---|---|
+| D1 | Update Opportunity does **not** touch forecast flags (R4 still open) |
+| D2 | "About quote" = every Estimate on the opportunity (search columns only; no record loads) |
+| D3 | **Next contact required** = the opportunity must end up with one. Blank submitted **and** the record empty → blocked, on the client and on the server **against the record** (`lib.validateRequired`, `lookupFields`) — never against posted originals. Send Quote stays optional |
+| D4 | No numeric internal IDs in code; lists and records by script ID at runtime |
+| D5 | Every banner word from the record or a fixed whitelist; codes only in the URL |
+| D6 | The Send Quote suite changes only where agreed (library loader line; B3 retargeted; A13/B14/B17 for the second button) |
+| D7 | Banner source `nsqs` = `send` \| `upd`; missing / unknown = `send`; `upd` never shows "View proposal" |
+| D8 | Validate everything before any write. **Phone call fails → stop**, nothing else written, page re-rendered "Nothing was saved". Objection and field failures do not stop later steps; amber banner |
+| D9 | Save order: phone call → objections → opportunity fields **last** (the 2.0.1 rule) |
+| D10 | `custrecord_nhobj_raised_on` = the call date |
+| D11 | Objection notes: `<per-objection note>` + blank line + `Call notes (<call date>): <call notes>`; without a note, just the call-notes line |
+| D12 | Contact on the call: optional select from the opportunity's contacts |
+| D13 | The call date may not be in the future — the browser's today; the server allows its own today + 1 (NetSuite's server clock runs behind the UK in the morning) |
+| D14 | Call Titles and Objection Types display in internal-ID order (types grouped by group internal ID) |
+
+Also: `custrecord_nhobj_group` and `custrecord_nhobj_customer` are sourced by NetSuite and **never set**;
+the Phone Call field IDs (`title`, `message`, `startdate`, `status` = `COMPLETE`, `company`, `transaction`,
+`assigned`, `contact`) are ⚠️ **assumed** until Sandbox U3. The UE deliberately does not import the
+library — a missing library must never break the opportunity view.
 
 ### The Master Proposal never loads an Estimate
 
@@ -617,7 +667,9 @@ detectable. NetSuite's original `taxtotal` is retained alongside for comparison,
 │   ├── generateQuoteCards()     # System cards with benefits
 │   └── calculateTotals()        # Aggregate pricing
 │
-├── nuheat_send_quote_sl.js     # ~2,800 lines
+├── nuheat_opp_update_lib.js    # Shared by both opportunity pages (1.0.0): fields, required gate, redirect codes, page CSS/header/sections, PAGE_SCRIPT_CORE
+├── nuheat_update_opp_sl.js     # Update Opportunity page (1.0.0): phone call, fields, objections
+├── nuheat_send_quote_sl.js     # ~2,500 lines (2.1.0: update-field code moved to the library)
 │   ├── onRequest()              # GET = form, POST = generate/preview/email
 │   ├── buildForm()              # NetSuite form with sublists
 │   └── searchRelatedQuotes()    # Find all Estimates for Opportunity
@@ -686,8 +738,9 @@ its call sites passed `showGrantBanner = false`, so it had been unreachable. If 
 
 1. **Master Proposal doesn't auto-update** — If individual quotes are regenerated after a Master Proposal is created, the proposal's pricing summary is NOT automatically updated. A new proposal must be generated manually.
 
-2. **Almost no automated tests** — Testing is manual via the NetSuite UI, with one exception:
-   `test/send-quote-opp-update.js` (Send Quote SL v1.8.0), run with `node test/send-quote-opp-update.js`.
+2. **Almost no automated tests** — Testing is manual via the NetSuite UI, with two exceptions:
+   `test/send-quote-opp-update.js` (Send Quote SL, run with `node test/send-quote-opp-update.js`) and
+   `test/update-opp.js` (Update Opportunity SL, the library and the UE banner, `node test/update-opp.js`).
    It stubs `define` and the `N/*` modules and loads the real Suitelet — the pattern to copy for any
    new test. There is no `package.json` and no test runner.
 
@@ -988,7 +1041,10 @@ To modify, edit `renderProductCard()` and update CSS in `generateCSS()`.
     legitimately differ on this one line. When deploying to Production, upload the **repository**
     version — never a downloaded Sandbox copy.
 
-13. **Custom module load order** — `nuheat_bus_grant.js` and `nuheat_vat_rates.js` are
+13. **Custom module load order** — `nuheat_bus_grant.js`, `nuheat_vat_rates.js` and (from Send Quote
+    2.1.0) `nuheat_opp_update_lib.js` follow the same rule: the library is imported by
+    `nuheat_send_quote_sl.js` and `nuheat_update_opp_sl.js` as `'./nuheat_opp_update_lib'` and must be
+    uploaded first. `nuheat_bus_grant.js` and `nuheat_vat_rates.js` are
     `@NModuleScope Public` AMD modules with **no `@NScriptType`**. They therefore need no script
     record and no deployment record; a File Cabinet upload to `SuiteScripts/NuHeat/2026 Quote` is the entire
     deployment. But `nuheat_quote_suitelet.js` and `nuheat_send_quote_sl.js` both `define()` them
@@ -1085,6 +1141,22 @@ To modify, edit `renderProductCard()` and update CSS in `generateCSS()`.
     before stripping, never after** — decoding after would turn `&lt;script&gt;` into a live tag.
     The Master Proposal still receives the raw `title` / `description`; this is display only.
 
+23. **The page-script core and its one known duplication.** New inline-HTML pages build their script
+    with `lib.pageScript(PAGE_PART)` = `'(function(){' + PAGE_SCRIPT_CORE + PAGE_PART + <DOM-ready init> '})();'`,
+    all constants. The page part implements the hook contract in the library header: `pageInit()`,
+    `problem()`, `summary()`, `beforeSubmit()`, and calls `submitForm()`. Shared IDs: `#nsq-root`,
+    `#nsq-send`, `#nsq-reason`, `#nsq-sum-line`, `#nsq-sum-changes`; update fields carry `.nsq-upd` and
+    `data-orig` / `data-orig-text` / `data-label` / `data-required`.
+    ⚠️ **Send Quote's inline script still carries its own copy of the update-field/changed-marker logic;
+    PAGE_SCRIPT_CORE is the canonical version. Migrating Send Quote to CORE is a separate change with its
+    own browser test — do not fold it into another PR.** (Kept so the 2.1.0 extraction could be proven
+    byte-identical, script included.)
+
+24. **A "required" gate must read the record, not the page.** Hidden `custpage_orig_*` values are posted
+    by the browser and can be forged. They are fine for change detection (writing an unchanged value is
+    harmless) but not for a gate: `lib.validateRequired()` reads the current value with
+    `search.lookupFields`. Validation runs before the phone call, so a failed gate writes nothing.
+
 ### NetSuite Record Types Used
 
 | Record Type | Internal ID | Usage |
@@ -1104,7 +1176,7 @@ To modify, edit `renderProductCard()` and update CSS in `generateCSS()`.
 
 Order matters. Follow it exactly:
 
-1. **Upload `nuheat_bus_grant.js` and `nuheat_vat_rates.js` first.** Both consumers fail at load
+1. **Upload `nuheat_bus_grant.js`, `nuheat_vat_rates.js` and `nuheat_opp_update_lib.js` first.** Their consumers fail at load
    time if either is missing (§9, pitfall 13).
 2. **Upload the remaining changed scripts** to `SuiteScripts/NuHeat/2026 Quote`.
 3. **Verify the folder IDs match the target environment** before uploading — Production `26895192`,
@@ -1132,7 +1204,13 @@ The scripts log heavily on purpose. These are the keys that answer most question
 | `SendQuoteSL.Forecast` | `nuheat_send_quote_sl.js` | each Estimate's Include in Forecast change (from → to), failures with messages, or why no forecast writes happened (field absent / not a checkbox) |
 | `SendQuoteSL.Selection` | `nuheat_send_quote_sl.js` | a POST or preview rejected because it named a quote not on the Opportunity (or was malformed) |
 | `SendQuoteSL.Redirect` | `nuheat_send_quote_sl.js` | the exact code parameters sent back to the Opportunity |
-| `OpportunityUE.banner` | `nuheat_opportunity_ue.js` | which banner was shown (audit) or why it was not (error) |
+| `OpportunityUE.banner` | `nuheat_opportunity_ue.js` | which banner was shown — `send/ok`, `upd/warn` … (audit) — or why it was not (error) |
+| `UpdateOppSL.Call` | `nuheat_update_opp_sl.js` | the phone call created (ID, title) or the failure that stopped the save |
+| `UpdateOppSL.Objection` | `nuheat_update_opp_sl.js` | each Customer Objection created, or failed with its message |
+| `UpdateOppSL.OppUpdate` | `nuheat_update_opp_sl.js` / library | the field rules at page load, the required check, and the fields written (old → new) |
+| `UpdateOppSL.Validation` | `nuheat_update_opp_sl.js` | a save rejected before any write, and why |
+| `UpdateOppSL.Summary` | `nuheat_update_opp_sl.js` | one line per save: call ID, objections created / failed, fields changed / failed |
+| `UpdateOppSL.Redirect` | `nuheat_update_opp_sl.js` | the exact code parameters sent back to the Opportunity |
 | `SendQuoteSL.OppUpdate` | `nuheat_send_quote_sl.js` | GET: reported field types and any update field not shown (and why). POST: fields changed old → new, "no changes", skipped because the email failed, or the failed write (error level) |
 
 ### Starting a New Session

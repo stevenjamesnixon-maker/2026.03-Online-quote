@@ -1,7 +1,58 @@
 # Testing Guide
 
-**Last Updated:** 28 September 2026
+**Last Updated:** 29 September 2026
 **Environment:** Sandbox (472052_SB1)
+
+---
+
+## Update Opportunity (Update Opportunity SL 1.0.0 / library 1.0.0 / Send Quote SL 2.1.0 / Opportunity UE 1.3.0 / Opportunity CS 1.2.0)
+
+> **Before testing:**
+> - Create the script record `customscript_nuheat_update_opp_sl` and deployment
+>   `customdeploy_nuheat_update_opp_sl`: **execute as the current role**, audience the sales roles,
+>   **Log Level Audit**. The role needs Create on Phone Call and Customer Objection.
+> - Upload **`nuheat_opp_update_lib.js` first**, then `nuheat_send_quote_sl.js`, `nuheat_update_opp_sl.js`,
+>   `nuheat_opportunity_ue.js` and `nuheat_opportunity_cs.js` to `SuiteScripts/NuHeat/2026 Quote/`.
+> - Read back every version header: library 1.0.0, Send Quote SL 2.1.0, Update Opportunity SL 1.0.0,
+>   UE 1.3.0, CS 1.2.0.
+> - **Run as an account-manager role**, not Administrator.
+
+### Automated (before uploading)
+
+```bash
+node test/send-quote-opp-update.js   # must end "217 passed, 0 failed" (or more) — includes G1, Send Quote byte-identical to 2.0.4
+node test/update-opp.js              # must end "93 passed, 0 failed" (or more)
+for f in nuheat_opp_update_lib.js nuheat_send_quote_sl.js nuheat_update_opp_sl.js nuheat_opportunity_ue.js nuheat_opportunity_cs.js; do node --check "$f"; done
+```
+
+### Sandbox scenarios
+
+| # | Test | Expected |
+|---|---|---|
+| U1 | The opportunity in view | Two buttons, **Send Quote** then **Update opportunity**; Update opens in the same tab |
+| U2 | Pick a standard title → Title; type over it; change the standard title again | Typing is never overwritten |
+| U3 | Save a call only (no objections), with Next contact set | The call appears under the opportunity's **Communication › Activities**: title, notes, date, completed, customer, you as assigned. **Confirms the phone-call field IDs** (`title`, `message`, `startdate`, `status`, `company`, `transaction`, `assigned`, `contact`) and the 99-character title limit |
+| U4 | Next contact empty on the record and left blank | Save blocked (client), with the reason shown |
+| U5 | Two objections, one with a note, plus an About quote | Two objection records on the Communication subtab: correct type and group, the quote, notes per the format (note, blank line, "Call notes (<date>): …"), raised on = the call date |
+| U6 | Status + Next contact changed | Opportunity updated; Probability follows; banner "Opportunity updated · Call logged: … · 2 objections logged · Status → …" |
+| U7 | Check the opportunity's **system notes** after U6 | Status and Next contact written once each and **not reverted** (the write-back check) |
+| U8 | Send Quote after the refactor | Unchanged — run **R3** and **R16** again |
+| U9 | A role without create rights on Customer Objection | The call and fields save; amber banner names the objections not saved |
+| U10 | Refresh 6 minutes later | No banner |
+
+Also worth a look: an objection type or quote with HTML in its name shows clean text; a call date of
+today works first thing in the morning (UK); the Execution Log shows `UpdateOppSL.Summary` for each save.
+
+### Execution Log greps
+
+| Key | Expect |
+|---|---|
+| `UpdateOppSL.Summary` | One line per save: `call <id>; objections created n, failed …; fields changed …, failed …` |
+| `UpdateOppSL.Call` | The call ID and title — or the error that stopped the save |
+| `UpdateOppSL.Objection` | One line per objection created, or its failure |
+| `UpdateOppSL.OppUpdate` | `reported field types: …` on page load; `required check: ok / missing Next contact`; the fields written |
+| `UpdateOppSL.Validation` | Why a save was rejected before any write |
+| `UpdateOppSL.Redirect` | The code parameters, e.g. `{"nsq":"ok","nsqt":"…","nsqf":"entitystatus,next_contact","nsqs":"upd","nsqc":"…","nsqo":"2"}` |
 
 ---
 
