@@ -4,16 +4,38 @@
  * @NModuleScope SameAccount
  *
  * @name        Nu-Heat Send Quote Selection Suitelet
- * @description Suitelet that displays all Quotes (Estimates) linked to an Opportunity,
- *              allowing the user to select which quotes to include in a proposal,
- *              categorise them as Main or Additional, and trigger proposal generation.
- *              Supports preview (generates HTML without saving) and email sending.
- *              Quotes are grouped into separate sections by type.
- * @version     1.8.0
+ * @description "Send proposal" page for an Opportunity: choose quotes (Leave out / Main /
+ *              Additional), recipients and four Opportunity fields, then generate and email the
+ *              Master Proposal, update the Opportunity and the quotes' forecast flags, and return
+ *              to the Opportunity. Supports preview (generates HTML without saving).
+ * @version     2.0.0
  * @author      Nu-Heat Development
  *
  * Script ID:      customscript_nuheat_send_quote_sl
  * Deployment ID:  customdeploy_nuheat_send_quote_sl
+ *
+ * CHANGELOG v2.0.0 (Redesign, return to the opportunity, forecast flags):
+ *   - REWRITTEN: The page is one INLINEHTML body inside a serverWidget form (NetSuite chrome kept):
+ *     header, "1 Choose quotes" (segmented Leave out / Main / Additional per quote), "2 Send to"
+ *     (To tags, contact picker, CC/BCC), "3 Update the opportunity" and a sticky footer with a live
+ *     summary. No native buttons, no sublists, no client script — the static inline script
+ *     (PAGE_SCRIPT) reads everything from data- attributes and submits NetSuite's main_form.
+ *   - ⚠️ SECURITY: the POST and the preview carry only { estimateId: role }. Quote objects are
+ *     rebuilt on the server from searchRelatedQuotes(); an ID not on the Opportunity is rejected.
+ *     Client-supplied prices are gone. toProposalQuote() keeps the exact pre-2.0 object shape.
+ *   - ADDED: updateForecastFlags() — after a successful email, sets includeinforecast (ASSUMED ID,
+ *     type-checked at runtime) true for Main and false for Additional / Leave out, on quotes the page
+ *     showed, only where the value differs. Read off the Estimate record already loaded per quote.
+ *   - CHANGED: after a successful send → redirect.toRecord to the Opportunity (VIEW, same tab) with
+ *     whitelisted code parameters (nsq, nsqt, nsqf, nsqff, nsqfi, nsqfx, nsqqf); the banner is
+ *     built by nuheat_opportunity_ue.js v1.2.0 from the record. Generation / email / validation
+ *     failures re-render the page with the user's entries restored.
+ *   - CHANGED: updateOpportunityFields() uses enableSourcing: true only when Status changed, so
+ *     Probability follows the new Status (1.8.0 Sandbox S5).
+ *   - REMOVED: showSuccessPage(), buildOppUpdatePanelHTML(), buildTwoColumnTopHTML(),
+ *     buildInstructionsHTML(), buildFormCSS(), the sublists and all clientScriptModulePath
+ *     assignments (nuheat_send_quote_cs.js is detached).
+ *   - UNCHANGED: write after the email; only changed non-blank values; never the sub-status.
  *
  * CHANGELOG v1.8.0 (Update opportunity on send):
  *   - ADDED: "Update opportunity" field group on the form with four optional native fields —
@@ -191,7 +213,7 @@ define([
 
     // ─── Constants ────────────────────────────────────────────────────────────────
 
-    var SCRIPT_VERSION = '1.8.0';
+    var SCRIPT_VERSION = '2.0.0';
 
     /**
      * Mapping from the NetSuite custbody_quote_type list values
@@ -274,7 +296,11 @@ define([
         { key: 'build_stage',  fieldId: 'custbody_build_stage',  label: 'Build stage',        kind: 'select', blankOption: true }
     ];
 
-    var OPP_UPDATE_GROUP_ID  = 'custpage_grp_opp_update';
+    /**
+     * v2.0.0: Estimate "Include in Forecast". ⚠️ ASSUMED standard field ID, not yet confirmed —
+     * its type is checked at runtime (must report 'checkbox') before any write.
+     */
+    var FORECAST_FIELD = 'includeinforecast';
     var OPP_UPDATE_KEYS_FIELD = 'custpage_upd_fields';   // hidden: keys of the fields actually shown
 
     function updFieldId(def)     { return 'custpage_upd_' + def.key; }
@@ -365,70 +391,170 @@ define([
         }
     }
 
+    // ─── Selection (v2.0.0) ───────────────────────────────────────────────────────
+    //
+    // The browser sends only { "<estimateId>": "main" | "additional" }. Left-out quotes are
+    // omitted. Every price, VAT and BUS figure is rebuilt on the server from
+    // searchRelatedQuotes() — nothing the page posts is trusted as a quote value.
+
+    var ROLE_MAIN       = 'main';
+    var ROLE_ADDITIONAL = 'additional';
+
+    /**
+     * Parses the posted selection JSON.
+     * @returns {{map: Object<string,string>, invalid: boolean}} `invalid` when the JSON is
+     *          malformed or carries a role other than main/additional.
+     */
+    function parseSelection(json) {
+        var result = { map: {}, invalid: false };
+        if (!json) return result;
+        var obj;
+        try {
+            obj = JSON.parse(json);
+        } catch (e) {
+            result.invalid = true;
+            return result;
+        }
+        if (!obj || typeof obj !== 'object' || Array.isArray(obj)) {
+            result.invalid = true;
+            return result;
+        }
+        Object.keys(obj).forEach(function (id) {
+            var role = obj[id];
+            if (role === ROLE_MAIN || role === ROLE_ADDITIONAL) {
+                result.map[String(id)] = role;
+            } else {
+                result.invalid = true;
+            }
+        });
+        return result;
+    }
+
+    /**
+     * Builds the quote object handed to the Master Proposal from a searchRelatedQuotes() row.
+     *
+     * ⚠️ The shape — keys, key order and value types — is EXACTLY what the pre-2.0 hidden
+     * sublist columns produced after their text round trip (setSublistValue → getSublistValue),
+     * including the '£0.00' / 'none' / '20%' defaults and the parse-back of busAmount and
+     * vatRate. nuheat_master_proposal.js depends on it; the test suite compares the two.
+     */
+    function toProposalQuote(q, role) {
+        var busAmount = parseFloat(String(q.busAmount || 0));
+        if (isNaN(busAmount)) busAmount = 0;
+        var vatRate = parseFloat(String(q.vatRate === undefined ? '' : q.vatRate));
+        if (isNaN(vatRate)) vatRate = vatRates.DEFAULT_VAT_RATE;
+
+        return {
+            quoteId:       q.id,
+            tranId:        q.tranId,
+            title:         q.title,
+            quoteType:     q.quoteTypeDisplay,
+            amount:        q.amount,
+            subtotal:      q.subtotal,
+            discountTotal: q.discountTotal || '£0.00',
+            taxTotal:      q.taxTotal || '£0.00',
+            busAmount:     busAmount,
+            busRate:       q.busRate || 'none',
+            vatRate:       vatRate,
+            vatPercent:    q.vatPercent || '20%',
+            quoteUrl:      q.quoteUrl,
+            category:      role,
+            description:   q.description || ''
+        };
+    }
+
+    /**
+     * Resolves a parsed selection against the Opportunity's own quotes.
+     * Any selected ID that is not among them rejects the whole request.
+     *
+     * @returns {{error: string, selected: Array, main: Array, additional: Array}}
+     */
+    function resolveSelection(opportunityId, quotes, selection) {
+        var out = { error: '', selected: [], main: [], additional: [] };
+        var byId = {};
+        quotes.forEach(function (q) { byId[String(q.id)] = q; });
+
+        var unknown = Object.keys(selection.map).filter(function (id) { return !byId[id]; });
+        if (selection.invalid || unknown.length) {
+            log.audit('SendQuoteSL.Selection', 'Opportunity ' + opportunityId + ' — rejected selection' +
+                (selection.invalid ? ' (malformed)' : '') + (unknown.length ? ' (not on this opportunity: ' + unknown.join(',') + ')' : ''));
+            out.error = 'The selection included a quote that does not belong to this opportunity. ' +
+                'Nothing was sent. Please check your selection and try again.';
+            return out;
+        }
+
+        // Same order the pre-2.0 form posted in: grouped by QUOTE_TYPE_ORDER, then search order.
+        QUOTE_TYPE_ORDER.forEach(function (type) {
+            quotes.forEach(function (q) {
+                var qType = QUOTE_TYPE_ORDER.indexOf(q.quoteTypeDisplay) === -1 ? 'Other' : q.quoteTypeDisplay;
+                if (qType !== type) return;
+                var role = selection.map[String(q.id)];
+                if (!role) return;
+                var entry = toProposalQuote(q, role);
+                out.selected.push(entry);
+                (role === ROLE_MAIN ? out.main : out.additional).push(entry);
+            });
+        });
+        return out;
+    }
+
+    var EMAIL_RE = /^[^\s@,;<>"']+@[^\s@,;<>"']+\.[^\s@,;<>"']+$/;
+
+    function invalidEmails(str) {
+        return parseEmails(str).filter(function (e) { return !EMAIL_RE.test(e); });
+    }
+
     // ─── Preview Handler ──────────────────────────────────────────────────────────
 
     /**
-     * Handles the preview action — generates proposal HTML and writes it directly
-     * to the response (opens as a new page). Does NOT save to File Cabinet or
-     * update any records.
+     * Handles the preview action — rebuilds the selected quotes on the server and writes the
+     * proposal HTML to the response. Does NOT save to File Cabinet or update any records.
+     *
+     * v2.0.0: the request carries only opportunityId and the selection (IDs and roles).
      */
     function handlePreview(context) {
         var opportunityId = context.request.parameters.opportunityId;
-        var quotesJson    = context.request.parameters.quotes;
+        var selection     = parseSelection(context.request.parameters.sel);
 
         log.audit('SendQuoteSL.handlePreview', 'Preview for Opportunity ' + opportunityId);
 
-        if (!opportunityId || !quotesJson) {
-            context.response.write('<html><body><h1>Preview Error</h1><p>Missing Opportunity ID or quote data.</p></body></html>');
+        function previewError(msg) {
+            context.response.write('<html><body><h1>Preview Error</h1><p>' + escapeHtml(msg) + '</p></body></html>');
+        }
+
+        if (!opportunityId || !Object.keys(selection.map).length) {
+            previewError('Missing Opportunity ID or quote selection.');
             return;
         }
 
         try {
-            var selectedQuotes = JSON.parse(quotesJson);
-
-            // Map client-side quote objects to the format expected by master proposal
-            // Client sends: { tranId, category, url, quoteType }
-            // Master proposal expects: { quoteId, tranId, title, quoteType, amount, subtotal, quoteUrl, category, description }
-            var mappedQuotes = selectedQuotes.map(function (q) {
-                return {
-                    quoteId:       q.quoteId || '',
-                    tranId:        q.tranId || '',
-                    title:         q.title || q.tranId || 'Quote',
-                    quoteType:     q.quoteType || 'Other',
-                    amount:        q.amount || '£0.00',
-                    subtotal:      q.subtotal || '',
-                    discountTotal: q.discountTotal || '',   // v1.4.3: Discount total
-                    taxTotal:      q.taxTotal || '',        // v1.4.3: VAT total
-                    busAmount:     parseFloat(q.busAmount) || 0,   // v1.6.0: 0 | 7500 | 9000
-                    busRate:       q.busRate || 'none',            // v1.6.0: resolved Suppak rate
-                    vatRate:       (q.vatRate === undefined || q.vatRate === null || q.vatRate === '' || isNaN(parseFloat(q.vatRate)))
-                                       ? vatRates.DEFAULT_VAT_RATE
-                                       : parseFloat(q.vatRate),    // v1.7.0: 0 | 0.20
-                    vatPercent:    q.vatPercent || '20%',          // v1.7.0: '0%' | '20%'
-                    quoteUrl:      q.url || q.quoteUrl || '',
-                    category:      q.category || 'main',
-                    description:   q.description || ''     // v1.4.2: For master proposal HTML rendering
-                };
-            });
+            var quotes   = searchRelatedQuotes(opportunityId);
+            var resolved = resolveSelection(opportunityId, quotes, selection);
+            if (resolved.error) {
+                previewError(resolved.error);
+                return;
+            }
+            if (!resolved.main.length) {
+                previewError('Choose at least one Main quote to preview.');
+                return;
+            }
 
             // Generate preview HTML (no save, no field update)
-            var html = masterProposal.generatePreviewHTML(opportunityId, mappedQuotes);
+            var html = masterProposal.generatePreviewHTML(opportunityId, resolved.selected);
 
-            // Write HTML directly to response
             context.response.setHeader({ name: 'Content-Type', value: 'text/html; charset=utf-8' });
             context.response.write(html);
 
         } catch (e) {
             log.error('SendQuoteSL.handlePreview', 'Preview error: ' + e.message + '\n' + e.stack);
-            context.response.write('<html><body><h1>Preview Error</h1><p>' + escapeHtml(e.message) + '</p></body></html>');
+            previewError(e.message);
         }
     }
 
-    // ─── GET: Show the Quote Selection Form ───────────────────────────────────────
+    // ─── GET: the Send proposal page ──────────────────────────────────────────────
 
     /**
-     * Builds and displays the quote selection form.
-     * Quotes are grouped into separate sublists by quote type.
+     * GET entry point — renders the Send proposal page.
      */
     function showQuoteSelectionForm(context) {
         var opportunityId = context.request.parameters.opportunityId;
@@ -438,37 +564,71 @@ define([
             return;
         }
 
-        // ── Load Opportunity record ──────────────────────────────────────────────
-        var oppRecord;
-        try {
-            // v1.8.0: isDynamic so getSelectOptions() works for the Update opportunity section
-            oppRecord = record.load({ type: record.Type.OPPORTUNITY, id: opportunityId, isDynamic: true });
-        } catch (e) {
-            log.error('SendQuoteSL.showForm', 'Failed to load Opportunity ' + opportunityId + ': ' + e.message);
-            showErrorPage(context, 'Could not load Opportunity record (ID: ' + opportunityId + '). Please check the record exists and you have permission to view it.');
+        renderSendPage(context, opportunityId, null, '', null);
+    }
+
+    /**
+     * Renders the Send proposal page: a serverWidget form (so NetSuite's header and menu stay)
+     * carrying ONE inline-HTML field. No native buttons and no client script — the page's own
+     * inline script owns all behaviour and submits NetSuite's main_form.
+     *
+     * @param {Object} context
+     * @param {string} opportunityId
+     * @param {Object|null} restore - posted state to restore after a failed send, or null
+     * @param {string} errorMessage - shown in an error panel at the top, or ''
+     * @param {Array|null} quotes - quotes already loaded for this request, or null to search
+     */
+    function renderSendPage(context, opportunityId, restore, errorMessage, quotes) {
+        var page = loadSendPageData(opportunityId, quotes);
+        if (page.loadError) {
+            showErrorPage(context, page.loadError);
             return;
         }
 
-        var oppTranId    = oppRecord.getValue({ fieldId: 'tranid' })    || '';
-        var oppTitle     = oppRecord.getValue({ fieldId: 'title' })     || '';
-        var customerName = oppRecord.getText({ fieldId: 'entity' })     || '';
-        var customerId   = oppRecord.getValue({ fieldId: 'entity' })    || '';
-        var oppStatus    = oppRecord.getText({ fieldId: 'entitystatus' }) || '';
+        var form = serverWidget.createForm({ title: 'Send Quote' });
+        var body = form.addField({
+            id:    'custpage_page',
+            type:  serverWidget.FieldType.INLINEHTML,
+            label: ' '
+        });
+        body.defaultValue = buildSendPageHTML(page, restore, errorMessage);
+
+        context.response.writePage(form);
+    }
+
+    /**
+     * Loads everything the Send proposal page shows.
+     */
+    function loadSendPageData(opportunityId, quotes) {
+        var page = { opportunityId: String(opportunityId), loadError: '' };
+
+        // ── Load Opportunity record ──────────────────────────────────────────────
+        // v1.8.0: isDynamic so getSelectOptions() works for the update fields.
+        var oppRecord;
+        try {
+            oppRecord = record.load({ type: record.Type.OPPORTUNITY, id: opportunityId, isDynamic: true });
+        } catch (e) {
+            log.error('SendQuoteSL.showForm', 'Failed to load Opportunity ' + opportunityId + ': ' + e.message);
+            page.loadError = 'Could not load Opportunity record (ID: ' + opportunityId + '). Please check the record exists and you have permission to view it.';
+            return page;
+        }
+
+        page.tranId       = oppRecord.getValue({ fieldId: 'tranid' })    || '';
+        page.title        = oppRecord.getValue({ fieldId: 'title' })     || '';
+        page.customerName = oppRecord.getText({ fieldId: 'entity' })     || '';
+        var customerId    = oppRecord.getValue({ fieldId: 'entity' })    || '';
+        page.status       = oppRecord.getText({ fieldId: 'entitystatus' }) || '';
 
         // v1.4.5: Defensive loading of site address — field may not exist on all environments
-        var siteAddress  = '';
+        page.siteAddress = '';
         try {
-            siteAddress = oppRecord.getValue({ fieldId: 'custbody_opp_site_adress' }) || '';
+            page.siteAddress = oppRecord.getValue({ fieldId: 'custbody_opp_site_adress' }) || '';
         } catch (siteErr) {
             log.debug('SendQuoteSL.showForm', 'Could not read custbody_opp_site_adress: ' + siteErr.message + ' — field may not exist');
         }
 
-        log.debug('SendQuoteSL.showForm', 'Loaded Opportunity fields — tranId: ' + oppTranId +
-            ', title: ' + oppTitle + ', siteAddress: ' + siteAddress +
-            ', customer: ' + customerName + ', status: ' + oppStatus);
-
-        // Load customer email for prepopulation
-        var customerEmail = '';
+        // Customer email — the default To address
+        page.customerEmail = '';
         if (customerId) {
             try {
                 var custFields = search.lookupFields({
@@ -476,17 +636,18 @@ define([
                     id: customerId,
                     columns: ['email']
                 });
-                customerEmail = custFields.email || '';
+                page.customerEmail = custFields.email || '';
             } catch (e) {
                 log.debug('SendQuoteSL.showForm', 'Could not look up customer email: ' + e.message);
             }
         }
 
-        log.audit('SendQuoteSL.showForm', 'v1.4.5 — Opportunity: ' + oppTranId + ' | Title: ' + oppTitle +
-            ' | Customer: ' + customerName + ' | Email: ' + customerEmail + ' | SiteAddr: ' + siteAddress);
+        log.audit('SendQuoteSL.showForm', 'Opportunity: ' + page.tranId + ' | Title: ' + page.title +
+            ' | Customer: ' + page.customerName + ' | Email: ' + page.customerEmail + ' | SiteAddr: ' + page.siteAddress);
 
-        // v1.5.0: Load contacts linked to this Opportunity via Opportunity search + contact join
-        var contacts = [];
+        // v1.5.0: Contacts linked to this Opportunity via Opportunity search + contact join
+        // (the contact sublist API does not work on Opportunities — §9 pitfall 11)
+        page.contacts = [];
         try {
             var contactSearch = search.create({
                 type: search.Type.OPPORTUNITY,
@@ -507,513 +668,217 @@ define([
                 var firstName = result.getValue({ name: 'firstname',  join: 'contact' }) || '';
                 var lastName  = result.getValue({ name: 'lastname',   join: 'contact' }) || '';
                 var email     = result.getValue({ name: 'email',      join: 'contact' }) || '';
-                contacts.push({
+                page.contacts.push({
                     id:    contactId,
                     name:  (firstName + ' ' + lastName).trim() || 'Contact ' + contactId,
                     email: email
                 });
                 return true;
             });
-
-            log.debug('SendQuoteSL.loadContacts', 'Search found ' + contacts.length + ' contacts for Opportunity ' + opportunityId);
         } catch (contactErr) {
             log.debug('SendQuoteSL.loadContacts', 'Contact search failed: ' + contactErr.message);
         }
 
-        // ── Create form ──────────────────────────────────────────────────────────
-        var form = serverWidget.createForm({
-            title: 'Send Quote — Select Quotes to Include'
-        });
+        page.quotes = quotes || searchRelatedQuotes(opportunityId);
+        page.updateFields = page.quotes.length ? prepareOpportunityUpdateFields(oppRecord, opportunityId) : [];
 
-        // Inject custom CSS via inline HTML field
-        var cssField = form.addField({
-            id: 'custpage_css',
-            type: serverWidget.FieldType.INLINEHTML,
-            label: ' '
-        });
-        cssField.defaultValue = buildFormCSS();
-
-        // ── Two-column top section: Opportunity Details (left) + Email Recipients (right) ──
-        var topSectionField = form.addField({
-            id: 'custpage_top_section',
-            type: serverWidget.FieldType.INLINEHTML,
-            label: ' '
-        });
-        topSectionField.defaultValue = buildTwoColumnTopHTML(oppTranId, oppTitle, customerName, oppStatus, customerEmail, siteAddress);
-
-        // ── Hidden fields ────────────────────────────────────────────────────────
-        var hiddenOppId = form.addField({
-            id: 'custpage_opportunity_id',
-            type: serverWidget.FieldType.TEXT,
-            label: 'Opportunity ID'
-        });
-        hiddenOppId.defaultValue = opportunityId;
-        hiddenOppId.updateDisplayType({ displayType: serverWidget.FieldDisplayType.HIDDEN });
-
-        // ── Search for related Quotes (Estimates) ────────────────────────────────
-        var quotes = searchRelatedQuotes(opportunityId);
-
-        if (quotes.length === 0) {
-            log.audit('SendQuoteSL.showForm', 'No quotes found for Opportunity ' + opportunityId + ' — displaying banner');
-
-            // v1.4.5: Full-width prominent banner at top of page
-            var noQuotesField = form.addField({
-                id: 'custpage_no_quotes',
-                type: serverWidget.FieldType.INLINEHTML,
-                label: ' '
+        // Links, resolved server-side and handed to the page as data- attributes
+        page.oppUrl = '';
+        page.previewUrl = '';
+        try {
+            page.oppUrl = url.resolveRecord({ recordType: 'opportunity', recordId: opportunityId, isEditMode: false });
+        } catch (e) {
+            log.debug('SendQuoteSL.showForm', 'Could not resolve Opportunity URL: ' + e.message);
+        }
+        try {
+            var script = runtime.getCurrentScript();
+            page.previewUrl = url.resolveScript({
+                scriptId:     script.id,
+                deploymentId: script.deploymentId,
+                params:       { action: 'preview', opportunityId: String(opportunityId) }
             });
-            noQuotesField.defaultValue =
-                '<div style="width:100%; padding:24px 28px; background:#fff3cd; border:2px solid #ffc107; border-radius:8px; margin:0 0 20px 0; box-sizing:border-box;">' +
-                    '<h3 style="margin:0 0 10px 0; color:#856404; font-size:18px;">⚠️ No Quotes Found</h3>' +
-                    '<p style="margin:0 0 8px 0; color:#856404; font-size:14px;">' +
-                        'There are no Estimates linked to this Opportunity that have a generated online quote URL.' +
-                    '</p>' +
-                    '<p style="margin:0 0 8px 0; color:#856404; font-size:14px;">' +
-                        'To generate an online quote, go to the Estimate record and click the <strong>Regen quote</strong> button.' +
-                    '</p>' +
-                    '<p style="margin:0; color:#856404; font-size:13px;">' +
-                        '<strong>Troubleshooting:</strong> Ensure the Estimate has the <code>custbody_test_new_quote</code> field populated ' +
-                        'and is linked to this Opportunity (ID: ' + escapeHtml(opportunityId) + ').' +
-                    '</p>' +
-                '</div>';
-
-            form.addButton({
-                id: 'custpage_btn_back',
-                label: 'Back to Opportunity',
-                functionName: 'goBackToOpportunity'
-            });
-
-            // Inject minimal client script for the back button
-            form.clientScriptModulePath = './nuheat_send_quote_cs.js';
-
-            context.response.writePage(form);
-            return;
+        } catch (e) {
+            log.debug('SendQuoteSL.showForm', 'Could not resolve preview URL: ' + e.message);
         }
 
-        // ── Collapsible User Instructions ─────────────────────────────────────────
-        var instructionsField = form.addField({
-            id: 'custpage_instructions',
-            type: serverWidget.FieldType.INLINEHTML,
-            label: 'Instructions'
-        });
-        instructionsField.defaultValue = buildInstructionsHTML(quotes.length);
-
-        // ── Update opportunity (v1.8.0) ───────────────────────────────────────────
-        addOpportunityUpdateSection(form, oppRecord, opportunityId);
-
-        // ── Group quotes by type ──────────────────────────────────────────────────
-        var quotesByType = {};
-        QUOTE_TYPE_ORDER.forEach(function (type) {
-            quotesByType[type] = [];
-        });
-
-        quotes.forEach(function (q) {
-            var type = q.quoteTypeDisplay;
-            if (quotesByType[type]) {
-                quotesByType[type].push(q);
-            } else {
-                quotesByType['Other'].push(q);
-            }
-        });
-
-        log.debug('SendQuoteSL.showForm', 'Quote counts by type — ' +
-            QUOTE_TYPE_ORDER.map(function (t) { return t + ': ' + quotesByType[t].length; }).join(', '));
-
-        // ── Create separate sublists for each quote type ──────────────────────────
-        QUOTE_TYPE_ORDER.forEach(function (quoteType) {
-            var typeQuotes = quotesByType[quoteType];
-
-            if (typeQuotes.length === 0) {
-                return; // Skip empty types
-            }
-
-            var slug = QUOTE_TYPE_SLUGS[quoteType];
-
-            // v1.3.0: Removed green/teal section header divs — sublists display directly
-
-            // Create sublist for this type
-            var sublist = form.addSublist({
-                id: 'custpage_quotes_' + slug,
-                type: serverWidget.SublistType.LIST,
-                label: quoteType + ' Quotes'
-            });
-
-            // Checkbox: Include this quote
-            sublist.addField({
-                id: 'custpage_select',
-                type: serverWidget.FieldType.CHECKBOX,
-                label: 'Include'
-            });
-
-            // Select: Main / Additional
-            var categoryField = sublist.addField({
-                id: 'custpage_category',
-                type: serverWidget.FieldType.SELECT,
-                label: 'Category'
-            });
-            categoryField.addSelectOption({ value: 'main',       text: 'Main Quote' });
-            categoryField.addSelectOption({ value: 'additional',  text: 'Additional Option' });
-
-            // Read-only info columns
-            sublist.addField({ id: 'custpage_date_created',  type: serverWidget.FieldType.TEXT, label: 'Date Created' });
-            sublist.addField({ id: 'custpage_quote_number',  type: serverWidget.FieldType.TEXT, label: 'Quote Number' });
-            sublist.addField({ id: 'custpage_quote_title',   type: serverWidget.FieldType.TEXT, label: 'Quote Title' });
-
-            // v1.4.4: Visible description column
-            sublist.addField({ id: 'custpage_description_display', type: serverWidget.FieldType.TEXT, label: 'Description' });
-
-            sublist.addField({ id: 'custpage_subtotal',      type: serverWidget.FieldType.TEXT, label: 'System Price' });
-            // v1.4.10: Visible discount column between System Price and Total inc VAT
-            sublist.addField({ id: 'custpage_discount',      type: serverWidget.FieldType.TEXT, label: 'Discount' });
-            sublist.addField({ id: 'custpage_amount',        type: serverWidget.FieldType.TEXT, label: 'Total inc VAT' });
-
-            // v1.4.4: Reduced URL column width
-            var urlField = sublist.addField({ id: 'custpage_quote_url', type: serverWidget.FieldType.TEXT, label: 'URL' });
-            urlField.updateDisplaySize({ height: 1, width: 20 });
-
-            // Hidden: internal ID for processing
-            var hiddenId = sublist.addField({
-                id: 'custpage_quote_id',
-                type: serverWidget.FieldType.TEXT,
-                label: 'Quote Internal ID'
-            });
-            hiddenId.updateDisplayType({ displayType: serverWidget.FieldDisplayType.HIDDEN });
-
-            // Hidden: quote type for submission processing
-            var hiddenType = sublist.addField({
-                id: 'custpage_quote_type',
-                type: serverWidget.FieldType.TEXT,
-                label: 'Quote Type'
-            });
-            hiddenType.updateDisplayType({ displayType: serverWidget.FieldDisplayType.HIDDEN });
-
-            // v1.4.3: Hidden: discount total for master proposal pricing
-            var hiddenDiscount = sublist.addField({
-                id: 'custpage_discount_total',
-                type: serverWidget.FieldType.TEXT,
-                label: 'Discount Total'
-            });
-            hiddenDiscount.updateDisplayType({ displayType: serverWidget.FieldDisplayType.HIDDEN });
-
-            // v1.4.3: Hidden: tax (VAT) total for master proposal pricing
-            var hiddenTax = sublist.addField({
-                id: 'custpage_tax_total',
-                type: serverWidget.FieldType.TEXT,
-                label: 'Tax Total'
-            });
-            hiddenTax.updateDisplayType({ displayType: serverWidget.FieldDisplayType.HIDDEN });
-
-            // v1.6.0: Hidden: BUS grant amount for master proposal pricing.
-            // serverWidget sublists carry TEXT, so this is stringified on the way out and
-            // parsed back with parseFloat on the way in (see getBusAmount in the proposal).
-            var hiddenBusAmount = sublist.addField({
-                id: 'custpage_bus_amount',
-                type: serverWidget.FieldType.TEXT,
-                label: 'BUS Grant Amount'
-            });
-            hiddenBusAmount.updateDisplayType({ displayType: serverWidget.FieldDisplayType.HIDDEN });
-
-            // v1.6.0: Hidden: BUS grant rate ('none' | 'standard' | 'enhanced')
-            var hiddenBusRate = sublist.addField({
-                id: 'custpage_bus_rate',
-                type: serverWidget.FieldType.TEXT,
-                label: 'BUS Grant Rate'
-            });
-            hiddenBusRate.updateDisplayType({ displayType: serverWidget.FieldDisplayType.HIDDEN });
-
-            // v1.7.0: Hidden: VAT rate (as a decimal string, e.g. '0' or '0.2')
-            var hiddenVatRate = sublist.addField({
-                id: 'custpage_vat_rate',
-                type: serverWidget.FieldType.TEXT,
-                label: 'VAT Rate'
-            });
-            hiddenVatRate.updateDisplayType({ displayType: serverWidget.FieldDisplayType.HIDDEN });
-
-            // v1.7.0: Hidden: VAT rate as a display percentage ('0%' | '20%')
-            var hiddenVatPercent = sublist.addField({
-                id: 'custpage_vat_percent',
-                type: serverWidget.FieldType.TEXT,
-                label: 'VAT Percent'
-            });
-            hiddenVatPercent.updateDisplayType({ displayType: serverWidget.FieldDisplayType.HIDDEN });
-
-            // v1.4.2: Hidden: quote description for master proposal
-            var hiddenDesc = sublist.addField({
-                id: 'custpage_quote_description',
-                type: serverWidget.FieldType.TEXTAREA,
-                label: 'Quote Description'
-            });
-            hiddenDesc.updateDisplayType({ displayType: serverWidget.FieldDisplayType.HIDDEN });
-
-            // ── Populate sublist rows ──────────────────────────────────────────────
-            for (var i = 0; i < typeQuotes.length; i++) {
-                var q = typeQuotes[i];
-
-                sublist.setSublistValue({ id: 'custpage_select',       line: i, value: 'F' });
-                sublist.setSublistValue({ id: 'custpage_category',     line: i, value: 'main' });
-                sublist.setSublistValue({ id: 'custpage_date_created', line: i, value: q.dateCreated });
-                sublist.setSublistValue({ id: 'custpage_quote_number', line: i, value: q.tranId });
-                sublist.setSublistValue({ id: 'custpage_quote_title',  line: i, value: q.title });
-
-                // v1.4.4: Set visible description (strip HTML tags for display, truncate if long)
-                var descText = (q.description || '').replace(/<[^>]*>/g, '').trim();
-                if (descText.length > 80) descText = descText.substring(0, 80) + '...';
-                sublist.setSublistValue({ id: 'custpage_description_display', line: i, value: descText || '—' });
-
-                sublist.setSublistValue({ id: 'custpage_subtotal',     line: i, value: q.subtotal });
-                // v1.4.10: Populate visible discount column
-                var discountDisplay = q.discountTotal || '£0.00';
-                sublist.setSublistValue({ id: 'custpage_discount',     line: i, value: discountDisplay });
-                sublist.setSublistValue({ id: 'custpage_amount',       line: i, value: q.amount });
-                sublist.setSublistValue({ id: 'custpage_quote_url',    line: i, value: q.quoteUrl });
-                sublist.setSublistValue({ id: 'custpage_quote_id',     line: i, value: q.id });
-                sublist.setSublistValue({ id: 'custpage_quote_type',   line: i, value: q.quoteTypeDisplay });
-                sublist.setSublistValue({ id: 'custpage_discount_total', line: i, value: q.discountTotal || '£0.00' });  // v1.4.3
-                sublist.setSublistValue({ id: 'custpage_tax_total',      line: i, value: q.taxTotal || '£0.00' });       // v1.4.3
-                // v1.6.0: stringify — setSublistValue rejects a plain number on a TEXT field,
-                // and a 0 value must still be written (not skipped) so the row is unambiguous.
-                sublist.setSublistValue({ id: 'custpage_bus_amount',     line: i, value: String(q.busAmount || 0) });
-                sublist.setSublistValue({ id: 'custpage_bus_rate',       line: i, value: q.busRate || 'none' });
-                // v1.7.0: same stringify-out / parse-back pattern as the BUS fields
-                sublist.setSublistValue({ id: 'custpage_vat_rate',       line: i, value: String(q.vatRate === undefined ? '' : q.vatRate) });
-                sublist.setSublistValue({ id: 'custpage_vat_percent',    line: i, value: q.vatPercent || '20%' });
-                if (q.description) {
-                    sublist.setSublistValue({ id: 'custpage_quote_description', line: i, value: q.description });  // v1.4.2
-                }
-            }
-        });
-
-        // ── Contact Selector (v1.5.0) ────────────────────────────────────────────
-        // Dropdown populated from Opportunity contact sublist.
-        // Selecting a contact with an email populates the To field via fieldChanged in the CS.
-        // Option value = contact email address (empty string for contacts with no email).
-        var contactField = form.addField({
-            id:    'custpage_contact_selector',
-            type:  serverWidget.FieldType.SELECT,
-            label: 'Select Contact'
-        });
-        contactField.addSelectOption({ value: '', text: '-- Select a contact to populate email --' });
-        contacts.forEach(function (c) {
-            var label = c.email ? c.name + ' (' + c.email + ')' : c.name + ' (no email)';
-            contactField.addSelectOption({ value: c.email, text: label });
-        });
-
-        // ── Email Fields (v1.4.4: rendered inside grey box via inline HTML, hidden NS fields carry values) ──
-        var hiddenEmailTo = form.addField({
-            id: 'custpage_email_to',
-            type: serverWidget.FieldType.TEXT,
-            label: 'Email To'
-        });
-        hiddenEmailTo.defaultValue = customerEmail;
-        hiddenEmailTo.updateDisplayType({ displayType: serverWidget.FieldDisplayType.HIDDEN });
-
-        var hiddenEmailCc = form.addField({
-            id: 'custpage_email_cc',
-            type: serverWidget.FieldType.TEXT,
-            label: 'Email CC'
-        });
-        hiddenEmailCc.updateDisplayType({ displayType: serverWidget.FieldDisplayType.HIDDEN });
-
-        var hiddenEmailBcc = form.addField({
-            id: 'custpage_email_bcc',
-            type: serverWidget.FieldType.TEXT,
-            label: 'Email BCC'
-        });
-        hiddenEmailBcc.updateDisplayType({ displayType: serverWidget.FieldDisplayType.HIDDEN });
-
-        // ── Buttons (v1.4.4: icons removed) ─────────────────────────────────────
-        form.addSubmitButton({ label: 'Generate & Send' });
-
-        form.addButton({
-            id: 'custpage_btn_preview',
-            label: 'Preview Proposal',
-            functionName: 'previewProposal'
-        });
-
-        form.addButton({
-            id: 'custpage_btn_cancel',
-            label: 'Cancel',
-            functionName: 'goBackToOpportunity'
-        });
-
-        // Client script for button handlers
-        form.clientScriptModulePath = './nuheat_send_quote_cs.js';
-
-        // ── Render ───────────────────────────────────────────────────────────────
-        context.response.writePage(form);
+        return page;
     }
 
     // ─── POST: Handle form submission ─────────────────────────────────────────────
 
     /**
-     * Processes the submitted form — extracts selected quotes from all type-based sublists,
-     * generates the proposal, sends the email, and shows the success page.
+     * Reads the posted page state, so a failed send can re-render the page as the user left it.
+     */
+    function restoreFromRequest(params, selection) {
+        var upd = {};
+        OPP_UPDATE_FIELDS.forEach(function (def) {
+            var v = params[updFieldId(def)];
+            if (v !== undefined && v !== null) upd[def.key] = String(v);
+        });
+        return {
+            selection: selection.map,
+            to:        params.custpage_email_to  || '',
+            cc:        params.custpage_email_cc  || '',
+            bcc:       params.custpage_email_bcc || '',
+            upd:       upd
+        };
+    }
+
+    /**
+     * Processes the Send proposal POST.
+     *
+     * Order: validate → generateMasterProposal() → sendProposalEmail() →
+     *        updateOpportunityFields() → updateForecastFlags() → redirect.toRecord (VIEW).
+     *
+     * Any failure up to and including the email re-renders the page with the user's entries
+     * restored and an error panel; nothing further is written and there is no redirect.
      */
     function handleFormSubmission(context) {
         var request       = context.request;
-        var opportunityId = request.parameters.custpage_opportunity_id;
+        var params        = request.parameters || {};
+        var opportunityId = params.custpage_opportunity_id;
 
-        // Get email fields
-        var emailTo  = request.parameters.custpage_email_to  || '';
-        var emailCc  = request.parameters.custpage_email_cc  || '';
-        var emailBcc = request.parameters.custpage_email_bcc || '';
+        if (!opportunityId) {
+            showErrorPage(context, 'No Opportunity ID provided. Please open this page from an Opportunity record.');
+            return;
+        }
+
+        var emailTo  = params.custpage_email_to  || '';
+        var emailCc  = params.custpage_email_cc  || '';
+        var emailBcc = params.custpage_email_bcc || '';
+        var selection = parseSelection(params.custpage_sel);
+        var restore   = restoreFromRequest(params, selection);
 
         log.audit('SendQuoteSL.handleSubmission', 'Opportunity: ' + opportunityId +
+            ' | Selection: ' + JSON.stringify(selection.map) +
             ' | To: ' + emailTo + ' | CC: ' + emailCc + ' | BCC: ' + emailBcc);
 
-        var selectedQuotes   = [];
-        var mainQuotes       = [];
-        var additionalQuotes = [];
+        // v2.0.0: rebuild every quote from NetSuite — the page sends IDs and roles only
+        var quotes = searchRelatedQuotes(opportunityId);
 
-        // Loop through each quote type sublist
-        var typeSlugs = ['underfloor_heating', 'heat_pump', 'solar', 'other'];
-
-        typeSlugs.forEach(function (slug) {
-            var sublistId = 'custpage_quotes_' + slug;
-            var lineCount = request.getLineCount({ group: sublistId });
-
-            if (lineCount < 0) {
-                return; // Sublist doesn't exist
-            }
-
-            log.debug('SendQuoteSL.handleSubmission', 'Processing sublist: ' + sublistId + ' | Lines: ' + lineCount);
-
-            for (var i = 0; i < lineCount; i++) {
-                var isSelected = request.getSublistValue({ group: sublistId, name: 'custpage_select', line: i });
-
-                if (isSelected === 'T') {
-                    var quoteId  = request.getSublistValue({ group: sublistId, name: 'custpage_quote_id', line: i });
-                    var category = request.getSublistValue({ group: sublistId, name: 'custpage_category',  line: i });
-                    var tranId   = request.getSublistValue({ group: sublistId, name: 'custpage_quote_number', line: i });
-                    var title    = request.getSublistValue({ group: sublistId, name: 'custpage_quote_title', line: i });
-                    var qType    = request.getSublistValue({ group: sublistId, name: 'custpage_quote_type', line: i });
-                    var amount       = request.getSublistValue({ group: sublistId, name: 'custpage_amount', line: i });
-                    var subtotal     = request.getSublistValue({ group: sublistId, name: 'custpage_subtotal', line: i });
-                    var discountTotal = request.getSublistValue({ group: sublistId, name: 'custpage_discount_total', line: i }) || '';  // v1.4.3
-                    var taxTotal     = request.getSublistValue({ group: sublistId, name: 'custpage_tax_total', line: i }) || '';        // v1.4.3
-                    var quoteUrl     = request.getSublistValue({ group: sublistId, name: 'custpage_quote_url', line: i });
-                    var description  = request.getSublistValue({ group: sublistId, name: 'custpage_quote_description', line: i }) || '';  // v1.4.2
-                    // v1.6.0: parse the BUS amount back to a number after the TEXT round trip
-                    var busAmountRaw = request.getSublistValue({ group: sublistId, name: 'custpage_bus_amount', line: i });
-                    var busAmount    = parseFloat(busAmountRaw);
-                    if (isNaN(busAmount)) busAmount = 0;
-                    var busRate      = request.getSublistValue({ group: sublistId, name: 'custpage_bus_rate', line: i }) || 'none';
-                    // v1.7.0: parse the VAT rate back to a number after the TEXT round trip
-                    var vatRateRaw   = request.getSublistValue({ group: sublistId, name: 'custpage_vat_rate', line: i });
-                    var vatRate      = parseFloat(vatRateRaw);
-                    if (isNaN(vatRate)) vatRate = vatRates.DEFAULT_VAT_RATE;
-                    var vatPercent   = request.getSublistValue({ group: sublistId, name: 'custpage_vat_percent', line: i }) || '20%';
-
-                    var entry = {
-                        quoteId:       quoteId,
-                        tranId:        tranId,
-                        title:         title,
-                        quoteType:     qType,
-                        amount:        amount,
-                        subtotal:      subtotal,
-                        discountTotal: discountTotal,   // v1.4.3: Discount total from NS discounttotal field
-                        taxTotal:      taxTotal,        // v1.4.3: VAT total from NS taxtotal field
-                        busAmount:     busAmount,       // v1.6.0: 0 | 7500 | 9000
-                        busRate:       busRate,         // v1.6.0: 'none' | 'standard' | 'enhanced'
-                        vatRate:       vatRate,         // v1.7.0: 0 | 0.20
-                        vatPercent:    vatPercent,      // v1.7.0: '0%' | '20%'
-                        quoteUrl:      quoteUrl,
-                        category:      category,
-                        description:   description      // v1.4.2: For master proposal HTML rendering
-                    };
-
-                    selectedQuotes.push(entry);
-
-                    if (category === 'main') {
-                        mainQuotes.push(entry);
-                    } else {
-                        additionalQuotes.push(entry);
-                    }
-                }
-            }
-        });
-
-        log.audit('SendQuoteSL.handleSubmission', 'Selected: ' + selectedQuotes.length +
-            ' | Main: ' + mainQuotes.length + ' | Additional: ' + additionalQuotes.length);
+        function fail(message) {
+            renderSendPage(context, opportunityId, restore, message, quotes);
+        }
 
         // ── Validation ───────────────────────────────────────────────────────────
-        if (selectedQuotes.length === 0) {
-            showErrorPage(context, 'No quotes were selected. Please go back and select at least one quote to include in the proposal.');
+        var resolved = resolveSelection(opportunityId, quotes, selection);
+        if (resolved.error) {
+            fail(resolved.error);
             return;
         }
 
-        if (mainQuotes.length === 0) {
-            showErrorPage(context, 'No Main Quote selected. Please go back and ensure at least one quote is categorised as "Main Quote".');
+        log.audit('SendQuoteSL.handleSubmission', 'Selected: ' + resolved.selected.length +
+            ' | Main: ' + resolved.main.length + ' | Additional: ' + resolved.additional.length);
+
+        if (resolved.selected.length === 0) {
+            fail('No quotes were selected. Choose at least one quote to include in the proposal.');
             return;
         }
-
-        if (!emailTo.trim()) {
-            showErrorPage(context, 'No recipient email address provided. Please go back and enter an email address in the "To" field.');
+        if (resolved.main.length === 0) {
+            fail('No Main quote selected. Set at least one quote to "Main".');
+            return;
+        }
+        if (!parseEmails(emailTo).length) {
+            fail('No recipient email address provided. Add at least one "To" address.');
+            return;
+        }
+        var badEmails = invalidEmails(emailTo).concat(invalidEmails(emailCc), invalidEmails(emailBcc));
+        if (badEmails.length) {
+            fail('These email addresses are not valid: ' + badEmails.join(', '));
             return;
         }
 
         // ── Generate Master Proposal ──────────────────────────────────────────────
+        // (also writes custbody_master_proposal_url / custbody_last_proposal_sent_date — unchanged)
         var proposalResult;
         try {
-            proposalResult = masterProposal.generateMasterProposal(opportunityId, selectedQuotes);
+            proposalResult = masterProposal.generateMasterProposal(opportunityId, resolved.selected);
             log.audit('SendQuoteSL.handleSubmission', 'Proposal generated — File ID: ' + proposalResult.fileId +
                 ' | URL: ' + proposalResult.proposalUrl);
-
-            if (!proposalResult.success) {
-                showErrorPage(context, 'Proposal generation failed: ' + (proposalResult.error || 'Unknown error') + '. Please try again.');
-                return;
-            }
         } catch (genErr) {
             log.error('SendQuoteSL.handleSubmission', 'Proposal generation failed: ' + genErr.message + '\n' + JSON.stringify(genErr));
-            showErrorPage(context, 'Proposal generation failed: ' + genErr.message + '. Please try again or contact your administrator.');
+            proposalResult = { success: false, error: genErr.message };
+        }
+        if (!proposalResult.success) {
+            fail('Proposal generation failed: ' + (proposalResult.error || 'Unknown error') +
+                '. Nothing was sent. Please try again or contact your administrator.');
             return;
         }
 
         // ── Send Email ───────────────────────────────────────────────────────────
-        var emailResult = { success: false, error: '' };
         try {
-            emailResult = sendProposalEmail(opportunityId, proposalResult.proposalUrl, emailTo, emailCc, emailBcc);
+            sendProposalEmail(opportunityId, proposalResult.proposalUrl, emailTo, emailCc, emailBcc);
         } catch (emailErr) {
             log.error('SendQuoteSL.handleSubmission', 'Email sending failed: ' + emailErr.message);
-            emailResult = { success: false, error: emailErr.message };
-        }
-
-        // ── Update Opportunity fields (v1.8.0) ─────────────────────────────────
-        // Only after the email has gone out: if the proposal was not sent, the Opportunity
-        // must not say it was. Never throws.
-        var oppUpdate = { attempted: false, changed: [], error: '' };
-        if (emailResult.success) {
-            oppUpdate = updateOpportunityFields(opportunityId, request);
-        } else {
             log.audit('SendQuoteSL.OppUpdate', 'Opportunity ' + opportunityId + ' — skipped, email was not sent');
+            fail('The email could not be sent: ' + emailErr.message + '. The proposal was generated and its ' +
+                'link saved to the opportunity, but no opportunity fields or forecast flags were changed. ' +
+                'Check the addresses and send again.');
+            return;
         }
 
-        // ── Show Success Page ────────────────────────────────────────────────────
-        showSuccessPage(context, opportunityId, mainQuotes, additionalQuotes, proposalResult, {
-            sent:    emailResult.success,
-            error:   emailResult.error,
-            to:      emailTo,
-            cc:      emailCc,
-            bcc:     emailBcc
-        }, oppUpdate);
+        // ── Update the Opportunity, then the forecast flags (independent) ─────────
+        var oppUpdate = updateOpportunityFields(opportunityId, request);
+        var forecast  = updateForecastFlags(opportunityId, selection.map, quotes);
+
+        // ── Back to the Opportunity (VIEW), same tab ──────────────────────────────
+        var redirectParams = buildRedirectParams(oppUpdate, forecast);
+        log.audit('SendQuoteSL.Redirect', 'Opportunity ' + opportunityId + ' — ' + JSON.stringify(redirectParams));
+
+        redirect.toRecord({
+            type:       record.Type.OPPORTUNITY,
+            id:         opportunityId,
+            isEditMode: false,
+            parameters: redirectParams
+        });
+    }
+
+    /**
+     * Builds the redirect parameters for the Opportunity banner (nuheat_opportunity_ue.js).
+     *
+     * Codes only — whitelisted field keys, counts, Estimate IDs and a timestamp. No free text,
+     * addresses or error messages: the banner builds every word from the record itself.
+     */
+    function buildRedirectParams(oppUpdate, forecast) {
+        var p = {
+            nsq:  'ok',
+            nsqt: String(Math.floor(Date.now() / 1000))
+        };
+
+        var keys = (oppUpdate.changed || []).map(function (c) { return c.key; });
+        if (oppUpdate.error) {
+            p.nsq = 'warn';
+            if (keys.length) p.nsqff = keys.join(',');
+        } else if (keys.length) {
+            p.nsqf = keys.join(',');
+        }
+
+        if (forecast.changed > 0) {
+            p.nsqfi = String(forecast.included);
+            p.nsqfx = String(forecast.excluded);
+        }
+        if (forecast.failed.length) {
+            p.nsq = 'warn';
+            p.nsqqf = forecast.failed.join(',');
+        }
+        return p;
     }
 
     // ─── Update opportunity (v1.8.0) ──────────────────────────────────────────────
 
     /**
-     * Adds the "Update opportunity" field group to the selection form.
+     * Prepares the four "Update the opportunity" fields.
      *
      * Each field is shown only if NetSuite reports the assumed type and, for SELECTs, the
      * record returns options. Options come from the Opportunity itself (dynamic record,
      * getSelectOptions()), so the list is exactly what NetSuite offers on this record and no
-     * internal IDs appear in code. Each shown field also gets a hidden original value so the
-     * POST can tell what the user changed.
+     * internal IDs appear in code.
      *
-     * @param {serverWidget.Form} form
      * @param {record.Record} oppRecord - Opportunity, loaded with isDynamic: true
      * @param {string} opportunityId
+     * @returns {Array<{def: Object, options: Array, orig: string, origText: string}>}
      */
-    function addOpportunityUpdateSection(form, oppRecord, opportunityId) {
+    function prepareOpportunityUpdateFields(oppRecord, opportunityId) {
         var prepared = [];
         var typeReport = [];
 
@@ -1075,49 +940,7 @@ define([
         // F3 check: the reported types are the evidence for the assumed ones.
         log.audit('SendQuoteSL.OppUpdate', 'Opportunity ' + opportunityId + ' — reported field types: ' + typeReport.join(', '));
 
-        if (prepared.length === 0) {
-            return;
-        }
-
-        form.addFieldGroup({ id: OPP_UPDATE_GROUP_ID, label: 'Update opportunity' });
-
-        prepared.forEach(function (p) {
-            var def = p.def;
-            if (def.kind === 'select') {
-                var sel = form.addField({
-                    id:        updFieldId(def),
-                    type:      serverWidget.FieldType.SELECT,
-                    label:     def.label,
-                    container: OPP_UPDATE_GROUP_ID
-                });
-                if (def.blankOption) {
-                    sel.addSelectOption({ value: '', text: '', isSelected: p.orig === '' });
-                }
-                p.options.forEach(function (o) {
-                    var v = String(o.value);
-                    sel.addSelectOption({ value: v, text: o.text, isSelected: v === p.orig });
-                });
-            } else {
-                var dt = form.addField({
-                    id:        updFieldId(def),
-                    type:      serverWidget.FieldType.DATE,
-                    label:     def.label,
-                    container: OPP_UPDATE_GROUP_ID
-                });
-                if (p.orig) dt.defaultValue = p.orig;
-            }
-            addHiddenField(form, origFieldId(def), p.orig);
-            addHiddenField(form, origTextFieldId(def), p.origText);
-        });
-
-        addHiddenField(form, OPP_UPDATE_KEYS_FIELD, prepared.map(function (p) { return p.def.key; }).join(','));
-    }
-
-    function addHiddenField(form, id, value) {
-        var f = form.addField({ id: id, type: serverWidget.FieldType.TEXT, label: id });
-        f.defaultValue = value || '';
-        f.updateDisplayType({ displayType: serverWidget.FieldDisplayType.HIDDEN });
-        return f;
+        return prepared;
     }
 
     /**
@@ -1134,10 +957,10 @@ define([
     }
 
     /**
-     * Writes the Opportunity fields the user changed in the "Update opportunity" section.
+     * Writes the Opportunity fields the user changed in "Update the opportunity".
      *
      * Called only after the proposal email has been sent. Rules:
-     *   - Only fields that were shown on the form are considered.
+     *   - Only fields that were shown on the page are considered.
      *   - A blank submitted value is never written (clearing here does nothing).
      *   - An unchanged value is never written; nothing changed → no write at all.
      *   - Everything that did change goes in ONE record.submitFields; dates as Date objects.
@@ -1146,7 +969,7 @@ define([
      *
      * @param {string} opportunityId
      * @param {ServerRequest} request
-     * @returns {{attempted: boolean, changed: Array<{label: string, from: string, to: string}>, error: string}}
+     * @returns {{attempted: boolean, changed: Array<{key: string, label: string, fieldId: string, from: string, to: string}>, error: string}}
      *          On error, `changed` lists the fields that were attempted but not saved.
      */
     function updateOpportunityFields(opportunityId, request) {
@@ -1170,7 +993,7 @@ define([
                 if (def.kind === 'select') {
                     if (submitted === orig) return;
                     values[def.fieldId] = submitted;
-                    result.changed.push({ label: def.label, fieldId: def.fieldId, from: origText || orig, to: submitted });
+                    result.changed.push({ key: def.key, label: def.label, fieldId: def.fieldId, from: origText || orig, to: submitted });
                     logParts.push(def.fieldId + ': ' + (orig || '(blank)') + ' → ' + submitted);
                 } else {
                     var newDate = parseDateValue(submitted);
@@ -1182,7 +1005,7 @@ define([
                     var origDate = parseDateValue(orig);
                     if (origDate && origDate.getTime() === newDate.getTime()) return;
                     values[def.fieldId] = newDate;
-                    result.changed.push({ label: def.label, fieldId: def.fieldId, from: orig, to: submitted });
+                    result.changed.push({ key: def.key, label: def.label, fieldId: def.fieldId, from: orig, to: submitted });
                     logParts.push(def.fieldId + ': ' + (orig || '(blank)') + ' → ' + submitted);
                 }
             });
@@ -1192,45 +1015,121 @@ define([
                 return result;
             }
 
+            // v2.0.0: sourcing ON only when Status changed. With enableSourcing: false, Probability
+            // did not follow a new Status in Sandbox (1.8.0, S5) — Probability is sourced from the
+            // status. Kept OFF otherwise so a date/Build stage change sources nothing.
+            var statusChanged = values.hasOwnProperty('entitystatus');
+
             result.attempted = true;
             record.submitFields({
                 type:    record.Type.OPPORTUNITY,
                 id:      opportunityId,
                 values:  values,
                 options: {
-                    enableSourcing:        false,
+                    enableSourcing:        statusChanged,
                     ignoreMandatoryFields: true
                 }
             });
 
-            log.audit('SendQuoteSL.OppUpdate', 'Opportunity ' + opportunityId + ' — updated ' + logParts.join('; '));
+            log.audit('SendQuoteSL.OppUpdate', 'Opportunity ' + opportunityId + ' — updated ' + logParts.join('; ') +
+                ' (enableSourcing: ' + statusChanged + ')');
 
         } catch (e) {
             log.error('SendQuoteSL.OppUpdate', 'Opportunity ' + opportunityId + ' — update FAILED. Attempted: ' +
                 (logParts.join('; ') || '(none)') + ' | Error: ' + e.message);
             result.error = e.message || String(e);
-            return result;
         }
 
-        // Display text for changed SELECTs. Cosmetic only — a failure here leaves raw values
-        // on the success page and never turns a saved update into an error.
-        var selectChanges = result.changed.filter(function (c) {
-            return OPP_UPDATE_FIELDS.some(function (d) { return d.fieldId === c.fieldId && d.kind === 'select'; });
-        });
-        if (selectChanges.length) {
-            try {
-                var looked = search.lookupFields({
-                    type:    search.Type.OPPORTUNITY,
-                    id:      opportunityId,
-                    columns: selectChanges.map(function (c) { return c.fieldId; })
-                });
-                selectChanges.forEach(function (c) {
-                    var v = looked[c.fieldId];
-                    if (Array.isArray(v) && v.length && v[0].text) c.to = v[0].text;
-                });
-            } catch (lookupErr) {
-                log.debug('SendQuoteSL.OppUpdate', 'Display text lookup failed: ' + lookupErr.message);
+        return result;
+    }
+
+    // ─── Forecast flags (v2.0.0) ──────────────────────────────────────────────────
+
+    /**
+     * Normalises a checkbox value to a boolean. record.getValue() returns a boolean in
+     * standard mode, but lookupFields / search results can return 'T' / 'F' strings.
+     *
+     * @returns {boolean|null} null when the value is unknown
+     */
+    function normaliseCheckbox(v) {
+        if (v === true || v === 'T' || v === 't' || v === 'true' || v === 'Y') return true;
+        if (v === false || v === 'F' || v === 'f' || v === 'false' || v === 'N' || v === '') return false;
+        return null;
+    }
+
+    /**
+     * Sets Include in Forecast on the Opportunity's quotes to match the send: true for Main,
+     * false for Additional and Leave out.
+     *
+     *   - Runs only after a successful email; independent of updateOpportunityFields().
+     *   - Only quotes the page showed (searchRelatedQuotes) are considered — never any other
+     *     Estimate on the Opportunity.
+     *   - Writes only where the current value differs. One submitFields per Estimate, each in
+     *     its own try/catch.
+     *   - F6: the field is ASSUMED to be includeinforecast (checkbox). If the loaded Estimates
+     *     report it absent or not a checkbox, nothing is written and it is audit-logged only.
+     *
+     * @returns {{included: number, excluded: number, failed: Array<string>, changed: number, skipped: boolean}}
+     *          included/excluded are the target states of the quotes on the page.
+     */
+    function updateForecastFlags(opportunityId, selectionMap, quotes) {
+        var result = { included: 0, excluded: 0, failed: [], changed: 0, skipped: false };
+
+        try {
+            var fieldType = null;
+            for (var i = 0; i < quotes.length; i++) {
+                if (quotes[i].forecastFieldType !== undefined && quotes[i].forecastFieldType !== null) {
+                    fieldType = quotes[i].forecastFieldType;
+                    break;
+                }
             }
+            if (fieldType !== 'checkbox') {
+                result.skipped = true;
+                log.audit('SendQuoteSL.Forecast', 'Opportunity ' + opportunityId + ' — ' + FORECAST_FIELD +
+                    ' reported as "' + (fieldType || 'unknown: no Estimate could be loaded') +
+                    '", expected "checkbox"; no forecast writes');
+                return result;
+            }
+
+            quotes.forEach(function (q) {
+                var id     = String(q.id);
+                var target = selectionMap[id] === ROLE_MAIN;
+                if (target) { result.included++; } else { result.excluded++; }
+
+                var current = normaliseCheckbox(q.includeInForecast);
+                if (current === null) {
+                    log.audit('SendQuoteSL.Forecast', 'Opportunity ' + opportunityId + ' — Estimate ' + id +
+                        ' (' + q.tranId + ') current value unknown; not written');
+                    return;
+                }
+                if (current === target) return;
+
+                try {
+                    record.submitFields({
+                        type:    record.Type.ESTIMATE,
+                        id:      id,
+                        values:  { includeinforecast: target },
+                        options: {
+                            enableSourcing:        false,
+                            ignoreMandatoryFields: true
+                        }
+                    });
+                    result.changed++;
+                    log.audit('SendQuoteSL.Forecast', 'Opportunity ' + opportunityId + ' — Estimate ' + id +
+                        ' (' + q.tranId + ') ' + current + ' → ' + target);
+                } catch (e) {
+                    result.failed.push(id);
+                    log.error('SendQuoteSL.Forecast', 'Opportunity ' + opportunityId + ' — Estimate ' + id +
+                        ' (' + q.tranId + ') ' + current + ' → ' + target + ' FAILED: ' + e.message);
+                }
+            });
+
+            log.audit('SendQuoteSL.Forecast', 'Opportunity ' + opportunityId + ' — targets: ' + result.included +
+                ' included, ' + result.excluded + ' excluded; written: ' + result.changed +
+                '; failed: ' + (result.failed.join(',') || 'none'));
+
+        } catch (e) {
+            log.error('SendQuoteSL.Forecast', 'Opportunity ' + opportunityId + ' — unexpected error: ' + e.message);
         }
 
         return result;
@@ -2346,6 +2245,11 @@ define([
                 // Proposal never loads an Estimate, so the resolution has to happen here.
                 var busAmountVal = 0;
                 var busRateVal = 'none';
+                // v2.0.0: forecast flag, read off the record this loop already loads — NOT a search
+                // column: one invalid column aborts the whole search (see v1.4.5 above). undefined
+                // type = record not loaded, so the field could not be checked.
+                var includeInForecastVal = null;
+                var forecastFieldType;
                 if (estimateId) {
                     try {
                         var estimateRec = record.load({
@@ -2379,6 +2283,16 @@ define([
                         log.audit('SendQuoteSL.BUS', 'Estimate ' + estimateId + ' — lines=' + estLineCount +
                             ', rate=' + busRateVal + ', amount=' + busAmountVal +
                             ', matched=' + (busResult.matchedItem || 'none'));
+
+                        try {
+                            var forecastField = estimateRec.getField({ fieldId: FORECAST_FIELD });
+                            forecastFieldType = forecastField ? String(forecastField.type || '').toLowerCase() : 'absent';
+                            if (forecastField) {
+                                includeInForecastVal = normaliseCheckbox(estimateRec.getValue({ fieldId: FORECAST_FIELD }));
+                            }
+                        } catch (forecastErr) {
+                            forecastFieldType = 'error: ' + forecastErr.message;
+                        }
                     } catch (pricingErr) {
                         log.debug('SendQuoteSL.searchRelatedQuotes', 'Could not load Estimate record ' + estimateId +
                             ' for pricing: ' + pricingErr.message + ' — will use search total as fallback');
@@ -2416,6 +2330,12 @@ define([
                     '", rate=' + vatInfo.percent + ', net=' + netAmount.toFixed(2) +
                     ', derivedVat=' + derivedVat.toFixed(2) + ', nsTaxTotal=' + (taxTotalVal || '0'));
 
+                var amountValue = hasPricing ? (netAmount + derivedVat)
+                                             : (parseFloat(totalVal || result.getValue({ name: 'total' })) || 0);
+                // Live total on the page mirrors the proposal's "Total inc. VAT": inc-VAT amount
+                // less the BUS grant where one applies (master proposal calculateTotals()).
+                var grantDeduction = (busRateVal !== 'none' && busAmountVal > 0) ? busAmountVal : 0;
+
                 quotes.push({
                     id:               estimateId,
                     dateCreated:      formatDate(result.getValue({ name: 'datecreated' })),
@@ -2435,7 +2355,12 @@ define([
                     vatRate:          vatInfo.rate,     // v1.7.0: 0 | 0.20
                     vatPercent:       vatInfo.percent,  // v1.7.0: '0%' | '20%'
                     quoteUrl:         result.getValue({ name: 'custbody_test_new_quote' }) || '',
-                    description:      result.getValue({ name: 'custbody_quote_description' }) || ''
+                    description:      result.getValue({ name: 'custbody_quote_description' }) || '',
+                    // v2.0.0: page-only values — never passed to the Master Proposal
+                    netValue:          hasPricing ? netAmount : null,        // ex VAT, after discount
+                    totalValue:        Math.round((amountValue - grantDeduction) * 100) / 100,
+                    includeInForecast: includeInForecastVal,                  // true | false | null
+                    forecastFieldType: forecastFieldType                      // 'checkbox' expected
                 });
 
                 log.debug('SendQuoteSL.searchRelatedQuotes', 'Processed quote ' + (i + 1) + '/' + results.length +
@@ -2455,333 +2380,422 @@ define([
         return quotes;
     }
 
-    // ─── HTML Builders ────────────────────────────────────────────────────────────
+    // ─── Page HTML (v2.0.0) ───────────────────────────────────────────────────────
+    //
+    // ⚠️ Inline-HTML rules (see AI_AGENT_CONTEXT §9):
+    //   - Every interpolated value goes through escapeHtml() (& < > " '). Titles and
+    //     descriptions are tag-stripped FIRST (quote titles can contain <b>…</b>).
+    //   - Record and user data live ONLY in element text and data- / value attributes.
+    //     NOTHING is interpolated into the <script> block: a "</script>" sequence would end the
+    //     block regardless of HTML escaping. PAGE_SCRIPT below is a static string.
 
-    /**
-     * Builds the inline CSS for the form.
-     */
-    function buildFormCSS() {
-        return '<style>' +
-            /* v1.3.0: Two-column top layout for Opportunity Details + Email Recipients */
-            '.nuheat-top-columns { display: flex; gap: 20px; margin: 10px 0 20px 0; }' +
-            '.nuheat-top-col { flex: 1; min-width: 0; }' +
-            '.nuheat-summary { background: ' + BRAND.lightBg + '; border: 1px solid ' + BRAND.border + '; border-radius: 8px; padding: 20px; height: 100%; box-sizing: border-box; }' +
-            '.nuheat-summary h3 { color: ' + BRAND.primary + '; margin: 0 0 12px 0; font-size: 16px; }' +
-            '.nuheat-summary-list { display: flex; flex-direction: column; gap: 6px; }' +
-            '.nuheat-summary-item { display: flex; gap: 8px; }' +
-            '.nuheat-summary-label { font-weight: 600; color: ' + BRAND.secondary + '; min-width: 120px; }' +
-            '.nuheat-summary-value { color: ' + BRAND.textMuted + '; }' +
-            '.nuheat-email-info { }' + /* v1.4.8: Removed green border-left shadow */
-            /* v1.4.8: Full-width bar instructions styling (below 50/50 layout) */
-            '.nuheat-instructions-wrapper { margin: 0 0 20px 0; width: 100%; clear: both; }' +
-            '.nuheat-instructions-wrapper details { border: 1px solid ' + BRAND.border + '; border-radius: 6px; overflow: hidden; width: 100%; box-sizing: border-box; }' +
-            '.nuheat-instructions-wrapper summary { cursor: pointer; font-weight: 600; font-size: 14px; padding: 12px 16px; background: ' + BRAND.lightBg + '; color: ' + BRAND.secondary + '; user-select: none; list-style: none; }' +
-            '.nuheat-instructions-wrapper summary::-webkit-details-marker { display: none; }' +
-            '.nuheat-instructions-wrapper summary::before { content: "▶ "; font-size: 11px; margin-right: 6px; display: inline-block; transition: transform 0.2s; }' +
-            '.nuheat-instructions-wrapper details[open] summary::before { transform: rotate(90deg); }' +
-            '.nuheat-instructions-content { padding: 16px 20px; border-top: 1px solid ' + BRAND.border + '; background: #e8f5f4; }' +
-            '.nuheat-instructions-content ol { margin: 8px 0 0 0; padding-left: 20px; }' +
-            '.nuheat-instructions-content li { margin-bottom: 4px; color: ' + BRAND.secondary + '; }' +
-            '.nuheat-instructions-content .nuheat-note { margin-top: 10px; padding: 8px 12px; background: #fff3cd; border: 1px solid #ffc107; border-radius: 4px; font-size: 12px; color: #856404; }' +
-            /* Badge styles */
-            '.nuheat-badge { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 600; }' +
-            '.nuheat-badge-active { background: #d4edda; color: #155724; }' +
-            /* Success & error pages */
-            '.nuheat-success { background: #d4edda; border: 1px solid #c3e6cb; border-radius: 8px; padding: 24px; margin: 20px 0; }' +
-            '.nuheat-success h3 { color: #155724; margin: 0 0 16px 0; }' +
-            '.nuheat-error { background: #f8d7da; border: 1px solid #f5c6cb; border-radius: 8px; padding: 24px; margin: 20px 0; }' +
-            '.nuheat-error h3 { color: #721c24; margin: 0 0 12px 0; }' +
-            /* Confirmation tables */
-            '.nuheat-table { width: 100%; border-collapse: collapse; margin: 12px 0; }' +
-            '.nuheat-table th { background: ' + BRAND.primary + '; color: ' + BRAND.white + '; padding: 10px 12px; text-align: left; font-size: 13px; }' +
-            '.nuheat-table td { padding: 8px 12px; border-bottom: 1px solid ' + BRAND.border + '; font-size: 13px; }' +
-            '.nuheat-table tr:nth-child(even) { background: ' + BRAND.lightBg + '; }' +
-            /* Email confirmation */
-            '.nuheat-email-confirm { background: #e8f5f4; border: 1px solid #b2dfdb; border-radius: 8px; padding: 16px 20px; margin: 16px 0; }' +
-            '.nuheat-email-confirm h4 { color: ' + BRAND.primary + '; margin: 0 0 10px 0; font-size: 14px; }' +
-            '.nuheat-email-item { font-size: 13px; margin-bottom: 4px; color: #333; }' +
-            '.nuheat-email-label { font-weight: 600; display: inline-block; min-width: 50px; }' +
-            '.nuheat-email-warn { background: #fff3cd; border: 1px solid #ffc107; border-radius: 8px; padding: 16px 20px; margin: 16px 0; }' +
-            '.nuheat-email-warn h4 { color: #856404; margin: 0 0 8px 0; font-size: 14px; }' +
-            /* Shrink URL column in sublists */
-            'td[data-label="URL"], th[data-label="URL"] { max-width: 120px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; }' +
-            '[id$="_custpage_quote_url"] { max-width: 120px; }' +
-            '</style>';
+    var PAGE_COLORS = {
+        page:   '#f4f2ef',
+        card:   '#ffffff',
+        border: '#e2ded9',
+        text:   '#2b2a2e',
+        muted:  '#5f5b66',
+        accent: '#59315f',
+        send:   '#ffb500'
+    };
+
+    function stripTags(str) {
+        return String(str || '').replace(/<[^>]*>/g, '').replace(/\s+/g, ' ').trim();
+    }
+
+    function truncate(str, max) {
+        return str.length > max ? str.substring(0, max - 1).replace(/\s+$/, '') + '…' : str;
+    }
+
+    function money(n) {
+        return formatSignedCurrency(n);
     }
 
     /**
-     * Builds the two-column top section with Opportunity Details (left)
-     * and Email Recipients with input fields (right) side by side.
-     * v1.3.0: Replaces the old full-width Opportunity summary.
-     * v1.4.4: Added site address as title, email input fields inside grey box,
-     *         removed icons from headings.
+     * Builds the Send proposal page body.
      */
-    function buildTwoColumnTopHTML(tranId, title, customerName, status, customerEmail, siteAddress) {
-        // v1.4.5: Build heading — show site address if available, otherwise show opportunity title/name
-        var headingText = siteAddress || title || '';
-        var headingHtml = headingText
-            ? '<h2 style="color:' + BRAND.secondary + '; margin:0 0 12px 0; font-size:18px; font-weight:700;">' + escapeHtml(headingText) + '</h2>'
-            : '';
+    function buildSendPageHTML(page, restore, errorMessage) {
+        var h = [];
+        var hasQuotes = page.quotes.length > 0;
 
-        return '<div class="nuheat-top-columns">' +
-            // Left column: Opportunity Details
-            '<div class="nuheat-top-col">' +
-                '<div class="nuheat-summary">' +
-                    headingHtml +
-                    '<h3>Opportunity Details</h3>' +
-                    '<div class="nuheat-summary-list">' +
-                        '<div class="nuheat-summary-item"><span class="nuheat-summary-label">Opportunity:</span><span class="nuheat-summary-value">' + escapeHtml(tranId) + '</span></div>' +
-                        '<div class="nuheat-summary-item"><span class="nuheat-summary-label">Customer:</span><span class="nuheat-summary-value">' + escapeHtml(customerName) + '</span></div>' +
-                        '<div class="nuheat-summary-item"><span class="nuheat-summary-label">Title:</span><span class="nuheat-summary-value">' + escapeHtml(title || '(No title)') + '</span></div>' +
-                        (siteAddress ? '<div class="nuheat-summary-item"><span class="nuheat-summary-label">Site Address:</span><span class="nuheat-summary-value">' + escapeHtml(siteAddress) + '</span></div>' : '') +
-                        '<div class="nuheat-summary-item"><span class="nuheat-summary-label">Status:</span><span class="nuheat-summary-value"><span class="nuheat-badge nuheat-badge-active">' + escapeHtml(status) + '</span></span></div>' +
-                    '</div>' +
-                '</div>' +
-            '</div>' +
-            // Right column: Email Recipients with input fields inside grey box
-            '<div class="nuheat-top-col">' +
-                '<div class="nuheat-summary nuheat-email-info">' +
-                    '<h3>Email Recipients</h3>' +
-                    '<p style="color:' + BRAND.textMuted + '; font-size:13px; margin:0 0 12px 0;">' +
-                        'Enter recipient email addresses below. Separate multiple addresses with commas.' +
-                    '</p>' +
-                    // v1.4.4: Email input fields rendered inside the grey box
-                    '<div class="nuheat-email-fields">' +
-                        '<div style="margin-bottom:8px;">' +
-                            '<label style="display:block; font-weight:600; font-size:13px; color:' + BRAND.secondary + '; margin-bottom:3px;">To <span style="color:#c00;">*</span></label>' +
-                            '<input type="text" id="custpage_email_to_input" value="' + escapeHtml(customerEmail) + '" ' +
-                                'style="width:100%; padding:6px 8px; border:1px solid ' + BRAND.border + '; border-radius:4px; font-size:13px; box-sizing:border-box;" />' +
-                        '</div>' +
-                        '<div style="margin-bottom:8px;">' +
-                            '<label style="display:block; font-weight:600; font-size:13px; color:' + BRAND.secondary + '; margin-bottom:3px;">CC</label>' +
-                            '<input type="text" id="custpage_email_cc_input" value="" ' +
-                                'style="width:100%; padding:6px 8px; border:1px solid ' + BRAND.border + '; border-radius:4px; font-size:13px; box-sizing:border-box;" />' +
-                        '</div>' +
-                        '<div style="margin-bottom:4px;">' +
-                            '<label style="display:block; font-weight:600; font-size:13px; color:' + BRAND.secondary + '; margin-bottom:3px;">BCC</label>' +
-                            '<input type="text" id="custpage_email_bcc_input" value="" ' +
-                                'style="width:100%; padding:6px 8px; border:1px solid ' + BRAND.border + '; border-radius:4px; font-size:13px; box-sizing:border-box;" />' +
-                        '</div>' +
-                    '</div>' +
-                '</div>' +
-            '</div>' +
-            '</div>' +
-            // v1.4.4: Script to sync inline email inputs with hidden NetSuite fields on form submit
-            '<script>' +
-                'document.addEventListener("DOMContentLoaded", function() {' +
-                    'function syncEmailFields() {' +
-                        'var toInput = document.getElementById("custpage_email_to_input");' +
-                        'var ccInput = document.getElementById("custpage_email_cc_input");' +
-                        'var bccInput = document.getElementById("custpage_email_bcc_input");' +
-                        'var toHidden = document.getElementById("custpage_email_to");' +
-                        'var ccHidden = document.getElementById("custpage_email_cc");' +
-                        'var bccHidden = document.getElementById("custpage_email_bcc");' +
-                        'if (toInput && toHidden) toHidden.value = toInput.value;' +
-                        'if (ccInput && ccHidden) ccHidden.value = ccInput.value;' +
-                        'if (bccInput && bccHidden) bccHidden.value = bccInput.value;' +
-                    '}' +
-                    // Sync on every input change
-                    '["custpage_email_to_input","custpage_email_cc_input","custpage_email_bcc_input"].forEach(function(id) {' +
-                        'var el = document.getElementById(id);' +
-                        'if (el) { el.addEventListener("input", syncEmailFields); el.addEventListener("change", syncEmailFields); }' +
-                    '});' +
-                    // Also sync before form submit
-                    'var form = document.getElementById("main_form");' +
-                    'if (form) form.addEventListener("submit", syncEmailFields);' +
-                '});' +
-            '</script>';
+        h.push(buildPageCSS());
+        h.push('<div id="nsq-root" class="nsq" data-preview-url="' + escapeHtml(page.previewUrl) + '" data-opp-url="' +
+            escapeHtml(page.oppUrl) + '">');
+        h.push('<div class="nsq-wrap">');
+
+        // ── Header ──
+        h.push('<a class="nsq-back" href="' + escapeHtml(page.oppUrl) + '">&larr; Back to opportunity ' + escapeHtml(page.tranId) + '</a>');
+        h.push('<h1 class="nsq-h1">Send proposal</h1>');
+        var meta = [];
+        if (page.title)        meta.push('<span>' + escapeHtml(stripTags(page.title)) + '</span>');
+        if (page.customerName) meta.push('<span>' + escapeHtml(page.customerName) + '</span>');
+        if (page.siteAddress)  meta.push('<span>Site: ' + escapeHtml(page.siteAddress) + '</span>');
+        if (page.status)       meta.push('<span class="nsq-badge">' + escapeHtml(page.status) + '</span>');
+        h.push('<div class="nsq-meta">' + meta.join('<span class="nsq-dot">&middot;</span>') + '</div>');
+
+        if (errorMessage) {
+            h.push('<div class="nsq-alert nsq-alert-error" role="alert"><strong>Not sent.</strong> ' + escapeHtml(errorMessage) + '</div>');
+        }
+
+        if (!hasQuotes) {
+            h.push('<div class="nsq-alert nsq-alert-warn">' +
+                '<strong>No quotes found.</strong> There are no Estimates linked to this Opportunity with a generated online quote. ' +
+                'Open the Estimate and click <strong>Regen quote</strong>, then come back.' +
+                '</div>');
+            h.push('</div></div>');
+            return h.join('');
+        }
+
+        h.push('<input type="hidden" name="custpage_opportunity_id" value="' + escapeHtml(page.opportunityId) + '">');
+        h.push('<input type="hidden" name="custpage_sel" id="nsq-sel" value="">');
+
+        // ── 1 Choose quotes ──
+        h.push('<section class="nsq-card"><h2 class="nsq-h2"><span class="nsq-num">1</span>Choose quotes</h2>');
+        var single = page.quotes.length === 1;
+        QUOTE_TYPE_ORDER.forEach(function (type) {
+            var group = page.quotes.filter(function (q) {
+                var qType = QUOTE_TYPE_ORDER.indexOf(q.quoteTypeDisplay) === -1 ? 'Other' : q.quoteTypeDisplay;
+                return qType === type;
+            });
+            if (!group.length) return;
+            h.push('<h3 class="nsq-h3">' + escapeHtml(type) + ' <span class="nsq-count">' + group.length + '</span></h3>');
+            group.forEach(function (q) {
+                var role;
+                if (restore) {
+                    role = restore.selection[String(q.id)] || 'leave';
+                } else {
+                    role = single ? ROLE_MAIN : 'leave';
+                }
+                h.push(buildQuoteRowHTML(q, role));
+            });
+        });
+        h.push('</section>');
+
+        // ── 2 Send to ──
+        var toValue = restore ? restore.to : page.customerEmail;
+        var ccValue = restore ? restore.cc : '';
+        var bccValue = restore ? restore.bcc : '';
+        h.push('<section class="nsq-card"><h2 class="nsq-h2"><span class="nsq-num">2</span>Send to</h2>');
+        h.push('<div class="nsq-to-row">');
+        h.push('<div class="nsq-field nsq-grow"><label class="nsq-label" for="nsq-to-input">To</label>' +
+            '<div class="nsq-tagbox" id="nsq-tagbox"><span id="nsq-tags"></span>' +
+            '<input type="text" id="nsq-to-input" class="nsq-tag-input" autocomplete="off" placeholder="Add an email address"></div>' +
+            '<input type="hidden" name="custpage_email_to" id="nsq-to" value="' + escapeHtml(toValue) + '"></div>');
+        h.push('<div class="nsq-field"><label class="nsq-label" for="nsq-contact">Add a contact on this opportunity</label>' +
+            '<select id="nsq-contact" class="nsq-input"><option value="">Choose a contact…</option>');
+        page.contacts.forEach(function (c) {
+            if (c.email) {
+                h.push('<option value="' + escapeHtml(c.email) + '">' + escapeHtml(c.name + ' (' + c.email + ')') + '</option>');
+            } else {
+                h.push('<option value="" disabled>' + escapeHtml(c.name + ' (no email)') + '</option>');
+            }
+        });
+        h.push('</select></div></div>');
+        h.push('<div class="nsq-links"><a href="#" id="nsq-add-cc">+ Add CC</a><a href="#" id="nsq-add-bcc">+ Add BCC</a></div>');
+        h.push('<div class="nsq-field" id="nsq-cc-wrap"' + (ccValue ? '' : ' hidden') + '><label class="nsq-label" for="nsq-cc">CC</label>' +
+            '<input type="text" class="nsq-input" name="custpage_email_cc" id="nsq-cc" value="' + escapeHtml(ccValue) + '" placeholder="Separate addresses with commas"></div>');
+        h.push('<div class="nsq-field" id="nsq-bcc-wrap"' + (bccValue ? '' : ' hidden') + '><label class="nsq-label" for="nsq-bcc">BCC</label>' +
+            '<input type="text" class="nsq-input" name="custpage_email_bcc" id="nsq-bcc" value="' + escapeHtml(bccValue) + '" placeholder="Separate addresses with commas"></div>');
+        h.push('</section>');
+
+        // ── 3 Update the opportunity ──
+        if (page.updateFields.length) {
+            h.push('<section class="nsq-card"><h2 class="nsq-h2"><span class="nsq-num">3</span>Update the opportunity</h2>');
+            h.push('<div class="nsq-upd-grid">');
+            page.updateFields.forEach(function (p) {
+                h.push(buildUpdateFieldHTML(p, restore));
+            });
+            h.push('</div>');
+            h.push('<input type="hidden" name="' + OPP_UPDATE_KEYS_FIELD + '" value="' +
+                escapeHtml(page.updateFields.map(function (p) { return p.def.key; }).join(',')) + '">');
+            h.push('</section>');
+        }
+
+        h.push('</div>'); // .nsq-wrap
+
+        // ── Sticky footer ──
+        h.push('<div class="nsq-footer"><div class="nsq-footer-in">');
+        h.push('<div class="nsq-sum"><div class="nsq-sum-main" id="nsq-sum-line"></div>' +
+            '<div class="nsq-sum-sub" id="nsq-sum-to"></div><div class="nsq-sum-sub" id="nsq-sum-changes"></div></div>');
+        h.push('<div class="nsq-actions"><span class="nsq-reason" id="nsq-reason"></span>' +
+            '<a class="nsq-btn nsq-btn-link" href="' + escapeHtml(page.oppUrl) + '">Cancel</a>' +
+            '<button type="button" class="nsq-btn nsq-btn-secondary" id="nsq-preview">Preview</button>' +
+            '<button type="button" class="nsq-btn nsq-btn-primary" id="nsq-send" disabled>Send proposal</button></div>');
+        h.push('</div></div>');
+
+        h.push('</div>'); // #nsq-root
+        h.push('<script>' + PAGE_SCRIPT + '</script>');
+        return h.join('');
     }
 
     /**
-     * Builds the collapsible User Instructions panel.
+     * One quote row. Prices live in data- attributes for the live total; nothing here is
+     * posted except the role, which the script collects into custpage_sel.
      */
-    function buildInstructionsHTML(quoteCount) {
-        return '<div class="nuheat-instructions-wrapper">' +
-            '<details>' +
-                '<summary>User Instructions</summary>' +
-                '<div class="nuheat-instructions-content">' +
-                    '<p>' + quoteCount + ' quote' + (quoteCount !== 1 ? 's' : '') + ' found for this Opportunity. Quotes are grouped by type below.</p>' +
-                    '<ol>' +
-                        '<li><strong>Tick "Include"</strong> for each quote you want in the proposal.</li>' +
-                        '<li><strong>Set Category</strong> — choose "Main Quote" for the primary recommendation or "Additional Option" for alternatives.</li>' +
-                        '<li><strong>Enter email recipients</strong> in the Email Recipients section above.</li>' +
-                        '<li>Click <strong>Preview Proposal</strong> to review before sending (opens in a new tab), or <strong>Generate &amp; Send</strong> to generate the proposal and email it to the customer.</li>' +
-                    '</ol>' +
-                    '<div class="nuheat-note">💡 <strong>Note:</strong> Preview is optional — you can generate and send directly. "Other" quote type denotes an unsupported or unrecognised quote type.</div>' +
-                '</div>' +
-            '</details>' +
+    function buildQuoteRowHTML(q, role) {
+        var title = stripTags(q.title);
+        var desc  = truncate(stripTags(q.description), 140);
+        var roles = [['leave', 'Leave out'], [ROLE_MAIN, 'Main'], [ROLE_ADDITIONAL, 'Additional']];
+        var seg = roles.map(function (r) {
+            return '<button type="button" class="nsq-seg-btn" data-set-role="' + r[0] + '" aria-pressed="' +
+                (r[0] === role ? 'true' : 'false') + '">' + r[1] + '</button>';
+        }).join('');
+
+        var exVat = (q.netValue === null || q.netValue === undefined) ? '' :
+            '<span class="nsq-exvat">' + escapeHtml(money(q.netValue)) + ' ex VAT</span>';
+
+        return '<div class="nsq-row' + (role === ROLE_MAIN ? ' nsq-row-main' : '') + '" data-qid="' + escapeHtml(String(q.id)) +
+            '" data-role="' + role + '" data-total="' + escapeHtml(String(q.totalValue || 0)) + '">' +
+            '<div class="nsq-seg" role="group" aria-label="Include as">' + seg + '</div>' +
+            '<div class="nsq-q"><div class="nsq-q-title">' + escapeHtml(q.tranId) + ' &middot; ' + escapeHtml(title) + '</div>' +
+            (desc ? '<div class="nsq-q-desc" title="' + escapeHtml(stripTags(q.description)) + '">' + escapeHtml(desc) + '</div>' : '') +
+            '</div>' +
+            '<div class="nsq-price"><strong>' + escapeHtml(q.amount) + '</strong>' + exVat + '</div>' +
+            (q.quoteUrl ? '<a class="nsq-view" href="' + escapeHtml(q.quoteUrl) + '" target="_blank" rel="noopener">View</a>' : '<span class="nsq-view"></span>') +
             '</div>';
     }
 
     /**
-     * Shows the success confirmation page after submission.
+     * One update field: a plain <select> / text <input> named as the 1.8.0 parameters, plus
+     * its hidden originals. Originals are also data- attributes for the "Changed" marker.
      */
-    function showSuccessPage(context, opportunityId, mainQuotes, additionalQuotes, proposalResult, emailInfo, oppUpdate) {
-        var form = serverWidget.createForm({ title: 'Quote Proposal — Generated Successfully' });
+    function buildUpdateFieldHTML(p, restore) {
+        var def = p.def;
+        var id = updFieldId(def);
+        var value = (restore && restore.upd[def.key] !== undefined) ? restore.upd[def.key] : p.orig;
+        var attrs = ' name="' + id + '" id="' + id + '" class="nsq-input nsq-upd" data-key="' + def.key +
+            '" data-label="' + escapeHtml(def.label) + '" data-orig="' + escapeHtml(p.orig) +
+            '" data-orig-text="' + escapeHtml(p.origText) + '"';
+        var control;
 
-        var cssField = form.addField({ id: 'custpage_css', type: serverWidget.FieldType.INLINEHTML, label: ' ' });
-        cssField.defaultValue = buildFormCSS() +
-            '<style>' +
-            '.nuheat-proposal-link { display: inline-block; margin: 12px 0; padding: 10px 20px; background: ' + BRAND.primary + '; color: ' + BRAND.white + '; text-decoration: none; border-radius: 6px; font-weight: 600; }' +
-            '.nuheat-proposal-link:hover { opacity: 0.9; }' +
-            '.nuheat-meta { margin-top: 8px; font-size: 12px; color: ' + BRAND.textMuted + '; }' +
-            '</style>';
-
-        var html = '<div class="nuheat-success">' +
-            '<h3>✅ Master Proposal Generated Successfully</h3>' +
-            // v1.8.0: always true here — a failed proposal-link write goes to the error page
-            '<p>The proposal has been generated and saved. Proposal link saved to the opportunity.</p>';
-
-        // Proposal link
-        if (proposalResult && proposalResult.proposalUrl) {
-            html += '<p style="margin-top:12px;"><a class="nuheat-proposal-link" href="' + escapeHtml(proposalResult.proposalUrl) + '" target="_blank">🔗 View Master Proposal</a></p>';
-            html += '<p class="nuheat-meta">File: ' + escapeHtml(proposalResult.fileName || '') + ' | File ID: ' + escapeHtml(String(proposalResult.fileId || '')) + '</p>';
-        }
-
-        html += '</div>';
-
-        // Email confirmation or warning
-        if (emailInfo) {
-            if (emailInfo.sent) {
-                html += '<div class="nuheat-email-confirm">';
-                html += '<h4>📧 Email Sent Successfully</h4>';
-                html += '<div class="nuheat-email-item"><span class="nuheat-email-label">To:</span> ' + escapeHtml(emailInfo.to) + '</div>';
-                if (emailInfo.cc) {
-                    html += '<div class="nuheat-email-item"><span class="nuheat-email-label">CC:</span> ' + escapeHtml(emailInfo.cc) + '</div>';
-                }
-                if (emailInfo.bcc) {
-                    html += '<div class="nuheat-email-item"><span class="nuheat-email-label">BCC:</span> ' + escapeHtml(emailInfo.bcc) + '</div>';
-                }
-                html += '<p style="margin-top:10px; font-size:12px; color:#666;">The email has been logged to the Opportunity\'s Messages subtab (Communication tab).</p>';
-                html += '</div>';
-            } else {
-                html += '<div class="nuheat-email-warn">';
-                html += '<h4>⚠️ Email Sending Failed</h4>';
-                html += '<p style="font-size:13px; color:#856404;">The proposal was generated successfully, but the email could not be sent.</p>';
-                if (emailInfo.error) {
-                    html += '<p style="font-size:12px; color:#856404;">Error: ' + escapeHtml(emailInfo.error) + '</p>';
-                }
-                html += '<p style="font-size:12px; color:#856404;">You can share the proposal link manually using the "View Master Proposal" button above.</p>';
-                html += '</div>';
+        if (def.kind === 'select') {
+            var known = p.options.some(function (o) { return String(o.value) === value; });
+            if (!known && !(def.blankOption && value === '')) value = p.orig;
+            var opts = [];
+            if (def.blankOption) {
+                opts.push('<option value=""' + (value === '' ? ' selected' : '') + '></option>');
             }
-        }
-
-        // v1.8.0: Opportunity update outcome
-        html += buildOppUpdatePanelHTML(emailInfo, oppUpdate);
-
-        // Main quotes table
-        if (mainQuotes.length > 0) {
-            html += '<h4 style="margin-top:16px; color:' + BRAND.primary + ';">Main Quote' + (mainQuotes.length > 1 ? 's' : '') + ' (included in total)</h4>' +
-                '<table class="nuheat-table"><thead><tr>' +
-                '<th>Quote Number</th><th>Title</th><th>Type</th><th>System Price</th><th>Total Amount</th>' +
-                '</tr></thead><tbody>';
-            for (var i = 0; i < mainQuotes.length; i++) {
-                html += '<tr><td>' + escapeHtml(mainQuotes[i].tranId) + '</td>' +
-                    '<td>' + escapeHtml(mainQuotes[i].title) + '</td>' +
-                    '<td>' + escapeHtml(mainQuotes[i].quoteType) + '</td>' +
-                    '<td>' + escapeHtml(mainQuotes[i].subtotal || '') + '</td>' +
-                    '<td>' + escapeHtml(mainQuotes[i].amount) + '</td></tr>';
-            }
-            html += '</tbody></table>';
-        }
-
-        // Alternative quotes table
-        if (additionalQuotes.length > 0) {
-            html += '<h4 style="margin-top:16px; color:' + BRAND.textMuted + ';">Alternative Quote' + (additionalQuotes.length > 1 ? 's' : '') + ' (not included in total)</h4>' +
-                '<table class="nuheat-table"><thead><tr>' +
-                '<th>Quote Number</th><th>Title</th><th>Type</th><th>System Price</th><th>Total Amount</th>' +
-                '</tr></thead><tbody>';
-            for (var j = 0; j < additionalQuotes.length; j++) {
-                html += '<tr><td>' + escapeHtml(additionalQuotes[j].tranId) + '</td>' +
-                    '<td>' + escapeHtml(additionalQuotes[j].title) + '</td>' +
-                    '<td>' + escapeHtml(additionalQuotes[j].quoteType) + '</td>' +
-                    '<td>' + escapeHtml(additionalQuotes[j].subtotal || '') + '</td>' +
-                    '<td>' + escapeHtml(additionalQuotes[j].amount) + '</td></tr>';
-            }
-            html += '</tbody></table>';
-        }
-
-        var resultField = form.addField({ id: 'custpage_result', type: serverWidget.FieldType.INLINEHTML, label: ' ' });
-        resultField.defaultValue = html;
-
-        // Hidden opportunity ID for back navigation
-        var hiddenOppId = form.addField({ id: 'custpage_opportunity_id', type: serverWidget.FieldType.TEXT, label: 'Opportunity ID' });
-        hiddenOppId.defaultValue = opportunityId;
-        hiddenOppId.updateDisplayType({ displayType: serverWidget.FieldDisplayType.HIDDEN });
-
-        form.addButton({
-            id: 'custpage_btn_back',
-            label: 'Back to Opportunity',
-            functionName: 'goBackToOpportunity'
-        });
-
-        form.clientScriptModulePath = './nuheat_send_quote_cs.js';
-
-        context.response.writePage(form);
-    }
-
-    /**
-     * v1.8.0: Builds the "Opportunity update" panel for the success page. All text escaped.
-     */
-    function buildOppUpdatePanelHTML(emailInfo, oppUpdate) {
-        var upd = oppUpdate || { attempted: false, changed: [], error: '' };
-        var html = '';
-
-        if (!emailInfo || !emailInfo.sent) {
-            html += '<div class="nuheat-email-warn">';
-            html += '<h4>⚠️ Opportunity Update</h4>';
-            html += '<p style="font-size:13px; color:#856404;">Opportunity fields were not updated because the email was not sent.</p>';
-            html += '</div>';
-            return html;
-        }
-
-        if (upd.error) {
-            var labels = upd.changed.map(function (c) { return c.label; }).join(', ');
-            html += '<div class="nuheat-email-warn">';
-            html += '<h4>⚠️ Opportunity Update Failed</h4>';
-            html += '<p style="font-size:13px; color:#856404;">' +
-                escapeHtml('The proposal was sent, but the opportunity could not be updated: ' + upd.error +
-                    '. Please set ' + (labels || 'the fields') + ' on the opportunity.') +
-                '</p>';
-            html += '</div>';
-            return html;
-        }
-
-        html += '<div class="nuheat-email-confirm">';
-        html += '<h4>Opportunity Update</h4>';
-        if (upd.changed.length === 0) {
-            html += '<div class="nuheat-email-item">No opportunity fields changed.</div>';
-        } else {
-            upd.changed.forEach(function (c) {
-                html += '<div class="nuheat-email-item"><span class="nuheat-email-label">' + escapeHtml(c.label) + ':</span> ' +
-                    escapeHtml(c.to) + '</div>';
+            p.options.forEach(function (o) {
+                var v = String(o.value);
+                opts.push('<option value="' + escapeHtml(v) + '"' + (v === value ? ' selected' : '') + '>' + escapeHtml(o.text) + '</option>');
             });
+            control = '<select' + attrs + '>' + opts.join('') + '</select>';
+        } else {
+            control = '<input type="text"' + attrs + ' value="' + escapeHtml(value) + '" autocomplete="off">';
         }
-        html += '</div>';
-        return html;
+
+        return '<div class="nsq-field nsq-upd-field"><label class="nsq-label" for="' + id + '">' + escapeHtml(def.label) + '</label>' +
+            control + '<div class="nsq-was" hidden></div>' +
+            '<input type="hidden" name="' + origFieldId(def) + '" value="' + escapeHtml(p.orig) + '">' +
+            '<input type="hidden" name="' + origTextFieldId(def) + '" value="' + escapeHtml(p.origText) + '">' +
+            '</div>';
+    }
+
+    function buildPageCSS() {
+        var c = PAGE_COLORS;
+        return '<style>' +
+            '.nsq{font-size:15px;color:' + c.text + ';background:' + c.page + ';margin:0;padding:20px 16px 140px;box-sizing:border-box;font-family:inherit;}' +
+            '.nsq *{box-sizing:border-box;}' +
+            '.nsq-wrap{max-width:1120px;margin:0 auto;}' +
+            '.nsq a{color:' + c.accent + ';}' +
+            '.nsq-back{display:inline-block;margin-bottom:8px;text-decoration:none;font-size:14px;}' +
+            '.nsq-h1{font-size:26px;margin:0 0 6px;font-weight:700;color:' + c.text + ';}' +
+            '.nsq-meta{color:' + c.muted + ';margin-bottom:18px;display:flex;flex-wrap:wrap;align-items:center;gap:6px;}' +
+            '.nsq-dot{color:' + c.border + ';}' +
+            '.nsq-badge{background:#ede6ef;color:' + c.accent + ';border-radius:999px;padding:2px 10px;font-weight:600;font-size:13px;}' +
+            '.nsq-alert{border-radius:10px;padding:14px 16px;margin:0 0 16px;border:1px solid;}' +
+            '.nsq-alert-error{background:#fbeaea;border-color:#e3a5a5;color:#7a1d1d;}' +
+            '.nsq-alert-warn{background:#fff6e0;border-color:#f0cf7a;color:#6b4d00;}' +
+            '.nsq-card{background:' + c.card + ';border:1px solid ' + c.border + ';border-radius:10px;padding:20px;margin-bottom:16px;}' +
+            '.nsq-h2{font-size:18px;margin:0 0 14px;display:flex;align-items:center;gap:10px;color:' + c.text + ';}' +
+            '.nsq-num{display:inline-flex;width:28px;height:28px;border-radius:50%;background:' + c.accent + ';color:#fff;align-items:center;justify-content:center;font-size:14px;}' +
+            '.nsq-h3{font-size:14px;text-transform:uppercase;letter-spacing:.04em;color:' + c.muted + ';margin:16px 0 8px;}' +
+            '.nsq-count{background:' + c.page + ';border-radius:999px;padding:1px 8px;font-size:12px;margin-left:4px;}' +
+            '.nsq-row{display:grid;grid-template-columns:auto 1fr auto auto;gap:16px;align-items:center;border:1px solid ' + c.border + ';border-radius:10px;padding:12px 14px;margin-bottom:8px;}' +
+            '.nsq-row-main{border:2px solid ' + c.accent + ';padding:11px 13px;}' +
+            '.nsq-seg{display:inline-flex;border:1px solid ' + c.border + ';border-radius:8px;overflow:hidden;}' +
+            '.nsq-seg-btn{min-height:44px;padding:0 14px;border:0;background:#fff;color:' + c.muted + ';font-size:14px;cursor:pointer;}' +
+            '.nsq-seg-btn+.nsq-seg-btn{border-left:1px solid ' + c.border + ';}' +
+            '.nsq-seg-btn[aria-pressed="true"]{background:' + c.accent + ';color:#fff;font-weight:600;}' +
+            '.nsq-q{min-width:0;}' +
+            '.nsq-q-title{font-weight:600;}' +
+            '.nsq-q-desc{color:' + c.muted + ';font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}' +
+            '.nsq-price{text-align:right;white-space:nowrap;}' +
+            '.nsq-price strong{display:block;font-size:16px;}' +
+            '.nsq-exvat{display:block;color:' + c.muted + ';font-size:13px;}' +
+            '.nsq-view{font-weight:600;min-width:40px;}' +
+            '.nsq-to-row{display:flex;gap:16px;flex-wrap:wrap;}' +
+            '.nsq-grow{flex:1 1 360px;}' +
+            '.nsq-field{margin-bottom:12px;}' +
+            '.nsq-label{display:block;font-weight:600;font-size:14px;margin-bottom:6px;}' +
+            '.nsq-input{min-height:44px;width:100%;padding:8px 10px;border:1px solid ' + c.border + ';border-radius:8px;font-size:15px;color:' + c.text + ';background:#fff;}' +
+            '.nsq-tagbox{display:flex;flex-wrap:wrap;gap:6px;align-items:center;min-height:44px;padding:6px 8px;border:1px solid ' + c.border + ';border-radius:8px;background:#fff;}' +
+            '.nsq-tag{display:inline-flex;align-items:center;gap:6px;background:#ede6ef;color:' + c.accent + ';border-radius:999px;padding:4px 6px 4px 12px;font-size:14px;}' +
+            '.nsq-tag-bad{background:#fbeaea;color:#7a1d1d;}' +
+            '.nsq-tag button{border:0;background:transparent;cursor:pointer;font-size:16px;line-height:1;color:inherit;padding:0 4px;}' +
+            '.nsq-tag-input{flex:1 1 180px;border:0;outline:0;min-height:30px;font-size:15px;}' +
+            '.nsq-links{display:flex;gap:18px;margin-bottom:12px;}' +
+            '.nsq-upd-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:16px;}' +
+            '.nsq-upd-changed{border:2px solid ' + c.accent + ';}' +
+            '.nsq-was{font-size:13px;color:' + c.accent + ';margin-top:4px;}' +
+            '.nsq-footer{position:fixed;left:0;right:0;bottom:0;background:#fff;border-top:1px solid ' + c.border + ';box-shadow:0 -2px 8px rgba(0,0,0,.06);z-index:1000;}' +
+            '.nsq-footer-in{max-width:1120px;margin:0 auto;padding:12px 16px;display:flex;gap:16px;align-items:center;justify-content:space-between;flex-wrap:wrap;}' +
+            '.nsq-sum-main{font-weight:600;}' +
+            '.nsq-sum-sub{color:' + c.muted + ';font-size:13px;}' +
+            '.nsq-actions{display:flex;gap:10px;align-items:center;flex-wrap:wrap;}' +
+            '.nsq-reason{color:' + c.muted + ';font-size:13px;}' +
+            '.nsq-btn{min-height:44px;padding:0 18px;border-radius:8px;font-size:15px;font-weight:600;cursor:pointer;display:inline-flex;align-items:center;text-decoration:none;}' +
+            '.nsq-btn-link{background:transparent;border:0;}' +
+            '.nsq-btn-secondary{background:#fff;border:1px solid ' + c.accent + ';color:' + c.accent + ';}' +
+            '.nsq-btn-primary{background:' + c.send + ';border:0;color:' + c.text + ';}' +
+            '.nsq-btn[disabled]{opacity:.45;cursor:not-allowed;}' +
+            '@media (max-width:900px){.nsq-upd-grid{grid-template-columns:repeat(2,minmax(0,1fr));}.nsq-row{grid-template-columns:1fr auto;}}' +
+            '</style>';
     }
 
     /**
-     * Shows an error page.
+     * The page's behaviour. STATIC — nothing is interpolated into it (see the rules above).
+     * It reads quote IDs, totals, roles and field originals from data- attributes.
+     */
+    var PAGE_SCRIPT = [
+        '(function () {',
+        '  "use strict";',
+        '  var EMAIL_RE = /^[^\\s@,;<>"\']+@[^\\s@,;<>"\']+\\.[^\\s@,;<>"\']+$/;',
+        '  function $(id) { return document.getElementById(id); }',
+        '  function each(list, fn) { Array.prototype.forEach.call(list, fn); }',
+        '  function money(n) { var s = Math.abs(n).toFixed(2).replace(/\\B(?=(\\d{3})+(?!\\d))/g, ","); return (n < 0 ? "-£" : "£") + s; }',
+        '  function split(v) { return String(v || "").split(/[,;]/).map(function (s) { return s.trim(); }).filter(Boolean); }',
+        '  function init() {',
+        '    var root = $("nsq-root");',
+        '    if (!root || !$("nsq-sel")) return;',
+        '    var rows = root.querySelectorAll(".nsq-row");',
+        '    var toHidden = $("nsq-to"), toInput = $("nsq-to-input"), tagsEl = $("nsq-tags");',
+        '    var to = split(toHidden.value);',
+        '    function renderTags() {',
+        '      tagsEl.innerHTML = "";',
+        '      to.forEach(function (addr, i) {',
+        '        var tag = document.createElement("span");',
+        '        tag.className = "nsq-tag" + (EMAIL_RE.test(addr) ? "" : " nsq-tag-bad");',
+        '        tag.appendChild(document.createTextNode(addr));',
+        '        var x = document.createElement("button");',
+        '        x.type = "button"; x.setAttribute("aria-label", "Remove " + addr); x.appendChild(document.createTextNode("×"));',
+        '        x.addEventListener("click", function () { to.splice(i, 1); renderTags(); update(); });',
+        '        tag.appendChild(x); tagsEl.appendChild(tag);',
+        '      });',
+        '      toHidden.value = to.join(",");',
+        '    }',
+        '    function addTo(v) { split(v).forEach(function (a) { if (to.indexOf(a) === -1) to.push(a); }); renderTags(); update(); }',
+        '    toInput.addEventListener("keydown", function (e) {',
+        '      if (e.key === "Enter" || e.key === "," || e.key === ";") { e.preventDefault(); if (toInput.value.trim()) { addTo(toInput.value); toInput.value = ""; } }',
+        '      else if (e.key === "Backspace" && !toInput.value && to.length) { to.pop(); renderTags(); update(); }',
+        '    });',
+        '    toInput.addEventListener("blur", function () { if (toInput.value.trim()) { addTo(toInput.value); toInput.value = ""; } });',
+        '    var contact = $("nsq-contact");',
+        '    if (contact) contact.addEventListener("change", function () { if (contact.value) addTo(contact.value); contact.value = ""; });',
+        '    function reveal(linkId, wrapId, inputId) {',
+        '      var link = $(linkId);',
+        '      link.addEventListener("click", function (e) { e.preventDefault(); $(wrapId).hidden = false; link.hidden = true; $(inputId).focus(); });',
+        '      if (!$(wrapId).hidden) link.hidden = true;',
+        '    }',
+        '    reveal("nsq-add-cc", "nsq-cc-wrap", "nsq-cc");',
+        '    reveal("nsq-add-bcc", "nsq-bcc-wrap", "nsq-bcc");',
+        '    each(rows, function (row) {',
+        '      each(row.querySelectorAll("[data-set-role]"), function (btn) {',
+        '        btn.addEventListener("click", function () { row.setAttribute("data-role", btn.getAttribute("data-set-role")); update(); });',
+        '      });',
+        '    });',
+        '    var upd = root.querySelectorAll(".nsq-upd");',
+        '    each(upd, function (el) { el.addEventListener("change", update); el.addEventListener("input", update); });',
+        '    each(root.querySelectorAll("input[type=text]"), function (el) {',
+        '      if (el === toInput) return;',
+        '      el.addEventListener("keydown", function (e) { if (e.key === "Enter") e.preventDefault(); });',
+        '      el.addEventListener("input", update);',
+        '    });',
+        '    function selection() {',
+        '      var sel = {};',
+        '      each(rows, function (row) { var r = row.getAttribute("data-role"); if (r === "main" || r === "additional") sel[row.getAttribute("data-qid")] = r; });',
+        '      return sel;',
+        '    }',
+        '    function fieldText(el) { return el.tagName === "SELECT" ? (el.options[el.selectedIndex] ? el.options[el.selectedIndex].text : "") : el.value.trim(); }',
+        '    function problem() {',
+        '      var sel = selection(), hasMain = false;',
+        '      Object.keys(sel).forEach(function (k) { if (sel[k] === "main") hasMain = true; });',
+        '      if (!hasMain) return "Choose at least one Main quote.";',
+        '      if (!to.length) return "Add a To address.";',
+        '      if (to.some(function (a) { return !EMAIL_RE.test(a); })) return "Check the To addresses.";',
+        '      var bad = split($("nsq-cc").value).concat(split($("nsq-bcc").value)).some(function (a) { return !EMAIL_RE.test(a); });',
+        '      if (bad) return "Check the CC / BCC addresses.";',
+        '      return "";',
+        '    }',
+        '    function update() {',
+        '      var main = 0, add = 0, total = 0;',
+        '      each(rows, function (row) {',
+        '        var r = row.getAttribute("data-role");',
+        '        each(row.querySelectorAll("[data-set-role]"), function (b) { b.setAttribute("aria-pressed", b.getAttribute("data-set-role") === r ? "true" : "false"); });',
+        '        row.className = "nsq-row" + (r === "main" ? " nsq-row-main" : "");',
+        '        if (r === "main") { main++; total += parseFloat(row.getAttribute("data-total")) || 0; }',
+        '        else if (r === "additional") { add++; }',
+        '      });',
+        '      var line = main + " main quote" + (main === 1 ? "" : "s") + ", " + add + " additional";',
+        '      if (main) line += " · " + money(total) + " inc VAT";',
+        '      $("nsq-sum-line").textContent = line;',
+        '      $("nsq-sum-to").textContent = to.length ? "To " + to[0] + (to.length > 1 ? " +" + (to.length - 1) : "") : "No To address yet";',
+        '      var changes = [];',
+        '      each(upd, function (el) {',
+        '        var wrap = el.parentNode, was = wrap.querySelector(".nsq-was");',
+        '        var v = el.value.trim(), orig = el.getAttribute("data-orig");',
+        '        var origText = el.getAttribute("data-orig-text") || "blank";',
+        '        if (v !== orig && v !== "") {',
+        '          el.classList.add("nsq-upd-changed"); was.hidden = false; was.textContent = "Changed · was " + origText;',
+        '          changes.push(el.getAttribute("data-label") + " → " + fieldText(el));',
+        '        } else if (v === "" && orig !== "") {',
+        '          el.classList.remove("nsq-upd-changed"); was.hidden = false; was.textContent = "Blank is not saved · stays " + origText;',
+        '        } else {',
+        '          el.classList.remove("nsq-upd-changed"); was.hidden = true; was.textContent = "";',
+        '        }',
+        '      });',
+        '      $("nsq-sum-changes").textContent = changes.join(" · ");',
+        '      var p = problem();',
+        '      $("nsq-send").disabled = !!p;',
+        '      $("nsq-reason").textContent = p;',
+        '    }',
+        '    function formEl() { return document.getElementById("main_form") || root.closest("form"); }',
+        '    $("nsq-send").addEventListener("click", function () {',
+        '      var p = problem(); if (p) { $("nsq-reason").textContent = p; return; }',
+        '      var form = formEl();',
+        '      if (!form) { $("nsq-reason").textContent = "Could not find the page form. Please reload and try again."; return; }',
+        '      $("nsq-sel").value = JSON.stringify(selection());',
+        '      toHidden.value = to.join(",");',
+        '      $("nsq-send").disabled = true; $("nsq-send").textContent = "Sending…"; $("nsq-preview").disabled = true;',
+        '      HTMLFormElement.prototype.submit.call(form);',
+        '    });',
+        '    $("nsq-preview").addEventListener("click", function () {',
+        '      var sel = selection(), hasMain = Object.keys(sel).some(function (k) { return sel[k] === "main"; });',
+        '      if (!hasMain) { $("nsq-reason").textContent = "Choose at least one Main quote to preview."; return; }',
+        '      var base = root.getAttribute("data-preview-url");',
+        '      if (!base) { $("nsq-reason").textContent = "Preview is unavailable."; return; }',
+        '      window.open(base + (base.indexOf("?") === -1 ? "?" : "&") + "sel=" + encodeURIComponent(JSON.stringify(sel)), "_blank");',
+        '    });',
+        '    renderTags();',
+        '    update();',
+        '  }',
+        '  if (document.readyState === "loading") { document.addEventListener("DOMContentLoaded", init); } else { init(); }',
+        '})();'
+    ].join('\n');
+
+    /**
+     * Shows a fatal error page (no Opportunity, record not loadable, unhandled error).
      */
     function showErrorPage(context, message) {
         var form = serverWidget.createForm({ title: 'Send Quote — Error' });
 
-        var cssField = form.addField({ id: 'custpage_css', type: serverWidget.FieldType.INLINEHTML, label: ' ' });
-        cssField.defaultValue = buildFormCSS();
-
         var errorField = form.addField({ id: 'custpage_error', type: serverWidget.FieldType.INLINEHTML, label: ' ' });
-        errorField.defaultValue = '<div class="nuheat-error">' +
-            '<h3>❌ Error</h3>' +
-            '<p>' + escapeHtml(message) + '</p>' +
-            '<p style="margin-top:12px;">Please try again or contact your administrator if the problem persists.</p>' +
-            '</div>';
-
-        form.addButton({
-            id: 'custpage_btn_back',
-            label: 'Go Back',
-            functionName: 'history.back'
-        });
+        errorField.defaultValue = buildPageCSS() +
+            '<div class="nsq"><div class="nsq-wrap">' +
+            '<div class="nsq-alert nsq-alert-error" role="alert"><strong>Error.</strong> ' + escapeHtml(message) + '</div>' +
+            '<p>Please try again or contact your administrator if the problem persists. ' +
+            '<a href="javascript:history.back()">Go back</a></p>' +
+            '</div></div>';
 
         context.response.writePage(form);
     }
