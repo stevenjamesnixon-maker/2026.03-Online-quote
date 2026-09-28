@@ -305,6 +305,7 @@ var modules = {
 };
 modules['./nuheat_bus_grant'] = loadModule('nuheat_bus_grant.js', modules);
 modules['./nuheat_vat_rates'] = loadModule('nuheat_vat_rates.js', modules);
+modules['./nuheat_opp_update_lib'] = loadModule('nuheat_opp_update_lib.js', modules);
 
 var suitelet = loadModule('nuheat_send_quote_sl.js', modules);
 var oppUe    = loadModule('nuheat_opportunity_ue.js', modules);
@@ -535,7 +536,7 @@ console.log('B3. Hostile description / contact name');
 ok(blocks[0].indexOf('alert') === -1 && blocks[0].indexOf('EST90') === -1 && blocks[0].indexOf('example.com') === -1, 'no record data inside the script block');
 ok(scriptBlocks(h1).length === 1 && (h1.match(/<script/gi) || []).length === 1, 'no extra <script> in the page');
 ok(!/<\/script><b>Bob/.test(h1) && /&lt;\/script&gt;&lt;b&gt;Bob X \(no email\)/.test(h1), 'contact name escaped');
-var sl = fs.readFileSync(path.join(ROOT, 'nuheat_send_quote_sl.js'), 'utf8');
+var sl = fs.readFileSync(path.join(ROOT, 'nuheat_opp_update_lib.js'), 'utf8');
 var escBody = /function escapeHtml\(str\) \{([\s\S]*?)\n    \}/.exec(sl)[1];
 ok(['&amp;', '&lt;', '&gt;', '&quot;', '&#039;'].every(function (e) { return escBody.indexOf(e) !== -1; }), 'escapeHtml escapes & < > " \'');
 
@@ -979,6 +980,50 @@ var hF = pageHtml(runGet());
 var metaF = /<div class="nsq-meta">([\s\S]*?)<\/div>/.exec(hF);
 ok(metaF && metaF[1].indexOf('<span>Barn conversion &amp; annex x</span>') === 0, 'decoded, stripped, escaped once (' + (metaF && metaF[1].substring(0, 60)) + ')');
 ok(metaF && !/&amp;lt;|&lt;b|<i>|<script/i.test(metaF[1]), 'no visible entities, tags or double encoding');
+
+// ═══ G — 2.1.0: extraction proof — Send Quote renders byte-identical to 2.0.4 ═══
+
+var crypto = require('crypto');
+/** Every byte of what the Suitelet hands NetSuite: form title, fields (id, type, label, HTML), buttons, sublists. */
+function formSnapshot(form) {
+    if (!form) return 'NO FORM';
+    return JSON.stringify({
+        title: form.title,
+        fields: form.fields.map(function (f) { return [f.id, f.type, f.label, f.defaultValue === undefined ? null : f.defaultValue, f.displayType]; }),
+        buttons: form.buttons, sublists: form.sublists.length, groups: form.groups, cs: form.clientScriptModulePath === undefined ? null : form.clientScriptModulePath
+    });
+}
+function sha(s) { return crypto.createHash('sha256').update(s, 'utf8').digest('hex'); }
+var SNAPSHOT_CASES = [
+    ['GET, three quotes', function () { return runGet(); }],
+    ['GET, five fields incl. Expected close', function () { state.fieldTypes.expectedclosedate = 'date'; state.oppValues.expectedclosedate = new Date(2026, 11, 20); return runGet(); }],
+    ['GET, one quote (starts at Main)', function () { state.estimates = state.estimates.filter(function (e) { return e.id === '901'; }); return runGet(); }],
+    ['GET, no quotes', function () { state.estimates = state.estimates.filter(function (e) { return e.opp !== '123'; }); return runGet(); }],
+    ['GET, Build stage options fail; encoded titles', function () { state.selectOptionsThrow.custbody_build_stage = true; state.oppValues.title = 'A &lt;b&gt;B&lt;/b&gt;'; estimate('902').desc = '&lt;i&gt;x&lt;/i&gt;'; return runGet(); }],
+    ['POST, foreign quote → re-render', function () { return runPost(basePost({ custpage_sel: JSON.stringify({ '901': 'main', '950': 'additional' }) })); }],
+    ['POST, email fails → re-render with entries restored', function () { state.emailThrows = 'SMTP down'; return runPost(basePost({ custpage_upd_entitystatus: '12', custpage_upd_next_contact: '2026-10-12', custpage_email_cc: 'boss@example.com' })); }],
+    ['GET, no opportunityId → error page', function () { return runGet({}); }]
+];
+
+// SHA-256 of formSnapshot() per case, captured from Send Quote SL 2.0.4 (commit 6203f9b) before the
+// library was extracted. Covers the whole page: CSS, header, sections, footer and the inline script.
+var SEND_QUOTE_2_0_4_SNAPSHOTS = {
+    "GET, three quotes": "0ec7efa9037822f8f2cfe1b303ad784d0a4635a0ee9c3da044eb6aac55d0dab2",
+    "GET, five fields incl. Expected close": "e4df4210d8aafe792a1b9408cf93268a852276c1646829d2e5eca4fdf45a76a6",
+    "GET, one quote (starts at Main)": "aedab3aff9641128451e1af81ce17934d178ab21b20b7711fe36a9a8567785ed",
+    "GET, no quotes": "a4619c34ea410956a46422742224de704ea435789a3eb499482cdcba91eb799f",
+    "GET, Build stage options fail; encoded titles": "dd48e87918b0b3f3a27b6615b763e36d682d5da4dba8ad32d04f3e77f602cec1",
+    "POST, foreign quote → re-render": "5b4ee06480d17af93ee242d472f3e6e4f2cf3e0bbaad44bb26d41ca0d8b22c38",
+    "POST, email fails → re-render with entries restored": "7bdffa2b03e8c5849af23f63dd8b2d24c2eaa926488a03a09f909dcd21d9e349",
+    "GET, no opportunityId → error page": "e2851f0338541bb237685cf2adb5d341d6f8694c3d18f8db024b907af50417b8"
+};
+
+console.log('G1. Send Quote renders byte-identical HTML to 2.0.4 after the extraction');
+SNAPSHOT_CASES.forEach(function (c) {
+    resetState();
+    var got = sha(formSnapshot(c[1]()));
+    ok(got === SEND_QUOTE_2_0_4_SNAPSHOTS[c[0]], c[0] + ': identical to 2.0.4' + (got === SEND_QUOTE_2_0_4_SNAPSHOTS[c[0]] ? '' : ' (got ' + got.substring(0, 16) + ')'));
+});
 
 console.log('\n' + passes + ' passed, ' + failures + ' failed');
 process.exit(failures ? 1 : 0);
