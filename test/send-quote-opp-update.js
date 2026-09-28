@@ -1,11 +1,14 @@
 /**
- * Tests for Send Quote SL 1.8.0 — update opportunity fields on send.
+ * Tests for Send Quote SL 2.0.0 / Opportunity UE 1.2.0.
  *
  * No test framework: the repository has no package.json. `define` is stubbed, the real
  * Suitelet and Opportunity UE are loaded under stubbed N/* modules and a stubbed Master
  * Proposal, and each scenario is checked with ok(). Exits non-zero on any failure.
  *
  *   node test/send-quote-opp-update.js
+ *
+ * Sections:  A — 1.8.0 field-update scenarios, carried forward (A1–A14)
+ *            B — 2.0.0 scenarios from the amendment-2 brief (B1–B19)
  */
 'use strict';
 
@@ -42,17 +45,24 @@ function loadModule(file, modules) {
 // ─── Stubs ─────────────────────────────────────────────────────────────────────
 
 var state;
+var ALL_WRITES = [];   // every record.submitFields across every scenario (B18)
 
 function resetState() {
     state = {
-        calls: [],          // ordered call log
-        submits: [],        // Suitelet record.submitFields calls
+        calls: [],
+        submits: [],
         emails: [],
         logs: [],
+        redirect: null,
+        pageMessages: [],
         emailThrows: null,
         generateFails: false,
-        submitThrows: null,
-        selectOptionsThrow: {},   // fieldId → true
+        submitThrows: null,          // opportunity submitFields error
+        estimateSubmitThrows: {},    // estimate id → error message
+        selectOptionsThrow: {},
+        forecastFieldType: 'checkbox',   // 'absent' → getField returns null
+        generated: null,
+        previewed: null,
         fieldTypes: { entitystatus: 'select', custbody_next_contact: 'date', custbody_opp_del_date: 'date', custbody_build_stage: 'select' },
         oppValues: {
             tranid: 'OPP123', title: 'Test Opp', entity: '55', entitystatus: '10',
@@ -62,15 +72,29 @@ function resetState() {
             custbody_build_stage: '3'
         },
         options: {
-            entitystatus:         [{ value: '10', text: 'Proposal' }, { value: '12', text: 'In Negotiation' }, { value: '13', text: 'Closed Won' }],
+            entitystatus:         [{ value: '10', text: 'Proposal' }, { value: '12', text: 'Quoted' }, { value: '13', text: 'Closed Won' }],
             custbody_build_stage: [{ value: '3', text: 'Foundations' }, { value: '4', text: 'Roof on' }]
         },
-        lookupText: { entitystatus: 'In Negotiation', custbody_build_stage: 'Roof on' },
-        quoteCount: 1
+        contacts: [{ id: '71', first: 'Ann', last: 'Lee', email: 'ann@example.com' },
+                   { id: '72', first: '</script><b>Bob', last: 'X', email: '' }],
+        estimates: [
+            { id: '901', opp: '123', tranid: 'EST901', title: '<b>Ground</b> & "x"', type: 'Heat Pump (ASHP)',
+              subtotal: 10000, discount: -500, tax: 1900, total: 11400, items: ['Suppak N1(R)HP'],
+              url: 'https://acct.example/q/901', desc: 'Air source heat pump', forecast: false },
+            { id: '902', opp: '123', tranid: 'EST902', title: 'UFH first floor', type: 'Heat Emitter',
+              subtotal: 4000, discount: 0, tax: 800, total: 4800, items: [],
+              url: 'https://acct.example/q/902', desc: '</script><script>alert(1)</script>', forecast: true },
+            { id: '903', opp: '123', tranid: 'EST903', title: 'Solar', type: 'Solar',
+              subtotal: 3000, discount: 0, tax: 0, total: 3000, items: [],
+              url: 'https://acct.example/q/903', desc: '', forecast: false },
+            { id: '950', opp: '777', tranid: 'EST950', title: 'Other opp', type: 'Solar',
+              subtotal: 1, discount: 0, tax: 0, total: 1, items: [], url: 'https://acct.example/q/950', desc: '', forecast: false }
+        ]
     };
 }
 
 function pad(n) { return (n < 10 ? '0' : '') + n; }
+function estimate(id) { return state.estimates.filter(function (e) { return e.id === String(id); })[0]; }
 
 var logStub = {};
 ['debug', 'audit', 'error', 'emergency'].forEach(function (lvl) {
@@ -96,9 +120,7 @@ function makeField(o) {
         displayType: null,
         addSelectOption: function (opt) { this.options.push(opt); },
         updateDisplayType: function (d) { this.displayType = d.displayType; },
-        updateDisplaySize: function () {},
-        updateLayoutType: function () {},
-        updateBreakType: function () {}
+        updateDisplaySize: function () {}, updateLayoutType: function () {}, updateBreakType: function () {}
     };
 }
 
@@ -107,15 +129,14 @@ var serverWidgetStub = {
     FieldDisplayType: { HIDDEN: 'hidden', ENTRY: 'entry' },
     SublistType: { LIST: 'list' },
     createForm: function (o) {
-        var form = {
+        return {
             title: o.title, fields: [], groups: [], sublists: [], buttons: [],
             addField: function (fo) { var f = makeField(fo); this.fields.push(f); return f; },
-            addFieldGroup: function (g) { this.groups.push(g); state.calls.push('addFieldGroup'); return g; },
+            addFieldGroup: function (g) { this.groups.push(g); return g; },
             addSublist: function (so) {
-                var sl = { id: so.id, fields: [], addField: function (fo) { var f = makeField(fo); this.fields.push(f); return f; },
-                           setSublistValue: function () {} };
+                var sl = { id: so.id, fields: [], rows: {}, addField: function (fo) { var f = makeField(fo); this.fields.push(f); return f; },
+                           setSublistValue: function (v) { (this.rows[v.line] = this.rows[v.line] || {})[v.id] = v.value; } };
                 this.sublists.push(sl);
-                state.calls.push('addSublist');
                 return sl;
             },
             addSubmitButton: function (b) { this.buttons.push(b); },
@@ -123,7 +144,6 @@ var serverWidgetStub = {
             field: function (id) { return this.fields.filter(function (f) { return f.id === id; })[0]; },
             html: function () { return this.fields.map(function (f) { return f.defaultValue || ''; }).join('\n'); }
         };
-        return form;
     }
 };
 
@@ -152,27 +172,51 @@ function makeOppRecord(opts) {
     };
 }
 
+function makeEstimateRecord(e) {
+    var vals = { subtotal: e.subtotal, discounttotal: e.discount, taxtotal: e.tax, total: e.total, includeinforecast: e.forecast };
+    return {
+        getValue: function (o) { return vals[o.fieldId]; },
+        getLineCount: function () { return e.items.length; },
+        getSublistText: function (o) { return e.items[o.line]; },
+        getField: function (o) {
+            if (o.fieldId !== 'includeinforecast' || state.forecastFieldType === 'absent') return null;
+            return { type: state.forecastFieldType };
+        }
+    };
+}
+
 var recordStub = {
     Type: { OPPORTUNITY: 'opportunity', ESTIMATE: 'estimate' },
     load: function (o) {
         state.calls.push('record.load:' + o.type);
         if (o.type === 'opportunity') return makeOppRecord(o);
-        throw new Error('estimate load not stubbed');   // Suitelet falls back to search values
+        var e = estimate(o.id);
+        if (!e || e.loadFails) throw new Error('could not load estimate ' + o.id);
+        return makeEstimateRecord(e);
     },
     submitFields: function (o) {
-        state.calls.push('record.submitFields');
+        state.calls.push('record.submitFields:' + o.type);
         state.submits.push(o);
-        if (state.submitThrows) throw new Error(state.submitThrows);
+        ALL_WRITES.push(o);
+        if (o.type === 'opportunity' && state.submitThrows) throw new Error(state.submitThrows);
+        if (o.type === 'estimate' && state.estimateSubmitThrows[o.id]) throw new Error(state.estimateSubmitThrows[o.id]);
         return o.id;
     }
 };
 
-function makeResult() {
-    var vals = { internalid: '901', tranid: 'EST901', title: 'HP quote', total: '1000.00',
-                 custbody_test_new_quote: 'https://example/q/901', datecreated: '01/09/2026', custbody_quote_description: 'desc' };
+function filterValue(filters, name) {
+    for (var i = 0; i < filters.length; i++) {
+        if (Array.isArray(filters[i]) && filters[i][0] === name) return filters[i][2];
+    }
+    return undefined;
+}
+
+function estimateResult(e) {
+    var vals = { internalid: e.id, tranid: e.tranid, title: e.title, total: String(e.total),
+                 custbody_test_new_quote: e.url, datecreated: '01/09/2026', custbody_quote_description: e.desc };
     return {
         getValue: function (o) { return vals[typeof o === 'string' ? o : o.name] || ''; },
-        getText: function (o) { return (typeof o === 'string' ? o : o.name) === 'custbody_quote_type' ? 'Heat Pump (ASHP)' : ''; }
+        getText: function (o) { return (typeof o === 'string' ? o : o.name) === 'custbody_quote_type' ? e.type : ''; }
     };
 }
 
@@ -183,18 +227,28 @@ var searchStub = {
     lookupFields: function (o) {
         state.calls.push('search.lookupFields:' + o.type);
         if (o.type === 'customer') return { email: 'cust@example.com' };
-        var out = {};
-        o.columns.forEach(function (c) { out[c] = [{ value: 'x', text: state.lookupText[c] }]; });
-        return out;
+        return {};
     },
     create: function (o) {
-        var isEstimate = o.type === 'estimate' || o.type === 'transaction';
-        var results = isEstimate ? (state.quoteCount ? [makeResult()] : []) : [];
+        state.calls.push('search.create:' + o.type);
+        var results = [];
+        if (o.type === 'estimate') {
+            var opp = String(filterValue(o.filters, 'opportunity'));
+            var ids = filterValue(o.filters, 'internalid');
+            results = state.estimates.filter(function (e) {
+                return e.opp === opp && (!ids || ids.indexOf(e.id) !== -1);
+            }).map(estimateResult);
+        } else if (o.type === 'opportunity') {
+            results = state.contacts.map(function (c) {
+                var v = { internalid: c.id, firstname: c.first, lastname: c.last, email: c.email };
+                return { getValue: function (q) { return v[q.name] || ''; } };
+            });
+        }
         return {
             run: function () {
                 return {
                     getRange: function () { return results; },
-                    each: function (cb) { results.forEach(cb); }
+                    each: function (cb) { for (var i = 0; i < results.length; i++) { if (cb(results[i]) === false) break; } }
                 };
             }
         };
@@ -209,13 +263,18 @@ var emailStub = {
     }
 };
 
+var redirectStub = {
+    toRecord: function (o) { state.calls.push('redirect.toRecord'); state.redirect = o; }
+};
+
 var masterProposalStub = {
-    generateMasterProposal: function () {
+    generateMasterProposal: function (oppId, quotes) {
         state.calls.push('generateMasterProposal');
+        state.generated = quotes;
         if (state.generateFails) return { success: false, error: 'boom', proposalUrl: '', fileId: 0, fileName: '' };
         return { success: true, proposalUrl: 'https://acct.app.netsuite.com/core/media/media.nl?id=1', fileId: 1, fileName: 'proposal_1.html' };
     },
-    generatePreviewHTML: function () { state.calls.push('generatePreviewHTML'); return '<html>preview</html>'; },
+    generatePreviewHTML: function (oppId, quotes) { state.calls.push('generatePreviewHTML'); state.previewed = quotes; return '<html>preview</html>'; },
     loadOpportunityData: function () {
         return { tranId: 'OPP123', title: 'Test Opp', quoteEmailRef: 'Ref', customerId: '55',
                  salesRep: { id: '7', name: 'AM', email: 'am@example.com', phone: '0123' } };
@@ -227,11 +286,18 @@ var modules = {
     'N/search': searchStub,
     'N/record': recordStub,
     'N/log': logStub,
-    'N/url': { resolveScript: function () { return '/app/site/hosting/scriptlet.nl'; } },
-    'N/redirect': {},
-    'N/runtime': { getCurrentUser: function () { return { id: '7' }; } },
+    'N/url': {
+        resolveScript: function (o) { return '/app/site/hosting/scriptlet.nl?script=' + o.scriptId + '&deploy=' + o.deploymentId + '&action=' + o.params.action + '&opportunityId=' + o.params.opportunityId; },
+        resolveRecord: function (o) { return '/app/accounting/transactions/opprtnty.nl?id=' + o.recordId; }
+    },
+    'N/redirect': redirectStub,
+    'N/runtime': {
+        getCurrentUser: function () { return { id: '7' }; },
+        getCurrentScript: function () { return { id: 'customscript_nuheat_send_quote_sl', deploymentId: 'customdeploy_nuheat_send_quote_sl' }; }
+    },
     'N/format': formatStub,
     'N/email': emailStub,
+    'N/ui/message': { Type: { CONFIRMATION: 'confirmation', WARNING: 'warning', ERROR: 'error', INFORMATION: 'information' } },
     './nuheat_master_proposal': masterProposalStub
 };
 modules['./nuheat_bus_grant'] = loadModule('nuheat_bus_grant.js', modules);
@@ -242,19 +308,21 @@ var oppUe    = loadModule('nuheat_opportunity_ue.js', modules);
 
 // ─── Request helpers ───────────────────────────────────────────────────────────
 
-function runGet() {
-    var ctx = {
-        request: { method: 'GET', parameters: { opportunityId: '123' } },
-        response: { page: null, writePage: function (f) { this.page = f; }, write: function (h) { this.written = h; }, setHeader: function () {} }
-    };
+function makeResponse() {
+    return { page: null, written: null, writePage: function (f) { this.page = f; }, write: function (h) { this.written = h; }, setHeader: function () {} };
+}
+
+function runGet(params) {
+    var ctx = { request: { method: 'GET', parameters: params || { opportunityId: '123' } }, response: makeResponse() };
     suitelet.onRequest(ctx);
     return ctx.response.page;
 }
 
-/** Builds POST parameters as the unchanged form would submit them. */
-function baseParams(overrides) {
+/** POST parameters as the unchanged page would submit them (901 Main, 902 Additional, 903 left out). */
+function basePost(overrides) {
     var p = {
         custpage_opportunity_id: '123',
+        custpage_sel: JSON.stringify({ '901': 'main', '902': 'additional' }),
         custpage_email_to: 'cust@example.com', custpage_email_cc: '', custpage_email_bcc: '',
         custpage_upd_fields: 'entitystatus,next_contact,del_date,build_stage',
         custpage_upd_entitystatus: '10', custpage_orig_entitystatus: '10', custpage_origtxt_entitystatus: 'Proposal',
@@ -267,204 +335,405 @@ function baseParams(overrides) {
 }
 
 function runPost(params) {
-    var row = {
-        custpage_select: 'T', custpage_quote_id: '901', custpage_category: 'main', custpage_quote_number: 'EST901',
-        custpage_quote_title: 'HP quote', custpage_quote_type: 'Heat Pump', custpage_amount: '£1,000.00',
-        custpage_subtotal: '£1,000.00', custpage_discount_total: '£0.00', custpage_tax_total: '£0.00',
-        custpage_quote_url: 'https://example/q/901', custpage_quote_description: '', custpage_bus_amount: '0',
-        custpage_bus_rate: 'none', custpage_vat_rate: '0', custpage_vat_percent: '0%'
-    };
-    var ctx = {
-        request: {
-            method: 'POST',
-            parameters: params,
-            getLineCount: function (o) { return o.group === 'custpage_quotes_heat_pump' ? 1 : -1; },
-            getSublistValue: function (o) { return row[o.name]; }
-        },
-        response: { page: null, writePage: function (f) { this.page = f; }, write: function (h) { this.written = h; }, setHeader: function () {} }
-    };
+    var ctx = { request: { method: 'POST', parameters: params }, response: makeResponse() };
     suitelet.onRequest(ctx);
     return ctx.response.page;
 }
 
-function allWrittenKeys() {
-    var keys = [];
-    state.submits.forEach(function (s) { keys = keys.concat(Object.keys(s.values)); });
-    return keys;
+function oppWrites()      { return state.submits.filter(function (s) { return s.type === 'opportunity'; }); }
+function estimateWrites() { return state.submits.filter(function (s) { return s.type === 'estimate'; }); }
+function auditLogs(title) { return state.logs.filter(function (l) { return l.level === 'audit' && l.title === title; }); }
+function pageHtml(form)   { return form ? form.html() : ''; }
+function scriptBlocks(html) {
+    var out = [], re = /<script\b[^>]*>([\s\S]*?)<\/script>/gi, m;
+    while ((m = re.exec(html))) out.push(m[1]);
+    return out;
+}
+function rowRole(html, id) {
+    var m = new RegExp('data-qid="' + id + '" data-role="([a-z]+)"').exec(html);
+    return m ? m[1] : null;
 }
 
-function auditLogs(title) {
-    return state.logs.filter(function (l) { return l.level === 'audit' && l.title === title; });
-}
+// ═══ A — 1.8.0 scenarios, carried forward ══════════════════════════════════════
 
-// ─── Scenarios ─────────────────────────────────────────────────────────────────
-
-console.log('1. POST, nothing changed');
+console.log('A1. POST, nothing changed');
 resetState();
-var page = runPost(baseParams());
+runPost(basePost());
 ok(state.emails.length === 1, 'email sent');
-ok(state.submits.length === 0, 'no field submitFields');
-ok(/No opportunity fields changed\./.test(page.html()), 'panel says no changes');
-ok(/Proposal link saved to the opportunity\./.test(page.html()), 'proposal-link statement shown');
-ok(!/has been updated with the proposal URL/.test(page.html()), 'old unconditional statement removed');
+ok(oppWrites().length === 0, 'no opportunity submitFields');
+ok(state.redirect && !('nsqf' in state.redirect.parameters) && state.redirect.parameters.nsq === 'ok', 'redirect: nsq=ok, no nsqf');       // changed (was: success-page panel text)
 ok(auditLogs('SendQuoteSL.OppUpdate').some(function (l) { return /no changes/.test(l.details); }), 'audit "no changes"');
 
-console.log('2. Status changed only');
+console.log('A2. Status changed only');
 resetState();
-page = runPost(baseParams({ custpage_upd_entitystatus: '12' }));
-ok(state.submits.length === 1, 'one submitFields');
-ok(state.submits[0] && JSON.stringify(Object.keys(state.submits[0].values)) === '["entitystatus"]', 'only entitystatus written');
-ok(state.submits[0] && state.submits[0].values.entitystatus === '12', 'raw value written');
-ok(state.submits[0] && state.submits[0].type === 'opportunity' && state.submits[0].id === '123', 'targets the opportunity');
-ok(state.submits[0] && state.submits[0].options.enableSourcing === false && state.submits[0].options.ignoreMandatoryFields === true, 'options match existing write');
-ok(/Status:<\/span> In Negotiation/.test(page.html()), 'panel shows display text of new status');
+runPost(basePost({ custpage_upd_entitystatus: '12' }));
+ok(oppWrites().length === 1, 'one opportunity submitFields');
+ok(oppWrites()[0] && JSON.stringify(Object.keys(oppWrites()[0].values)) === '["entitystatus"]', 'only entitystatus written');
+ok(oppWrites()[0] && oppWrites()[0].values.entitystatus === '12', 'raw value written');
+ok(oppWrites()[0] && oppWrites()[0].id === '123', 'targets the opportunity');
+ok(oppWrites()[0] && oppWrites()[0].options.enableSourcing === true && oppWrites()[0].options.ignoreMandatoryFields === true, 'enableSourcing true (Status changed), ignoreMandatoryFields true');   // changed (was: enableSourcing false)
+ok(state.redirect.parameters.nsqf === 'entitystatus', 'redirect nsqf=entitystatus');                                              // changed (was: panel display text)
 ok(auditLogs('SendQuoteSL.OppUpdate').some(function (l) { return /entitystatus: 10 → 12/.test(l.details); }), 'audit old → new');
 
-console.log('3. All four changed');
+console.log('A3. All four changed');
 resetState();
-page = runPost(baseParams({ custpage_upd_entitystatus: '12', custpage_upd_next_contact: '05/10/2026',
-                             custpage_upd_del_date: '01/12/2026', custpage_upd_build_stage: '4' }));
-ok(state.submits.length === 1, 'one submitFields');
-var v3 = state.submits[0] ? state.submits[0].values : {};
+runPost(basePost({ custpage_upd_entitystatus: '12', custpage_upd_next_contact: '05/10/2026',
+                   custpage_upd_del_date: '01/12/2026', custpage_upd_build_stage: '4' }));
+ok(oppWrites().length === 1, 'one opportunity submitFields');
+var v3 = oppWrites()[0] ? oppWrites()[0].values : {};
 ok(Object.keys(v3).sort().join(',') === 'custbody_build_stage,custbody_next_contact,custbody_opp_del_date,entitystatus', 'all four fields');
 ok(v3.custbody_next_contact instanceof Date && v3.custbody_opp_del_date instanceof Date, 'both dates are Date objects');
 ok(v3.custbody_opp_del_date && v3.custbody_opp_del_date.getMonth() === 11 && v3.custbody_opp_del_date.getDate() === 1, 'delivery date parsed correctly');
 ok(v3.custbody_build_stage === '4', 'build stage raw value');
+ok(state.redirect.parameters.nsqf === 'entitystatus,next_contact,del_date,build_stage', 'redirect lists all four keys');
 
-console.log('4. Delivery date cleared');
+console.log('A4. Delivery date cleared');
 resetState();
-runPost(baseParams({ custpage_upd_del_date: '' }));
-ok(state.submits.length === 0, 'blank-only change → no write');
+runPost(basePost({ custpage_upd_del_date: '' }));
+ok(oppWrites().length === 0, 'blank-only change → no write');
 resetState();
-runPost(baseParams({ custpage_upd_del_date: '', custpage_upd_build_stage: '4' }));
-ok(state.submits.length === 1 && !('custbody_opp_del_date' in state.submits[0].values), 'blank not written alongside other change');
+runPost(basePost({ custpage_upd_del_date: '', custpage_upd_build_stage: '4' }));
+ok(oppWrites().length === 1 && !('custbody_opp_del_date' in oppWrites()[0].values), 'blank not written alongside other change');
 resetState();
-runPost(baseParams({ custpage_upd_build_stage: '' }));
-ok(state.submits.length === 0, 'blank Build stage not written');
+runPost(basePost({ custpage_upd_build_stage: '' }));
+ok(oppWrites().length === 0, 'blank Build stage not written');
 
-console.log('5. Email send fails');
-resetState();
-state.emailThrows = 'SMTP down';
-page = runPost(baseParams({ custpage_upd_entitystatus: '12' }));
-ok(state.submits.length === 0, 'no field write');
-ok(/Opportunity fields were not updated because the email was not sent\./.test(page.html()), 'panel explains');
-ok(/Email Sending Failed/.test(page.html()), 'existing email-failure panel still shown');
-
-console.log('6. Generation fails');
+console.log('A5–A7. Failure paths — see B8 (email), B5 (validation) and below');
 resetState();
 state.generateFails = true;
-page = runPost(baseParams({ custpage_upd_entitystatus: '12' }));
-ok(state.submits.length === 0, 'no field write');
-ok(state.emails.length === 0, 'no email');
-ok(page.title === 'Send Quote — Error' && /Proposal generation failed: boom/.test(page.html()), 'error page as today');
-
-console.log('7. Field submitFields throws');
+var f6 = runPost(basePost({ custpage_upd_entitystatus: '12' }));
+ok(state.submits.length === 0 && state.emails.length === 0 && !state.redirect, 'generation fails → no email, no writes, no redirect');
+ok(f6.title === 'Send Quote' && /Not sent\.<\/strong> Proposal generation failed: boom/.test(pageHtml(f6)), 'page re-rendered with error panel');     // changed (was: error page)
 resetState();
 state.submitThrows = 'You do not have permission to set a value for element custbody_build_stage';
-page = runPost(baseParams({ custpage_upd_entitystatus: '12', custpage_upd_build_stage: '4' }));
-var h7 = page.html();
-ok(page.title === 'Quote Proposal — Generated Successfully', 'success page, not error page');
-ok(/View Master Proposal/.test(h7), 'proposal link shown');
-ok(/Email Sent Successfully/.test(h7), 'email success shown');
-ok(/The proposal was sent, but the opportunity could not be updated: You do not have permission/.test(h7), 'warning with message');
-ok(/Please set Status, Build stage on the opportunity\./.test(h7), 'warning names the fields');
-ok(state.logs.some(function (l) { return l.level === 'error' && l.title === 'SendQuoteSL.OppUpdate' && /123/.test(l.details) && /entitystatus: 10 → 12/.test(l.details); }), 'error logged with opp ID and attempted values');
+runPost(basePost({ custpage_upd_entitystatus: '12', custpage_upd_build_stage: '4' }));
+ok(state.redirect && state.redirect.parameters.nsq === 'warn', 'field write throws → still redirected, nsq=warn');                      // changed (was: success page + warning panel)
+ok(state.redirect.parameters.nsqff === 'entitystatus,build_stage' && !('nsqf' in state.redirect.parameters), 'nsqff names the fields, no nsqf');
+ok(!/permission/.test(JSON.stringify(state.redirect.parameters)), 'NetSuite error text not in the URL');
+ok(state.logs.some(function (l) { return l.level === 'error' && l.title === 'SendQuoteSL.OppUpdate' && /123/.test(l.details) && /entitystatus: 10 → 12/.test(l.details) && /permission/.test(l.details); }), 'error logged with opp ID, attempted values and message');
+ok(estimateWrites().length > 0, 'forecast still runs when the field update fails (independent)');
 
-console.log('8. Order');
+console.log('A8. Order (full order in B7)');
 resetState();
-runPost(baseParams({ custpage_upd_entitystatus: '12' }));
-var iGen = state.calls.indexOf('generateMasterProposal');
-var iEmail = state.calls.indexOf('email.send');
-var iSubmit = state.calls.indexOf('record.submitFields');
-ok(iGen >= 0 && iEmail > iGen && iSubmit > iEmail, 'generate → email.send → submitFields (' + state.calls.join(' > ') + ')');
+runPost(basePost({ custpage_upd_entitystatus: '12' }));
+ok(state.calls.indexOf('email.send') > state.calls.indexOf('generateMasterProposal') &&
+   state.calls.indexOf('record.submitFields:opportunity') > state.calls.indexOf('email.send'), 'generate → email.send → field submitFields');
 
-console.log('9. Preview');
+console.log('A10. Sub-status never written — posted anyway');
 resetState();
-var pctx = {
-    request: { method: 'GET', parameters: { action: 'preview', opportunityId: '123',
-        quotes: JSON.stringify([{ tranId: 'EST901', category: 'main' }]),
-        custpage_upd_fields: 'entitystatus', custpage_upd_entitystatus: '12', custpage_orig_entitystatus: '10' } },
-    response: { writePage: function () {}, write: function (h) { this.written = h; }, setHeader: function () {} }
-};
-suitelet.onRequest(pctx);
-ok(state.calls.indexOf('generatePreviewHTML') >= 0 && /preview/.test(pctx.response.written), 'preview rendered');
-ok(state.submits.length === 0 && state.calls.indexOf('record.submitFields') === -1, 'no submitFields');
+runPost(basePost({ custpage_upd_fields: 'entitystatus,next_contact,del_date,build_stage,sub_status',
+                   custpage_upd_sub_status: '99', custpage_orig_sub_status: '1',
+                   custbody_opportunity_sub_status: '99', custpage_upd_entitystatus: '12' }));
+ok(oppWrites().length === 1 && Object.keys(oppWrites()[0].values).join(',') === 'entitystatus', 'only the known field written');
 
-console.log('10. Sub-status never written');
-resetState();
-runPost(baseParams({ custpage_upd_fields: 'entitystatus,next_contact,del_date,build_stage,sub_status',
-                     custpage_upd_sub_status: '99', custpage_orig_sub_status: '1',
-                     custbody_opportunity_sub_status: '99', custpage_upd_entitystatus: '12' }));
-ok(allWrittenKeys().indexOf('custbody_opportunity_sub_status') === -1, 'not written even when posted');
-ok(allWrittenKeys().join(',') === 'entitystatus', 'only the known field written');
-var slSrc = fs.readFileSync(path.join(ROOT, 'nuheat_send_quote_sl.js'), 'utf8');
-ok(!/custbody_opportunity_sub_status['"]?\s*:/.test(slSrc) && !/fieldId:\s*'custbody_opportunity_sub_status'/.test(slSrc), 'source never uses sub-status as a write key or field def');
-
-console.log('11. GET, getSelectOptions throws for Build stage');
+console.log('A11. GET, getSelectOptions throws for Build stage');
 resetState();
 state.selectOptionsThrow.custbody_build_stage = true;
-var form = runGet();
-ok(!!form.field('custpage_upd_entitystatus') && !!form.field('custpage_upd_next_contact') && !!form.field('custpage_upd_del_date'), 'other three present');
-ok(!form.field('custpage_upd_build_stage'), 'Build stage absent');
-ok(form.field('custpage_upd_fields').defaultValue === 'entitystatus,next_contact,del_date', 'shown-keys list excludes build_stage');
+var g11 = pageHtml(runGet());
+ok(/name="custpage_upd_entitystatus"/.test(g11) && /name="custpage_upd_next_contact"/.test(g11) && /name="custpage_upd_del_date"/.test(g11), 'other three present');   // changed (was: native form fields)
+ok(!/name="custpage_upd_build_stage"/.test(g11), 'Build stage absent');
+ok(/name="custpage_upd_fields" value="entitystatus,next_contact,del_date"/.test(g11), 'shown-keys list excludes build_stage');
 ok(auditLogs('SendQuoteSL.OppUpdate').some(function (l) { return /custbody_build_stage/.test(l.details) && /getSelectOptions failed/.test(l.details); }), 'audit logged with error');
-ok(form.groups.length === 1 && form.groups[0].id === 'custpage_grp_opp_update' && form.groups[0].label === 'Update opportunity', 'field group added');
-ok(state.calls.indexOf('addFieldGroup') < state.calls.indexOf('addSublist'), 'group added before quote sublists');
-var st = form.field('custpage_upd_entitystatus');
-ok(st.container === 'custpage_grp_opp_update' && st.type === 'select', 'status is SELECT in the group');
-ok(st.options.length === 3 && st.options.filter(function (o) { return o.isSelected; })[0].value === '10', 'status options from record, current selected, no blank');
-ok(form.field('custpage_upd_next_contact').defaultValue === '01/10/2026', 'next contact pre-populated (formatted)');
-ok(form.field('custpage_orig_del_date').defaultValue === '15/11/2026' && form.field('custpage_orig_del_date').displayType === 'hidden', 'hidden original date');
+ok(/<option value="10" selected>Proposal<\/option>/.test(g11) && !/<select[^>]*custpage_upd_entitystatus[^>]*><option value=""/.test(g11), 'status options from record, current selected, no blank');
+ok(/name="custpage_upd_next_contact"[^>]*value="01\/10\/2026"/.test(g11), 'next contact pre-filled (formatted)');
+ok(/<input type="hidden" name="custpage_orig_del_date" value="15\/11\/2026">/.test(g11), 'hidden original date');
 ok(auditLogs('SendQuoteSL.OppUpdate').some(function (l) { return /reported field types: entitystatus=select, custbody_next_contact=date/.test(l.details); }), 'reported types logged');
 
-console.log('11b. GET, full section; type mismatch; current status not in options');
+console.log('A11b. GET: Build stage blank option; type mismatch; status not in options');
 resetState();
-form = runGet();
-var bs = form.field('custpage_upd_build_stage');
-ok(bs && bs.options[0].value === '' && bs.options.length === 3, 'Build stage has blank first option');
-ok(bs && bs.options.filter(function (o) { return o.isSelected; })[0].value === '3', 'Build stage current selected');
-ok(form.field('custpage_orig_entitystatus').defaultValue === '10', 'hidden original status raw value');
+var g11b = pageHtml(runGet());
+ok(/name="custpage_upd_build_stage"[^>]*><option value=""><\/option><option value="3" selected>Foundations/.test(g11b), 'Build stage blank first, current selected');
 resetState();
 state.fieldTypes.custbody_next_contact = 'datetimetz';
-form = runGet();
-ok(!form.field('custpage_upd_next_contact'), 'unexpected type → field not shown');
+g11b = pageHtml(runGet());
+ok(!/name="custpage_upd_next_contact"/.test(g11b), 'unexpected type → field not shown (kept as agreed)');
 ok(auditLogs('SendQuoteSL.OppUpdate').some(function (l) { return /custbody_next_contact reports type "datetimetz" but "date" was assumed/.test(l.details); }), 'type mismatch audit-logged');
 resetState();
 state.oppValues.entitystatus = '99';
-form = runGet();
-ok(!form.field('custpage_upd_entitystatus'), 'status not among options → not shown (would silently change it)');
+ok(!/name="custpage_upd_entitystatus"/.test(pageHtml(runGet())), 'status not among options → not shown');
 
-console.log('12. GET, no quotes');
+console.log('A12. GET, no quotes');
 resetState();
-state.quoteCount = 0;
-form = runGet();
-ok(form.groups.length === 0, 'no field group');
-ok(!form.fields.some(function (f) { return /^custpage_(upd|orig|origtxt)_/.test(f.id); }), 'no update fields');
+state.estimates = state.estimates.filter(function (e) { return e.opp !== '123'; });
+var g12 = pageHtml(runGet());
+ok(!/custpage_upd_/.test(g12) && !/nsq-send/.test(g12), 'no update section, no Send button');
+ok(/No quotes found/.test(g12), 'no-quotes panel');
 
-console.log('13. beforeLoad');
-function runUe(type) {
+console.log('A13. beforeLoad button');
+function runUe(type, params, recOverrides) {
     var buttons = [];
-    oppUe.beforeLoad({
-        type: type,
-        UserEventType: { VIEW: 'view', EDIT: 'edit', CREATE: 'create' },
-        newRecord: { id: '123' },
-        form: { addButton: function (b) { buttons.push(b); }, removeButton: function () {} }
-    });
-    return buttons;
+    var form = {
+        addButton: function (b) { buttons.push(b); }, removeButton: function () {},
+        addPageInitMessage: function (m) { state.pageMessages.push(m); }
+    };
+    var rec = {
+        id: '123',
+        getText: function (o) { return { entitystatus: 'Quoted', custbody_build_stage: 'Roof on' }[o.fieldId] || ''; },
+        getValue: function (o) {
+            return { custbody_next_contact: new Date(2026, 9, 12), custbody_opp_del_date: new Date(2026, 11, 1),
+                     custbody_master_proposal_url: 'https://acct.app.netsuite.com/core/media/media.nl?id=1&h=abc' }[o.fieldId];
+        }
+    };
+    Object.keys(recOverrides || {}).forEach(function (k) { rec[k] = recOverrides[k]; });
+    var thrown = null;
+    try {
+        oppUe.beforeLoad({
+            type: type,
+            UserEventType: { VIEW: 'view', EDIT: 'edit', CREATE: 'create' },
+            newRecord: rec,
+            form: form,
+            request: params ? { parameters: params } : undefined
+        });
+    } catch (e) { thrown = e; }
+    return { buttons: buttons, thrown: thrown, form: form };
 }
-ok(runUe('edit').length === 0, 'EDIT → no button');
-ok(runUe('view').length === 1 && runUe('view')[0].id === 'custpage_send_quote', 'VIEW → button');
-ok(runUe('create').length === 0, 'CREATE → no button');
+resetState();
+ok(runUe('edit').buttons.length === 0, 'EDIT → no button');
+ok(runUe('view').buttons.length === 1 && runUe('view').buttons[0].id === 'custpage_send_quote', 'VIEW → button');
+ok(runUe('create').buttons.length === 0, 'CREATE → no button');
 
-console.log('14. Escaping');
+// A9 (preview) → B19; A14 (success-panel escaping) → B2/B3/B15; success page removed in 2.0.0.
+
+// ═══ B — 2.0.0 scenarios ═══════════════════════════════════════════════════════
+
+console.log('B1. GET render');
 resetState();
-state.submitThrows = '<script>alert(1)</script>';
-page = runPost(baseParams({ custpage_upd_entitystatus: '12' }));
-ok(!/<script>alert/.test(page.html()) && /&lt;script&gt;alert\(1\)&lt;\/script&gt;/.test(page.html()), 'error message escaped');
+var f1 = runGet();
+var h1 = pageHtml(f1);
+ok(f1.fields.length === 1 && f1.fields[0].type === 'inlinehtml', 'one INLINEHTML body');
+ok(f1.buttons.length === 0 && f1.sublists.length === 0, 'no native buttons, no sublists');
+ok(f1.clientScriptModulePath === undefined, 'no clientScriptModulePath');
+ok(!/clientScriptModulePath\s*=/.test(fs.readFileSync(path.join(ROOT, 'nuheat_send_quote_sl.js'), 'utf8')), 'no clientScriptModulePath assignment anywhere in the Suitelet');
+ok(rowRole(h1, '901') === 'leave' && rowRole(h1, '902') === 'leave' && rowRole(h1, '903') === 'leave', 'several quotes → all start at Leave out');
+ok(/<a class="nsq-back" href="\/app\/accounting\/transactions\/opprtnty\.nl\?id=123">&larr; Back to opportunity OPP123<\/a>/.test(h1), 'back link to the opportunity');
+ok(/data-preview-url="\/app\/site\/hosting\/scriptlet\.nl\?script=customscript_nuheat_send_quote_sl&amp;deploy=customdeploy_nuheat_send_quote_sl&amp;action=preview&amp;opportunityId=123"/.test(h1), 'preview URL in a data- attribute (escaped)');
+ok(/<input type="hidden" name="custpage_email_to" id="nsq-to" value="cust@example.com">/.test(h1), 'To defaults to the customer email');
+ok(/<option value="ann@example.com">Ann Lee \(ann@example.com\)<\/option>/.test(h1), 'contact picker lists contacts');
+ok(/data-qid="902" data-role="leave" data-total="4800"/.test(h1) && /data-qid="901" data-role="leave" data-total="2000"/.test(h1), 'live-total values: inc VAT less BUS grant (HP 9,500 at 0% VAT − 7,500 = 2,000)');
+ok(/<strong>£4,800\.00<\/strong><span class="nsq-exvat">£4,000\.00 ex VAT<\/span>/.test(h1), 'inc-VAT price bold, ex-VAT beneath');
+ok(/<a class="nsq-view" href="https:\/\/acct\.example\/q\/901" target="_blank" rel="noopener">View<\/a>/.test(h1), '"View" link replaces the URL column');
+ok(/id="nsq-send" disabled/.test(h1), 'Send starts disabled (the script enables it)');
+var blocks = scriptBlocks(h1);
+ok(blocks.length === 1, 'exactly one <script> block');
+var parsed = true;
+try { new vm.Script(blocks[0]); } catch (e) { parsed = false; console.log('     ' + e.message); }
+ok(parsed, 'the inline script parses');
 resetState();
-state.lookupText.entitystatus = '<script>x</script>';
-page = runPost(baseParams({ custpage_upd_entitystatus: '12' }));
-ok(!/<script>x/.test(page.html()) && /&lt;script&gt;x/.test(page.html()), 'changed value text escaped');
+state.estimates = state.estimates.filter(function (e) { return e.id !== '902' && e.id !== '903'; });
+ok(rowRole(pageHtml(runGet()), '901') === 'main', 'exactly one quote → starts at Main');
+
+console.log('B2. Title with HTML');
+ok(/EST901 &middot; Ground &amp; &quot;x&quot;<\/div>/.test(h1), 'rendered as "Ground &amp; &quot;x&quot;"');
+ok(!/<b>Ground/.test(h1), 'no <b> tag');
+
+console.log('B3. Hostile description / contact name');
+ok(blocks[0].indexOf('alert') === -1 && blocks[0].indexOf('EST90') === -1 && blocks[0].indexOf('example.com') === -1, 'no record data inside the script block');
+ok(scriptBlocks(h1).length === 1 && (h1.match(/<script/gi) || []).length === 1, 'no extra <script> in the page');
+ok(!/<\/script><b>Bob/.test(h1) && /&lt;\/script&gt;&lt;b&gt;Bob X \(no email\)/.test(h1), 'contact name escaped');
+var sl = fs.readFileSync(path.join(ROOT, 'nuheat_send_quote_sl.js'), 'utf8');
+var escBody = /function escapeHtml\(str\) \{([\s\S]*?)\n    \}/.exec(sl)[1];
+ok(['&amp;', '&lt;', '&gt;', '&quot;', '&#039;'].every(function (e) { return escBody.indexOf(e) !== -1; }), 'escapeHtml escapes & < > " \'');
+
+console.log('B4. Tampered price in the POST body');
+resetState();
+runPost(basePost({ custpage_amount: '£1.00', custpage_subtotal: '£1.00', custpage_tax_total: '£0.00', amount: '1',
+                   custpage_quotes_heat_pump: '901\u00021.00' }));
+var g901 = (state.generated || []).filter(function (q) { return q.quoteId === '901'; })[0];
+ok(g901 && g901.amount === '£9,500.00' && g901.subtotal === '£10,000.00', 'proposal uses NetSuite values, not the posted ones');
+
+console.log('B5. Selecting a quote not on this opportunity');
+resetState();
+var f5 = runPost(basePost({ custpage_sel: JSON.stringify({ '901': 'main', '950': 'additional' }) }));
+ok(state.calls.indexOf('generateMasterProposal') === -1 && state.submits.length === 0 && !state.redirect, 'nothing generated, written or redirected');
+ok(/Not sent\.<\/strong> The selection included a quote that does not belong to this opportunity/.test(pageHtml(f5)), 'page re-rendered with an error');
+resetState();
+runPost(basePost({ custpage_sel: JSON.stringify({ '901': 'boss' }) }));
+ok(state.calls.indexOf('generateMasterProposal') === -1, 'unknown role rejected');
+resetState();
+runPost(basePost({ custpage_sel: '{not json' }));
+ok(state.calls.indexOf('generateMasterProposal') === -1, 'malformed JSON rejected');
+resetState();
+var f5b = runPost(basePost({ custpage_sel: JSON.stringify({ '902': 'additional' }) }));
+ok(state.calls.indexOf('generateMasterProposal') === -1 && /No Main quote selected/.test(pageHtml(f5b)), 'server: no Main → rejected');
+resetState();
+var f5c = runPost(basePost({ custpage_email_cc: 'not-an-email' }));
+ok(state.calls.indexOf('generateMasterProposal') === -1 && /not valid: not-an-email/.test(pageHtml(f5c)), 'server: invalid CC → rejected');
+
+console.log('B6. Quote object shape — identical to the pre-2.0 sublist round trip');
+// Captured by running Send Quote SL 1.8.0 (commit 8e73a2a) against this file's fixture — NOT
+// hand-written. (Heat pump VAT is derived at 0%, hence amount £9,500.00 on EST901.) GET
+// populated the hidden sublist columns, the POST read them back, and this is the object that
+// reached generateMasterProposal(). Key order and value types included.
+var PRE_2_0_FIXTURE = {
+    '901': { quoteId: '901', tranId: 'EST901', title: '<b>Ground</b> & "x"', quoteType: 'Heat Pump', amount: '£9,500.00',
+             subtotal: '£10,000.00', discountTotal: '£-500.00', taxTotal: '£0.00', busAmount: 7500, busRate: 'standard',
+             vatRate: 0, vatPercent: '0%', quoteUrl: 'https://acct.example/q/901', category: 'main',
+             description: 'Air source heat pump' },
+    '902': { quoteId: '902', tranId: 'EST902', title: 'UFH first floor', quoteType: 'Underfloor Heating', amount: '£4,800.00',
+             subtotal: '£4,000.00', discountTotal: '£0.00', taxTotal: '£800.00', busAmount: 0, busRate: 'none',
+             vatRate: 0.2, vatPercent: '20%', quoteUrl: 'https://acct.example/q/902', category: 'additional',
+             description: '</script><script>alert(1)</script>' }
+};
+resetState();
+runPost(basePost());
+var byId = {};
+(state.generated || []).forEach(function (q) { byId[q.quoteId] = q; });
+['901', '902'].forEach(function (id) {
+    ok(JSON.stringify(byId[id]) === JSON.stringify(PRE_2_0_FIXTURE[id]), 'Estimate ' + id + ': same keys, order, values and types');
+    ok(byId[id] && typeof byId[id].busAmount === 'number' && typeof byId[id].vatRate === 'number', 'Estimate ' + id + ': busAmount / vatRate are numbers');
+});
+ok((state.generated || []).length === 2 && state.generated[0].quoteId === '902' && state.generated[1].quoteId === '901', 'same order as before (UFH, Heat Pump, …)');
+
+console.log('B7. Successful send');
+resetState();
+runPost(basePost({ custpage_upd_entitystatus: '12', custpage_upd_next_contact: '12/10/2026' }));
+var order = state.calls.filter(function (c) { return /^(generateMasterProposal|email\.send|record\.submitFields|redirect\.toRecord)/.test(c); });
+ok(order.join(' > ') === 'generateMasterProposal > email.send > record.submitFields:opportunity > record.submitFields:estimate > record.submitFields:estimate > redirect.toRecord',
+   'generate → email → field update → forecast → redirect (' + order.join(' > ') + ')');
+var rp = state.redirect.parameters;
+ok(state.redirect.type === 'opportunity' && state.redirect.id === '123' && state.redirect.isEditMode === false, 'redirect to the opportunity in VIEW');
+ok(Object.keys(rp).every(function (k) { return ['nsq', 'nsqt', 'nsqf', 'nsqff', 'nsqfi', 'nsqfx', 'nsqqf'].indexOf(k) !== -1; }), 'only whitelisted parameters');
+ok(Object.keys(rp).every(function (k) { return /^[a-z0-9_,]*$/.test(rp[k]); }), 'codes only — no free text');
+ok(rp.nsq === 'ok' && /^\d{10}$/.test(rp.nsqt) && rp.nsqf === 'entitystatus,next_contact' && rp.nsqfi === '1' && rp.nsqfx === '2', 'nsq=ok, nsqt epoch, nsqf, nsqfi=1, nsqfx=2');
+
+console.log('B8. Email fails');
+resetState();
+state.emailThrows = 'SMTP down';
+var f8 = runPost(basePost({ custpage_upd_entitystatus: '12', custpage_email_cc: 'boss@example.com',
+                            custpage_sel: JSON.stringify({ '901': 'main', '903': 'additional' }) }));
+var h8 = pageHtml(f8);
+ok(state.submits.length === 0 && !state.redirect, 'no Suitelet writes, no redirect');
+ok(/The email could not be sent: SMTP down/.test(h8), 'error panel');
+ok(rowRole(h8, '901') === 'main' && rowRole(h8, '903') === 'additional' && rowRole(h8, '902') === 'leave', 'selections restored');
+ok(/name="custpage_email_to" id="nsq-to" value="cust@example.com"/.test(h8) && /id="nsq-cc" value="boss@example.com"/.test(h8), 'addresses restored');
+ok(/<option value="12" selected>Quoted<\/option>/.test(h8) && /name="custpage_orig_entitystatus" value="10"/.test(h8), 'field value restored, original kept');
+
+console.log('B9. Forecast: Main false, Additional true, Leave-out false');
+resetState();   // fixture: 901 false (Main), 902 true (Additional), 903 false (left out)
+runPost(basePost());
+var ew = estimateWrites();
+ok(ew.length === 2, 'two writes');
+ok(ew.some(function (w) { return w.id === '901' && w.values.includeinforecast === true; }) &&
+   ew.some(function (w) { return w.id === '902' && w.values.includeinforecast === false; }), '901 → true, 902 → false');
+ok(!ew.some(function (w) { return w.id === '903'; }), 'no write for 903');
+ok(!ew.some(function (w) { return w.id === '950'; }), 'another opportunity\'s Estimate never touched');
+ok(ew.every(function (w) { return w.options.enableSourcing === false && w.options.ignoreMandatoryFields === true; }), 'options');
+ok(auditLogs('SendQuoteSL.Forecast').some(function (l) { return /Estimate 901 \(EST901\) false → true/.test(l.details); }), 'audit from → to');
+
+console.log('B10. Forecast values as "T" / "F" strings');
+resetState();
+estimate('901').forecast = 'T'; estimate('902').forecast = 'F'; estimate('903').forecast = 'F';
+runPost(basePost());
+ok(estimateWrites().length === 0, 'normalised; no spurious writes');
+ok(!('nsqfi' in state.redirect.parameters), 'no forecast counts when nothing changed');
+
+console.log('B11. One Estimate write throws');
+resetState();
+state.estimateSubmitThrows['901'] = 'Record locked';
+runPost(basePost());
+ok(estimateWrites().some(function (w) { return w.id === '902'; }), 'the others still written');
+ok(state.redirect.parameters.nsqqf === '901' && state.redirect.parameters.nsq === 'warn', 'nsqqf=901, nsq=warn');
+ok(state.logs.some(function (l) { return l.level === 'error' && l.title === 'SendQuoteSL.Forecast' && /Record locked/.test(l.details); }), 'failure logged with message');
+
+console.log('B12. includeinforecast absent / not a checkbox');
+['absent', 'text'].forEach(function (t) {
+    resetState();
+    state.forecastFieldType = t;
+    runPost(basePost());
+    ok(estimateWrites().length === 0, t + ': no forecast writes');
+    ok(auditLogs('SendQuoteSL.Forecast').some(function (l) { return /no forecast writes/.test(l.details); }), t + ': audit logged');
+    ok(state.redirect.parameters.nsq === 'ok' && !('nsqqf' in state.redirect.parameters), t + ': nsq unaffected');
+});
+
+console.log('B13. Probability sourcing');
+resetState();
+runPost(basePost({ custpage_upd_entitystatus: '12' }));
+ok(oppWrites()[0].options.enableSourcing === true, 'Status changed → enableSourcing true');
+resetState();
+runPost(basePost({ custpage_upd_build_stage: '4' }));
+ok(oppWrites()[0].options.enableSourcing === false, 'Status unchanged → enableSourcing false');
+
+var NOW = Math.floor(Date.now() / 1000);
+
+console.log('B14. UE banner, valid');
+resetState();
+var u14 = runUe('view', { nsq: 'ok', nsqt: String(NOW - 5), nsqf: 'entitystatus,next_contact', nsqfi: '1', nsqfx: '2' });
+var m14 = state.pageMessages[0];
+ok(m14 && m14.type === 'confirmation' && m14.title === 'Proposal sent', 'CONFIRMATION, "Proposal sent"');
+ok(m14 && m14.message.indexOf('Opportunity updated: Status → Quoted · Next contact → 12/10/2026') === 0, 'values read from the record');
+ok(m14 && /Forecast: 1 quote included, 2 excluded/.test(m14.message), 'forecast line');
+ok(m14 && /<a href="https:\/\/acct\.app\.netsuite\.com\/core\/media\/media\.nl\?id=1&amp;h=abc" target="_blank" rel="noopener">View proposal<\/a>/.test(m14.message), 'View proposal link from the record');
+ok(u14.buttons.length === 1, 'button still added');
+resetState();
+runUe('view', { nsq: 'warn', nsqt: String(NOW), nsqff: 'build_stage', nsqqf: '902' });
+var w14 = state.pageMessages[0];
+ok(w14 && w14.type === 'warning' && /wasn’t fully updated/.test(w14.title), 'WARNING title');
+ok(w14 && /Please set Build stage on this record\./.test(w14.message) && /Forecast flag not updated on EST902\./.test(w14.message), 'warning names the field and the quote');
+
+console.log('B15. UE banner, hostile or stale parameters');
+[
+    ['stale', { nsq: 'ok', nsqt: String(NOW - 301), nsqf: 'entitystatus' }],
+    ['missing nsqt', { nsq: 'ok', nsqf: 'entitystatus' }],
+    ['garbage nsqt', { nsq: 'ok', nsqt: 'abc', nsqf: 'entitystatus' }],
+    ['unknown nsq', { nsq: 'yes', nsqt: String(NOW), nsqf: 'entitystatus' }]
+].forEach(function (c) {
+    resetState();
+    runUe('view', c[1]);
+    ok(state.pageMessages.length === 0, c[0] + ' → no banner');
+});
+resetState();
+runUe('view', { nsq: 'ok', nsqt: String(NOW), nsqf: 'entitystatus,<script>alert(1)</script>,foo', nsqfi: '<b>', nsqfx: '2' });
+var m15 = state.pageMessages[0];
+ok(m15 && /Status → Quoted/.test(m15.message) && !/script|foo|alert|<b>/i.test(m15.message), 'unknown keys dropped, never echoed');
+ok(m15 && !/Forecast/.test(m15.message), 'non-numeric count → no forecast line');
+resetState();
+runUe('edit', { nsq: 'ok', nsqt: String(NOW), nsqf: 'entitystatus' });
+ok(state.pageMessages.length === 0, 'EDIT → no banner');
+
+console.log('B16. UE banner, failed quote from another opportunity');
+resetState();
+runUe('view', { nsq: 'warn', nsqt: String(NOW), nsqqf: '950,902,abc' });
+var m16 = state.pageMessages[0];
+ok(m16 && /Forecast flag not updated on EST902\.<br>/.test(m16.message) && !/EST950/.test(m16.message), 'other opportunity\'s Estimate and non-numeric IDs dropped (only EST902 named)');
+
+console.log('B17. UE throws internally');
+resetState();
+var u17 = runUe('view', { nsq: 'ok', nsqt: String(NOW), nsqf: 'entitystatus' },
+    { getText: function () { throw new Error('boom'); }, getValue: function () { throw new Error('boom'); } });
+ok(!u17.thrown && u17.buttons.length === 1, 'record getters throw → no exception, button added');
+resetState();
+var u17b = runUe('view', { nsq: 'ok', nsqt: String(NOW), nsqf: 'entitystatus' });
+u17b.form.addPageInitMessage = function () { throw new Error('no message API'); };
+var thrown17 = null;
+try {
+    oppUe.beforeLoad({ type: 'view', UserEventType: { VIEW: 'view' }, newRecord: { id: '123', getText: function () { return ''; }, getValue: function () { return ''; } },
+        form: u17b.form, request: { parameters: { nsq: 'ok', nsqt: String(NOW) } } });
+} catch (e) { thrown17 = e; }
+ok(!thrown17 && state.logs.some(function (l) { return l.level === 'error' && l.title === 'OpportunityUE.banner'; }), 'addPageInitMessage throws → caught and logged');
+
+console.log('B18. Sub-status never written in any path');
+ok(ALL_WRITES.length > 20, 'writes recorded across all scenarios (' + ALL_WRITES.length + ')');
+ok(ALL_WRITES.every(function (w) { return !('custbody_opportunity_sub_status' in w.values); }), 'custbody_opportunity_sub_status never in any write');
+
+console.log('B19. Preview');
+resetState();
+var pctx = {
+    request: { method: 'GET', parameters: { action: 'preview', opportunityId: '123',
+        sel: JSON.stringify({ '901': 'main', '902': 'additional' }),
+        quotes: JSON.stringify([{ quoteId: '901', amount: '£1.00' }]) } },
+    response: makeResponse()
+};
+suitelet.onRequest(pctx);
+ok(state.previewed && state.previewed.length === 2 && state.previewed[1].amount === '£9,500.00', 'rebuilt from the search; posted "quotes" ignored');
+ok(state.submits.length === 0 && state.calls.indexOf('email.send') === -1, 'no writes, no email');
+ok(state.calls.filter(function (c) { return c === 'record.load:estimate'; }).length === 3, 'governance: one Estimate load per quote on the opportunity');
+resetState();
+pctx.request.parameters.sel = JSON.stringify({ '950': 'main' });
+pctx.response = makeResponse();
+suitelet.onRequest(pctx);
+ok(/Preview Error/.test(pctx.response.written) && !state.previewed, 'foreign quote in preview → error, nothing generated');
+var ps = scriptBlocks(h1)[0];
+ok(/"sel=" \+ encodeURIComponent\(JSON\.stringify\(sel\)\)/.test(ps) && !/amount|total\b.*sel/.test(ps.split('nsq-preview')[1] || ''), 'page script sends only the selection to preview');
 
 console.log('\n' + passes + ' passed, ' + failures + ' failed');
 process.exit(failures ? 1 : 0);
