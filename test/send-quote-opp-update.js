@@ -10,6 +10,7 @@
  * Sections:  A — 1.8.0 field-update scenarios, carried forward (A1–A14)
  *            B — 2.0.0 scenarios from the amendment-2 brief (B1–B19)
  *            C — 2.0.1: write order (status revert) and date pickers (C1–C5)
+ *            D — 2.0.2 / UE 1.2.1: Expected close date (D1–D7)
  */
 'use strict';
 
@@ -472,6 +473,7 @@ function runUe(type, params, recOverrides) {
         getText: function (o) { return { entitystatus: 'Quoted', custbody_build_stage: 'Roof on' }[o.fieldId] || ''; },
         getValue: function (o) {
             return { custbody_next_contact: new Date(2026, 9, 12), custbody_opp_del_date: new Date(2026, 11, 1),
+                     expectedclosedate: new Date(2027, 0, 29),
                      custbody_master_proposal_url: 'https://acct.app.netsuite.com/core/media/media.nl?id=1&h=abc' }[o.fieldId];
         }
     };
@@ -790,6 +792,105 @@ resetState();
 runPost(basePost({ custpage_upd_next_contact: '', custpage_upd_del_date: '' }));
 ok(oppWrites().length === 0, 'blank → no write (never clears)');
 ok(!/function parseDateValue|format\.parse\(/.test(sl201), 'the user-format format.parse path is gone');
+
+// ═══ D — 2.0.2: Expected close date ════════════════════════════════════════════
+
+/** Turns on the standard Opportunity field expectedclosedate (20/12/2026) for one scenario. */
+function withCloseDate() {
+    state.fieldTypes.expectedclosedate = 'date';
+    state.oppValues.expectedclosedate = new Date(2026, 11, 20);
+}
+/** POST as the five-field page submits it. */
+function closePost(overrides) {
+    var p = basePost({
+        custpage_upd_fields: 'entitystatus,next_contact,del_date,build_stage,close_date',
+        custpage_upd_close_date: '2026-12-20', custpage_orig_close_date: '2026-12-20', custpage_origtxt_close_date: '20/12/2026'
+    });
+    Object.keys(overrides || {}).forEach(function (k) { p[k] = overrides[k]; });
+    return p;
+}
+
+console.log('D1. GET: fifth field, display order, picker');
+resetState();
+withCloseDate();
+var hD = pageHtml(runGet());
+ok(/<input type="date" name="custpage_upd_close_date" id="custpage_upd_close_date" class="nsq-input nsq-upd" data-key="close_date" data-label="Expected close" data-orig="2026-12-20" data-orig-text="20\/12\/2026" value="2026-12-20">/.test(hD),
+   'Expected close: date picker pre-filled 2026-12-20, readable original 20/12/2026');
+var orderD = [];
+hD.replace(/name="custpage_upd_([a-z_]+)" id=/g, function (m, k) { orderD.push(k); });
+ok(orderD.join(',') === 'entitystatus,build_stage,close_date,next_contact,del_date', 'display order: Status, Build stage, Expected close, Next contact, Est. delivery date (' + orderD.join(',') + ')');
+ok(/name="custpage_upd_fields" value="entitystatus,next_contact,del_date,build_stage,close_date"/.test(hD), 'shown-keys list includes close_date');
+ok(/\.nsq-upd-grid\{display:grid;grid-template-columns:repeat\(auto-fit,minmax\(200px,1fr\)\)/.test(hD), 'grid columns at least 200 px, wrapping');
+ok(auditLogs('SendQuoteSL.OppUpdate').some(function (l) { return /expectedclosedate=date/.test(l.details); }), 'reported type logged');
+resetState();
+withCloseDate();
+state.fieldTypes.expectedclosedate = 'datetimetz';
+ok(!/custpage_upd_close_date/.test(pageHtml(runGet())) &&
+   auditLogs('SendQuoteSL.OppUpdate').some(function (l) { return /expectedclosedate reports type "datetimetz" but "date" was assumed/.test(l.details); }),
+   'not a date → hidden and audit-logged');
+
+console.log('D2. Round trip with no day shift, in any server time zone');
+var TZ_BEFORE = process.env.TZ;
+['America/Los_Angeles', 'Pacific/Auckland', 'UTC'].forEach(function (tz) {
+    process.env.TZ = tz;
+    [[2026, 9, 1, '2026-10-01'], [2026, 11, 31, '2026-12-31'], [2028, 1, 29, '2028-02-29']].forEach(function (c) {
+        resetState();
+        withCloseDate();
+        state.oppValues.expectedclosedate = new Date(c[0], c[1], c[2]);
+        var shown = new RegExp('name="custpage_upd_close_date"[^>]*data-orig="' + c[3] + '"[^>]*value="' + c[3] + '"').test(pageHtml(runGet()));
+        resetState();
+        runPost(closePost({ custpage_upd_close_date: c[3], custpage_orig_close_date: '2000-01-01' }));
+        var d = oppWrites()[0] && oppWrites()[0].values.expectedclosedate;
+        ok(shown && d instanceof Date && d.getFullYear() === c[0] && d.getMonth() === c[1] && d.getDate() === c[2],
+           tz + ' ' + c[3] + ': pre-filled and written back as the same calendar date');
+    });
+});
+if (TZ_BEFORE === undefined) { delete process.env.TZ; } else { process.env.TZ = TZ_BEFORE; }
+
+console.log('D3. Bad input rejected; unchanged and blank not written');
+['2026-02-30', 'abc', '20/12/2026'].forEach(function (bad) {
+    resetState();
+    runPost(closePost({ custpage_upd_close_date: bad }));
+    ok(oppWrites().length === 0 && auditLogs('SendQuoteSL.OppUpdate').some(function (l) {
+        return l.details.indexOf('expectedclosedate value "' + bad + '" is not a yyyy-mm-dd calendar date') !== -1;
+    }), '"' + bad + '" not written, audit-logged');
+});
+resetState();
+runPost(closePost());
+ok(oppWrites().length === 0, 'unchanged → no write');
+resetState();
+runPost(closePost({ custpage_upd_close_date: '' }));
+ok(oppWrites().length === 0, 'blank → no write (never clears)');
+
+console.log('D4. Same single submitFields, still the last write');
+resetState();
+runPost(closePost({ custpage_upd_entitystatus: '12', custpage_upd_next_contact: '2026-10-12', custpage_upd_close_date: '2027-01-29' }));
+ok(oppWrites().length === 1, 'one Opportunity submitFields');
+var vD = oppWrites()[0].values;
+ok(Object.keys(vD).sort().join(',') === 'custbody_next_contact,entitystatus,expectedclosedate' &&
+   vD.expectedclosedate instanceof Date && vD.expectedclosedate.getMonth() === 0 && vD.expectedclosedate.getDate() === 29,
+   'expectedclosedate written alongside the other changes, as a Date');
+var wD = state.calls.filter(function (c) { return /^(record\.submitFields|redirect\.toRecord)/.test(c); });
+ok(wD[wD.length - 1] === 'redirect.toRecord' && wD[wD.length - 2] === 'record.submitFields:opportunity' &&
+   wD.slice(0, -2).every(function (c) { return c === 'record.submitFields:estimate'; }), 'Opportunity write is still last (' + wD.join(' > ') + ')');
+ok(state.redirect.parameters.nsqf === 'entitystatus,next_contact,close_date', 'redirect nsqf includes close_date');
+ok(auditLogs('SendQuoteSL.OppUpdate').some(function (l) { return /expectedclosedate: 2026-12-20 → 2027-01-29/.test(l.details); }), 'audit old → new');
+
+console.log('D5. Page script covers the new field (static check; browser check in the PR)');
+ok(/data-key="close_date"[^>]*class|class="nsq-input nsq-upd" data-key="close_date"/.test(hD), 'carries the .nsq-upd class the script uses for markers and summary');
+
+console.log('D6. UE banner');
+resetState();
+runUe('view', { nsq: 'ok', nsqt: String(Math.floor(Date.now() / 1000)), nsqf: 'close_date,nonsense' });
+var mD = state.pageMessages[0];
+ok(mD && mD.message.indexOf('Opportunity updated: Expected close → 29/01/2027') === 0, '"Expected close → 29/01/2027" read from the record');
+ok(mD && !/nonsense/.test(mD.message), 'unknown key still dropped');
+resetState();
+runUe('view', { nsq: 'warn', nsqt: String(Math.floor(Date.now() / 1000)), nsqff: 'close_date' });
+ok(state.pageMessages[0] && /Please set Expected close on this record\./.test(state.pageMessages[0].message), 'failed close_date named in the warning');
+
+console.log('D7. Sub-status still never written');
+ok(ALL_WRITES.every(function (w) { return !('custbody_opportunity_sub_status' in w.values); }), 'no write ever carries custbody_opportunity_sub_status (' + ALL_WRITES.length + ' writes)');
 
 console.log('\n' + passes + ' passed, ' + failures + ' failed');
 process.exit(failures ? 1 : 0);

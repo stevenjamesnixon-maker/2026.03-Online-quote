@@ -6,13 +6,17 @@
  * @name        Nu-Heat Opportunity User Event
  * @description Adds a "Send Quote" button to the Opportunity form (VIEW only) and, after a
  *              proposal is sent, shows the Send Quote result banner.
- * @version     1.2.0
+ * @version     1.2.1
  * @author      Nu-Heat Development
  *
  * Script ID:      customscript_nuheat_opportunity_ue
  * Deployment ID:  customdeploy_nuheat_opportunity_ue
  * Applies To:     Opportunity
  * Event Types:    Before Load
+ *
+ * CHANGELOG v1.2.1 (Send Quote SL 2.0.2):
+ *   - ADDED: close_date → Expected close (expectedclosedate) in BANNER_FIELDS. Without it the
+ *     banner would silently drop the change — keys not on the whitelist are discarded.
  *
  * CHANGELOG v1.2.0 (Send Quote SL 2.0.0):
  *   - ADDED: Send Quote result banner. Send Quote SL 2.0.0 redirects here after a send with
@@ -36,7 +40,7 @@ function (log, runtime, message, search, format) {
 
     'use strict';
 
-    var SCRIPT_VERSION = '1.2.0';
+    var SCRIPT_VERSION = '1.2.1';
 
     /** Banner lifetime. A refresh or a shared link after this shows nothing. */
     var BANNER_MAX_AGE_SECONDS = 300;
@@ -49,7 +53,8 @@ function (log, runtime, message, search, format) {
         entitystatus: { label: 'Status',             fieldId: 'entitystatus',          kind: 'select' },
         next_contact: { label: 'Next contact',       fieldId: 'custbody_next_contact', kind: 'date' },
         del_date:     { label: 'Est. delivery date', fieldId: 'custbody_opp_del_date', kind: 'date' },
-        build_stage:  { label: 'Build stage',        fieldId: 'custbody_build_stage',  kind: 'select' }
+        build_stage:  { label: 'Build stage',        fieldId: 'custbody_build_stage',  kind: 'select' },
+        close_date:   { label: 'Expected close',     fieldId: 'expectedclosedate',     kind: 'date' }   // v1.2.1
     };
 
     /**

@@ -8,11 +8,21 @@
  *              Additional), recipients and four Opportunity fields, then generate and email the
  *              Master Proposal, update the Opportunity and the quotes' forecast flags, and return
  *              to the Opportunity. Supports preview (generates HTML without saving).
- * @version     2.0.1
+ * @version     2.0.2
  * @author      Nu-Heat Development
  *
  * Script ID:      customscript_nuheat_send_quote_sl
  * Deployment ID:  customdeploy_nuheat_send_quote_sl
+ *
+ * CHANGELOG v2.0.2 (Expected close date):
+ *   - ADDED: fifth update field, Expected close (standard expectedclosedate, date). Same rules as the
+ *     other dates: runtime type check, native picker (yyyy-mm-dd, pre-filled from date parts),
+ *     written only when changed and never when blank, in the one Opportunity submitFields — still
+ *     the last write. Banner support in nuheat_opportunity_ue.js v1.2.1.
+ *   - CHANGED: the section is laid out in OPP_UPDATE_DISPLAY_ORDER (Status, Build stage, Expected
+ *     close, Next contact, Est. delivery date) on a grid of columns at least 200 px wide — five in a
+ *     row at 1120 px, wrapping when narrower. OPP_UPDATE_FIELDS keeps its processing order (new
+ *     field appended) so the posted key lists and redirect parameters are unchanged in shape.
  *
  * CHANGELOG v2.0.1 (Status revert fix; date pickers):
  *   - FIXED (suspected cause): a Status change did not stick in Sandbox (2.0.0). The forecast writes
@@ -226,7 +236,7 @@ define([
 
     // ─── Constants ────────────────────────────────────────────────────────────────
 
-    var SCRIPT_VERSION = '2.0.1';
+    var SCRIPT_VERSION = '2.0.2';
 
     /**
      * Mapping from the NetSuite custbody_quote_type list values
@@ -306,8 +316,12 @@ define([
         { key: 'entitystatus', fieldId: 'entitystatus',          label: 'Status',             kind: 'select', blankOption: false },
         { key: 'next_contact', fieldId: 'custbody_next_contact', label: 'Next contact',       kind: 'date' },
         { key: 'del_date',     fieldId: 'custbody_opp_del_date', label: 'Est. delivery date', kind: 'date' },
-        { key: 'build_stage',  fieldId: 'custbody_build_stage',  label: 'Build stage',        kind: 'select', blankOption: true }
+        { key: 'build_stage',  fieldId: 'custbody_build_stage',  label: 'Build stage',        kind: 'select', blankOption: true },
+        { key: 'close_date',   fieldId: 'expectedclosedate',     label: 'Expected close',     kind: 'date' }   // v2.0.2, standard field
     ];
+
+    /** v2.0.2: order the fields appear in on the page (processing order above is unchanged). */
+    var OPP_UPDATE_DISPLAY_ORDER = ['entitystatus', 'build_stage', 'close_date', 'next_contact', 'del_date'];
 
     /**
      * v2.0.0: Estimate "Include in Forecast". ⚠️ ASSUMED standard field ID, not yet confirmed —
@@ -2532,7 +2546,9 @@ define([
         if (page.updateFields.length) {
             h.push('<section class="nsq-card"><h2 class="nsq-h2"><span class="nsq-num">3</span>Update the opportunity</h2>');
             h.push('<div class="nsq-upd-grid">');
-            page.updateFields.forEach(function (p) {
+            page.updateFields.slice().sort(function (a, b) {
+                return OPP_UPDATE_DISPLAY_ORDER.indexOf(a.def.key) - OPP_UPDATE_DISPLAY_ORDER.indexOf(b.def.key);
+            }).forEach(function (p) {
                 h.push(buildUpdateFieldHTML(p, restore));
             });
             h.push('</div>');
@@ -2666,7 +2682,7 @@ define([
             '.nsq-tag button{border:0;background:transparent;cursor:pointer;font-size:16px;line-height:1;color:inherit;padding:0 4px;}' +
             '.nsq-tag-input{flex:1 1 180px;border:0;outline:0;min-height:30px;font-size:15px;}' +
             '.nsq-links{display:flex;gap:18px;margin-bottom:12px;}' +
-            '.nsq-upd-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:16px;}' +
+            '.nsq-upd-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:16px;}' +
             '.nsq-upd-changed{border:2px solid ' + c.accent + ';}' +
             '.nsq-was{font-size:13px;color:' + c.accent + ';margin-top:4px;}' +
             '.nsq-footer{position:fixed;left:0;right:0;bottom:0;background:#fff;border-top:1px solid ' + c.border + ';box-shadow:0 -2px 8px rgba(0,0,0,.06);z-index:1000;}' +
@@ -2680,7 +2696,7 @@ define([
             '.nsq-btn-secondary{background:#fff;border:1px solid ' + c.accent + ';color:' + c.accent + ';}' +
             '.nsq-btn-primary{background:' + c.send + ';border:0;color:' + c.text + ';}' +
             '.nsq-btn[disabled]{opacity:.45;cursor:not-allowed;}' +
-            '@media (max-width:900px){.nsq-upd-grid{grid-template-columns:repeat(2,minmax(0,1fr));}.nsq-row{grid-template-columns:1fr auto;}}' +
+            '@media (max-width:900px){.nsq-row{grid-template-columns:1fr auto;}}' +
             '</style>';
     }
 
