@@ -445,7 +445,88 @@ state.units = 0;
 runGet();
 ok(state.units <= 60, 'page load used ' + state.units + ' units');
 
-// T14–T16 (UE banner) are added with the UE change (commit 4).
+// ─── T14–T16: Opportunity UE 1.3.0 banner ─────────────────────────────────────
+
+var ue = loadModule('nuheat_opportunity_ue.js', modules);
+function runUe(params, recId) {
+    var buttons = [];
+    var form = { addButton: function (b) { buttons.push(b); }, removeButton: function () {},
+                 addPageInitMessage: function (m) { state.pageMessages.push(m); } };
+    var rec = {
+        id: recId || '123',
+        getText: function (o) { return { entitystatus: 'Quoted', custbody_build_stage: 'Roof on' }[o.fieldId] || ''; },
+        getValue: function (o) {
+            return { custbody_next_contact: new Date(2026, 9, 12), expectedclosedate: new Date(2027, 0, 29),
+                     custbody_master_proposal_url: 'https://acct.app.netsuite.com/core/media/media.nl?id=1&h=abc' }[o.fieldId];
+        }
+    };
+    var thrown = null;
+    try {
+        ue.beforeLoad({ type: 'view', UserEventType: { VIEW: 'view', EDIT: 'edit' }, newRecord: rec, form: form,
+                        request: params ? { parameters: params } : undefined });
+    } catch (e) { thrown = e; }
+    return { buttons: buttons, thrown: thrown, msg: state.pageMessages[state.pageMessages.length - 1] };
+}
+var NOW = String(Math.floor(Date.now() / 1000));
+
+console.log('T14. UE, upd: valid codes');
+resetState();
+var u14 = runUe({ nsqs: 'upd', nsq: 'ok', nsqt: NOW, nsqc: '4001', nsqo: '2', nsqf: 'entitystatus,next_contact' });
+ok(u14.msg && u14.msg.type === 'confirmation' && u14.msg.title === 'Opportunity updated', 'CONFIRMATION, "Opportunity updated"');
+ok(u14.msg && u14.msg.message === 'Call logged: Quote follow up<br>2 objections logged<br>Opportunity updated: Status → Quoted · Next contact → 12/10/2026',
+   'call title from the record, "2 objections logged", field line (' + (u14.msg && u14.msg.message) + ')');
+ok(u14.msg && !/View proposal|href/.test(u14.msg.message), 'no proposal link');
+ok(u14.buttons.map(function (b) { return b.id + ':' + b.functionName; }).join(',') === 'custpage_send_quote:openSendQuoteSuitelet,custpage_update_opp:openUpdateOppSuitelet', 'two buttons, in order');
+resetState();
+var u14b = runUe({ nsqs: 'upd', nsq: 'warn', nsqt: NOW, nsqc: '4001', nsqo: '1', nsqof: '12', nsqff: 'build_stage' });
+ok(u14b.msg && u14b.msg.type === 'warning' && u14b.msg.title === 'Opportunity updated — but not everything saved', 'WARNING title');
+ok(u14b.msg && u14b.msg.message.indexOf('Please set Build stage on this record.<br>Objections not saved: Cheaper competitor quote.<br>Call logged: Quote follow up<br>1 objection logged') === 0,
+   'warnings first: fields, objections (names from the record); then the call and count (' + (u14b.msg && u14b.msg.message) + ')');
+resetState();
+var u14c = runUe({ nsqs: 'upd', nsq: 'ok', nsqt: NOW, nsqc: '4001', nsqo: '0', nsqf: 'close_date' });
+ok(u14c.msg && u14c.msg.message === 'Call logged: Quote follow up<br>Opportunity updated: Expected close → 29/01/2027', 'zero objections → no objection line; Expected close from the record');
+resetState();
+var u14d = runUe({ nsqs: 'upd', nsq: 'warn', nsqt: NOW, nsqc: '4001', nsqof: '11' });
+ok(u14d.msg && /Objections not saved: Price too high\./.test(u14d.msg.message) && !/&amp;lt;|&lt;b/.test(u14d.msg.message), 'objection names decoded and stripped');
+
+console.log('T15. UE: foreign call, non-type IDs, unknown source');
+resetState();
+var u15 = runUe({ nsqs: 'upd', nsq: 'warn', nsqt: NOW, nsqc: '4002', nsqo: '<b>', nsqof: '950,abc,<script>,12' });
+ok(u15.msg && !/Call logged|Other opp call/.test(u15.msg.message), 'a call linked to another opportunity is dropped');
+ok(u15.msg && /Objections not saved: Cheaper competitor quote\./.test(u15.msg.message) && !/950|abc|script/i.test(u15.msg.message), 'only real Objection Type IDs are named; nothing echoed');
+ok(u15.msg && !/objections? logged/.test(u15.msg.message), 'non-numeric count → no line');
+resetState();
+var u15b = runUe({ nsqs: 'hack<script>', nsq: 'ok', nsqt: NOW, nsqc: '4001', nsqo: '2', nsqf: 'entitystatus' });
+ok(u15b.msg && u15b.msg.title === 'Proposal sent' && !/Call logged|objection/.test(u15b.msg.message) && !/hack|script/.test(u15b.msg.message + u15b.msg.title),
+   'unknown nsqs → treated as send; never echoed');
+resetState();
+runUe({ nsqs: 'upd', nsq: 'ok', nsqt: String(Math.floor(Date.now() / 1000) - 301), nsqc: '4001' });
+ok(state.pageMessages.length === 0, 'stale (301 s) → no banner');
+resetState();
+var u15c = runUe({ nsqs: 'upd', nsq: 'ok', nsqt: NOW, nsqc: '4001' }, '777');
+ok(u15c.msg && !/Call logged/.test(u15c.msg.message), 'call shown only on its own opportunity');
+
+console.log('T16. UE: no nsqs (old redirect) behaves as 1.2.1');
+[
+    { nsq: 'ok', nsqt: NOW, nsqf: 'entitystatus,next_contact', nsqfi: '1', nsqfx: '2' },
+    { nsq: 'warn', nsqt: NOW, nsqff: 'build_stage', nsqqf: '902' },
+    { nsq: 'ok', nsqt: NOW }
+].forEach(function (pr, i) {
+    resetState();
+    var a1 = runUe(pr).msg;
+    resetState();
+    var withSend = {}; Object.keys(pr).forEach(function (k) { withSend[k] = pr[k]; }); withSend.nsqs = 'send';
+    var a2 = runUe(withSend).msg;
+    resetState();
+    var withCall = {}; Object.keys(pr).forEach(function (k) { withCall[k] = pr[k]; }); withCall.nsqc = '4001'; withCall.nsqo = '3'; withCall.nsqof = '12';
+    var a3 = runUe(withCall).msg;
+    ok(a1 && JSON.stringify(a1) === JSON.stringify(a2) && JSON.stringify(a1) === JSON.stringify(a3), 'case ' + (i + 1) + ': identical with no nsqs, nsqs=send, and with upd-only codes ignored');
+    ok(a1 && /^Proposal sent/.test(a1.title) && /View proposal<\/a>$/.test(a1.message), 'case ' + (i + 1) + ': Send Quote title and proposal link');
+});
+resetState();
+var t16 = runUe({ nsq: 'ok', nsqt: NOW, nsqf: 'entitystatus,next_contact', nsqfi: '1', nsqfx: '2' }).msg;
+ok(t16 && t16.message === 'Opportunity updated: Status → Quoted · Next contact → 12/10/2026<br>Forecast: 1 quote included, 2 excluded<br><a href="https://acct.app.netsuite.com/core/media/media.nl?id=1&amp;h=abc" target="_blank" rel="noopener">View proposal</a>',
+   'exact 1.2.1 message for a Send Quote redirect');
 
 console.log('\n' + passes + ' passed, ' + failures + ' failed');
 process.exit(failures ? 1 : 0);

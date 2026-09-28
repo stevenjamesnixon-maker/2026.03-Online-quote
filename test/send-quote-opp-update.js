@@ -494,7 +494,8 @@ function runUe(type, params, recOverrides) {
 }
 resetState();
 ok(runUe('edit').buttons.length === 0, 'EDIT → no button');
-ok(runUe('view').buttons.length === 1 && runUe('view').buttons[0].id === 'custpage_send_quote', 'VIEW → button');
+var vb = runUe('view').buttons;
+ok(vb.length === 2 && vb[0].id === 'custpage_send_quote' && vb[0].label === 'Send Quote' && vb[0].functionName === 'openSendQuoteSuitelet' && vb[1].id === 'custpage_update_opp' && vb[1].label === 'Update opportunity' && vb[1].functionName === 'openUpdateOppSuitelet', 'VIEW → two buttons, in order: Send Quote, Update opportunity');   // D6 exception (UE 1.3.0)
 ok(runUe('create').buttons.length === 0, 'CREATE → no button');
 
 // A9 (preview) → B19; A14 (success-panel escaping) → B2/B3/B15; success page removed in 2.0.0.
@@ -669,7 +670,7 @@ ok(m14 && m14.type === 'confirmation' && m14.title === 'Proposal sent', 'CONFIRM
 ok(m14 && m14.message.indexOf('Opportunity updated: Status → Quoted · Next contact → 12/10/2026') === 0, 'values read from the record');
 ok(m14 && /Forecast: 1 quote included, 2 excluded/.test(m14.message), 'forecast line');
 ok(m14 && /<a href="https:\/\/acct\.app\.netsuite\.com\/core\/media\/media\.nl\?id=1&amp;h=abc" target="_blank" rel="noopener">View proposal<\/a>/.test(m14.message), 'View proposal link from the record');
-ok(u14.buttons.length === 1, 'button still added');
+ok(u14.buttons.length === 2 && u14.buttons[0].id === 'custpage_send_quote' && u14.buttons[0].label === 'Send Quote' && u14.buttons[0].functionName === 'openSendQuoteSuitelet' && u14.buttons[1].id === 'custpage_update_opp' && u14.buttons[1].label === 'Update opportunity' && u14.buttons[1].functionName === 'openUpdateOppSuitelet', 'both buttons still added, in order');   // D6 exception (UE 1.3.0)
 resetState();
 runUe('view', { nsq: 'warn', nsqt: String(NOW), nsqff: 'build_stage', nsqqf: '902' });
 var w14 = state.pageMessages[0];
@@ -706,7 +707,7 @@ console.log('B17. UE throws internally');
 resetState();
 var u17 = runUe('view', { nsq: 'ok', nsqt: String(NOW), nsqf: 'entitystatus' },
     { getText: function () { throw new Error('boom'); }, getValue: function () { throw new Error('boom'); } });
-ok(!u17.thrown && u17.buttons.length === 1, 'record getters throw → no exception, button added');
+ok(!u17.thrown && u17.buttons.length === 2 && u17.buttons[0].id === 'custpage_send_quote' && u17.buttons[0].label === 'Send Quote' && u17.buttons[0].functionName === 'openSendQuoteSuitelet' && u17.buttons[1].id === 'custpage_update_opp' && u17.buttons[1].label === 'Update opportunity' && u17.buttons[1].functionName === 'openUpdateOppSuitelet', 'record getters throw → no exception, both buttons added');   // D6 exception (UE 1.3.0)
 resetState();
 var u17b = runUe('view', { nsq: 'ok', nsqt: String(NOW), nsqf: 'entitystatus' });
 u17b.form.addPageInitMessage = function () { throw new Error('no message API'); };
