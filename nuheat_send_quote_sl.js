@@ -8,11 +8,24 @@
  *              Additional), recipients and four Opportunity fields, then generate and email the
  *              Master Proposal, update the Opportunity and the quotes' forecast flags, and return
  *              to the Opportunity. Supports preview (generates HTML without saving).
- * @version     2.0.0
+ * @version     2.0.1
  * @author      Nu-Heat Development
  *
  * Script ID:      customscript_nuheat_send_quote_sl
  * Deployment ID:  customdeploy_nuheat_send_quote_sl
+ *
+ * CHANGELOG v2.0.1 (Status revert fix; date pickers):
+ *   - FIXED (suspected cause): a Status change did not stick in Sandbox (2.0.0). The forecast writes
+ *     ran AFTER the Opportunity update, and saving an Estimate linked to the Opportunity can re-sync
+ *     the Estimate's own (old) Status onto the Opportunity. updateForecastFlags() now runs BEFORE
+ *     updateOpportunityFields(), so the Opportunity update is the last record write. enableSourcing
+ *     is deliberately unchanged pending Steve's system-notes evidence.
+ *   - CHANGED: Next contact / Est. delivery date are <input type="date"> (native picker). They post
+ *     yyyy-mm-dd; the value is validated as a real calendar date and written as
+ *     new Date(y, m - 1, d). Pre-fill and hidden originals are yyyy-mm-dd built from the record
+ *     Date's own date parts (never toISOString(), which shifts to UTC). The format.format text is
+ *     kept for "Changed · was …". parseDateValue() / format.parse removed — nothing posts the
+ *     user's date format any more.
  *
  * CHANGELOG v2.0.0 (Redesign, return to the opportunity, forecast flags):
  *   - REWRITTEN: The page is one INLINEHTML body inside a serverWidget form (NetSuite chrome kept):
@@ -213,7 +226,7 @@ define([
 
     // ─── Constants ────────────────────────────────────────────────────────────────
 
-    var SCRIPT_VERSION = '2.0.0';
+    var SCRIPT_VERSION = '2.0.1';
 
     /**
      * Mapping from the NetSuite custbody_quote_type list values
@@ -728,7 +741,8 @@ define([
      * Processes the Send proposal POST.
      *
      * Order: validate → generateMasterProposal() → sendProposalEmail() →
-     *        updateOpportunityFields() → updateForecastFlags() → redirect.toRecord (VIEW).
+     *        updateForecastFlags() → updateOpportunityFields() → redirect.toRecord (VIEW).
+     *        (v2.0.1: forecast before the Opportunity update — see the comment at the calls.)
      *
      * Any failure up to and including the email re-renders the page with the user's entries
      * restored and an error panel; nothing further is written and there is no redirect.
@@ -817,9 +831,11 @@ define([
             return;
         }
 
-        // ── Update the Opportunity, then the forecast flags (independent) ─────────
-        var oppUpdate = updateOpportunityFields(opportunityId, request);
+        // ── Forecast flags, then the Opportunity (independent of each other) ──────
+        // v2.0.1: Forecast first: an Estimate save can re-sync its Status onto the opportunity.
+        // The opportunity update must be last.
         var forecast  = updateForecastFlags(opportunityId, selection.map, quotes);
+        var oppUpdate = updateOpportunityFields(opportunityId, request);
 
         // ── Back to the Opportunity (VIEW), same tab ──────────────────────────────
         var redirectParams = buildRedirectParams(oppUpdate, forecast);
@@ -923,13 +939,18 @@ define([
                     }
                     prepared.push({ def: def, options: options, orig: rawStr, origText: origText });
                 } else {
-                    var dateStr = '';
-                    if (raw instanceof Date) {
-                        dateStr = format.format({ value: raw, type: format.Type.DATE });
+                    // v2.0.1: <input type="date"> takes yyyy-mm-dd. Built from the Date's own parts —
+                    // toISOString() would convert to UTC and can move the date back a day.
+                    var isoStr = '';
+                    var dateText = '';
+                    if (raw instanceof Date && !isNaN(raw.getTime())) {
+                        isoStr = toIsoDate(raw);
+                        dateText = format.format({ value: raw, type: format.Type.DATE });
                     } else if (raw) {
-                        dateStr = String(raw);
+                        log.debug('SendQuoteSL.OppUpdate', def.fieldId + ' returned a non-Date value "' + raw + '"; shown blank');
+                        dateText = String(raw);
                     }
-                    prepared.push({ def: def, orig: dateStr, origText: dateStr });
+                    prepared.push({ def: def, orig: isoStr, origText: dateText });
                 }
             } catch (e) {
                 log.audit('SendQuoteSL.OppUpdate', 'Opportunity ' + opportunityId + ' — ' + def.fieldId +
@@ -943,17 +964,26 @@ define([
         return prepared;
     }
 
+    function pad2(n) { return (n < 10 ? '0' : '') + n; }
+
     /**
-     * Parses a user-formatted date string to a Date, or returns null.
+     * v2.0.1: Date → 'yyyy-mm-dd' from its own date parts. Never toISOString() (UTC shift).
      */
-    function parseDateValue(str) {
-        if (!str) return null;
-        try {
-            var d = format.parse({ value: str, type: format.Type.DATE });
-            return (d instanceof Date && !isNaN(d.getTime())) ? d : null;
-        } catch (e) {
-            return null;
-        }
+    function toIsoDate(d) {
+        return d.getFullYear() + '-' + pad2(d.getMonth() + 1) + '-' + pad2(d.getDate());
+    }
+
+    /**
+     * v2.0.1: Parses an <input type="date"> value. Accepts only yyyy-mm-dd naming a real
+     * calendar date; returns new Date(y, m - 1, d), or null for anything else.
+     */
+    function parseIsoDate(str) {
+        var m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(str || ''));
+        if (!m) return null;
+        var y = +m[1], mo = +m[2], d = +m[3];
+        var date = new Date(y, mo - 1, d);
+        if (date.getFullYear() !== y || date.getMonth() !== mo - 1 || date.getDate() !== d) return null;
+        return date;
     }
 
     /**
@@ -996,16 +1026,16 @@ define([
                     result.changed.push({ key: def.key, label: def.label, fieldId: def.fieldId, from: origText || orig, to: submitted });
                     logParts.push(def.fieldId + ': ' + (orig || '(blank)') + ' → ' + submitted);
                 } else {
-                    var newDate = parseDateValue(submitted);
+                    // v2.0.1: yyyy-mm-dd from the date picker; compared as strings
+                    var newDate = parseIsoDate(submitted);
                     if (!newDate) {
                         log.audit('SendQuoteSL.OppUpdate', 'Opportunity ' + opportunityId + ' — ' + def.fieldId +
-                            ' value "' + submitted + '" could not be parsed as a date; not written');
+                            ' value "' + submitted + '" is not a yyyy-mm-dd calendar date; not written');
                         return;
                     }
-                    var origDate = parseDateValue(orig);
-                    if (origDate && origDate.getTime() === newDate.getTime()) return;
+                    if (submitted === orig) return;
                     values[def.fieldId] = newDate;
-                    result.changed.push({ key: def.key, label: def.label, fieldId: def.fieldId, from: orig, to: submitted });
+                    result.changed.push({ key: def.key, label: def.label, fieldId: def.fieldId, from: origText || orig, to: submitted });
                     logParts.push(def.fieldId + ': ' + (orig || '(blank)') + ' → ' + submitted);
                 }
             });
@@ -2581,7 +2611,8 @@ define([
             });
             control = '<select' + attrs + '>' + opts.join('') + '</select>';
         } else {
-            control = '<input type="text"' + attrs + ' value="' + escapeHtml(value) + '" autocomplete="off">';
+            // v2.0.1: native date picker — displays in the browser's locale, posts yyyy-mm-dd
+            control = '<input type="date"' + attrs + ' value="' + escapeHtml(value) + '">';
         }
 
         return '<div class="nsq-field nsq-upd-field"><label class="nsq-label" for="' + id + '">' + escapeHtml(def.label) + '</label>' +
@@ -2706,7 +2737,7 @@ define([
         '    });',
         '    var upd = root.querySelectorAll(".nsq-upd");',
         '    each(upd, function (el) { el.addEventListener("change", update); el.addEventListener("input", update); });',
-        '    each(root.querySelectorAll("input[type=text]"), function (el) {',
+        '    each(root.querySelectorAll("input[type=text], input[type=date]"), function (el) {',
         '      if (el === toInput) return;',
         '      el.addEventListener("keydown", function (e) { if (e.key === "Enter") e.preventDefault(); });',
         '      el.addEventListener("input", update);',
@@ -2716,7 +2747,11 @@ define([
         '      each(rows, function (row) { var r = row.getAttribute("data-role"); if (r === "main" || r === "additional") sel[row.getAttribute("data-qid")] = r; });',
         '      return sel;',
         '    }',
-        '    function fieldText(el) { return el.tagName === "SELECT" ? (el.options[el.selectedIndex] ? el.options[el.selectedIndex].text : "") : el.value.trim(); }',
+        '    function fieldText(el) {',
+        '      if (el.tagName === "SELECT") return el.options[el.selectedIndex] ? el.options[el.selectedIndex].text : "";',
+        '      if (el.type === "date" && el.valueAsDate) return el.valueAsDate.toLocaleDateString(undefined, { timeZone: "UTC" });',
+        '      return el.value.trim();',
+        '    }',
         '    function problem() {',
         '      var sel = selection(), hasMain = false;',
         '      Object.keys(sel).forEach(function (k) { if (sel[k] === "main") hasMain = true; });',

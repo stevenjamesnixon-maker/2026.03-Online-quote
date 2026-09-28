@@ -9,6 +9,7 @@
  *
  * Sections:  A — 1.8.0 field-update scenarios, carried forward (A1–A14)
  *            B — 2.0.0 scenarios from the amendment-2 brief (B1–B19)
+ *            C — 2.0.1: write order (status revert) and date pickers (C1–C5)
  */
 'use strict';
 
@@ -326,8 +327,8 @@ function basePost(overrides) {
         custpage_email_to: 'cust@example.com', custpage_email_cc: '', custpage_email_bcc: '',
         custpage_upd_fields: 'entitystatus,next_contact,del_date,build_stage',
         custpage_upd_entitystatus: '10', custpage_orig_entitystatus: '10', custpage_origtxt_entitystatus: 'Proposal',
-        custpage_upd_next_contact: '01/10/2026', custpage_orig_next_contact: '01/10/2026', custpage_origtxt_next_contact: '01/10/2026',
-        custpage_upd_del_date: '15/11/2026', custpage_orig_del_date: '15/11/2026', custpage_origtxt_del_date: '15/11/2026',
+        custpage_upd_next_contact: '2026-10-01', custpage_orig_next_contact: '2026-10-01', custpage_origtxt_next_contact: '01/10/2026',
+        custpage_upd_del_date: '2026-11-15', custpage_orig_del_date: '2026-11-15', custpage_origtxt_del_date: '15/11/2026',
         custpage_upd_build_stage: '3', custpage_orig_build_stage: '3', custpage_origtxt_build_stage: 'Foundations'
     };
     Object.keys(overrides || {}).forEach(function (k) { p[k] = overrides[k]; });
@@ -377,8 +378,8 @@ ok(auditLogs('SendQuoteSL.OppUpdate').some(function (l) { return /entitystatus: 
 
 console.log('A3. All four changed');
 resetState();
-runPost(basePost({ custpage_upd_entitystatus: '12', custpage_upd_next_contact: '05/10/2026',
-                   custpage_upd_del_date: '01/12/2026', custpage_upd_build_stage: '4' }));
+runPost(basePost({ custpage_upd_entitystatus: '12', custpage_upd_next_contact: '2026-10-05',
+                   custpage_upd_del_date: '2026-12-01', custpage_upd_build_stage: '4' }));
 ok(oppWrites().length === 1, 'one opportunity submitFields');
 var v3 = oppWrites()[0] ? oppWrites()[0].values : {};
 ok(Object.keys(v3).sort().join(',') === 'custbody_build_stage,custbody_next_contact,custbody_opp_del_date,entitystatus', 'all four fields');
@@ -435,8 +436,8 @@ ok(!/name="custpage_upd_build_stage"/.test(g11), 'Build stage absent');
 ok(/name="custpage_upd_fields" value="entitystatus,next_contact,del_date"/.test(g11), 'shown-keys list excludes build_stage');
 ok(auditLogs('SendQuoteSL.OppUpdate').some(function (l) { return /custbody_build_stage/.test(l.details) && /getSelectOptions failed/.test(l.details); }), 'audit logged with error');
 ok(/<option value="10" selected>Proposal<\/option>/.test(g11) && !/<select[^>]*custpage_upd_entitystatus[^>]*><option value=""/.test(g11), 'status options from record, current selected, no blank');
-ok(/name="custpage_upd_next_contact"[^>]*value="01\/10\/2026"/.test(g11), 'next contact pre-filled (formatted)');
-ok(/<input type="hidden" name="custpage_orig_del_date" value="15\/11\/2026">/.test(g11), 'hidden original date');
+ok(/<input type="date" name="custpage_upd_next_contact"[^>]*data-orig="2026-10-01" data-orig-text="01\/10\/2026" value="2026-10-01">/.test(g11), 'next contact: date picker pre-filled yyyy-mm-dd, readable original kept');   // changed in 2.0.1 (was: text input, user format)
+ok(/<input type="hidden" name="custpage_orig_del_date" value="2026-11-15"><input type="hidden" name="custpage_origtxt_del_date" value="15\/11\/2026">/.test(g11), 'hidden original yyyy-mm-dd + readable original');   // changed in 2.0.1
 ok(auditLogs('SendQuoteSL.OppUpdate').some(function (l) { return /reported field types: entitystatus=select, custbody_next_contact=date/.test(l.details); }), 'reported types logged');
 
 console.log('A11b. GET: Build stage blank option; type mismatch; status not in options');
@@ -586,10 +587,10 @@ ok((state.generated || []).length === 2 && state.generated[0].quoteId === '902' 
 
 console.log('B7. Successful send');
 resetState();
-runPost(basePost({ custpage_upd_entitystatus: '12', custpage_upd_next_contact: '12/10/2026' }));
+runPost(basePost({ custpage_upd_entitystatus: '12', custpage_upd_next_contact: '2026-10-12' }));
 var order = state.calls.filter(function (c) { return /^(generateMasterProposal|email\.send|record\.submitFields|redirect\.toRecord)/.test(c); });
-ok(order.join(' > ') === 'generateMasterProposal > email.send > record.submitFields:opportunity > record.submitFields:estimate > record.submitFields:estimate > redirect.toRecord',
-   'generate → email → field update → forecast → redirect (' + order.join(' > ') + ')');
+ok(order.join(' > ') === 'generateMasterProposal > email.send > record.submitFields:estimate > record.submitFields:estimate > record.submitFields:opportunity > redirect.toRecord',
+   'generate → email → forecast → field update → redirect (' + order.join(' > ') + ')');   // changed in 2.0.1 (was: field update before forecast)
 var rp = state.redirect.parameters;
 ok(state.redirect.type === 'opportunity' && state.redirect.id === '123' && state.redirect.isEditMode === false, 'redirect to the opportunity in VIEW');
 ok(Object.keys(rp).every(function (k) { return ['nsq', 'nsqt', 'nsqf', 'nsqff', 'nsqfi', 'nsqfx', 'nsqqf'].indexOf(k) !== -1; }), 'only whitelisted parameters');
@@ -734,6 +735,61 @@ suitelet.onRequest(pctx);
 ok(/Preview Error/.test(pctx.response.written) && !state.previewed, 'foreign quote in preview → error, nothing generated');
 var ps = scriptBlocks(h1)[0];
 ok(/"sel=" \+ encodeURIComponent\(JSON\.stringify\(sel\)\)/.test(ps) && !/amount|total\b.*sel/.test(ps.split('nsq-preview')[1] || ''), 'page script sends only the selection to preview');
+
+// ═══ C — 2.0.1 ═════════════════════════════════════════════════════════════════
+
+console.log('C1. The Opportunity write is the last record write before the redirect');
+resetState();
+runPost(basePost({ custpage_upd_entitystatus: '12' }));
+var writes = state.calls.filter(function (c) { return /^(record\.submitFields|redirect\.toRecord)/.test(c); });
+ok(writes.length === 4 && writes[writes.length - 1] === 'redirect.toRecord' && writes[writes.length - 2] === 'record.submitFields:opportunity',
+   'last write before redirect is the Opportunity (' + writes.join(' > ') + ')');
+ok(writes.slice(0, -2).every(function (c) { return c === 'record.submitFields:estimate'; }), 'every Estimate (forecast) write comes before it');
+var sl201 = fs.readFileSync(path.join(ROOT, 'nuheat_send_quote_sl.js'), 'utf8');
+ok(/Forecast first: an Estimate save can re-sync its Status onto the opportunity\.\s*\n\s*\/\/ The opportunity update must be last\.\s*\n\s*var forecast  = updateForecastFlags\([^)]*\);\s*\n\s*var oppUpdate = updateOpportunityFields\(/.test(sl201),
+   'order and reason commented at the calls');
+
+console.log('C2. Dates round-trip with no day shift, in any server time zone');
+var ORIGINAL_TZ = process.env.TZ;
+[['America/Los_Angeles'], ['Pacific/Auckland'], ['UTC']].forEach(function (tz) {
+    process.env.TZ = tz[0];
+    [[2026, 9, 1, '2026-10-01', '01/10/2026'], [2026, 11, 31, '2026-12-31', '31/12/2026'], [2028, 1, 29, '2028-02-29', '29/02/2028']].forEach(function (c) {
+        resetState();
+        state.oppValues.custbody_next_contact = new Date(c[0], c[1], c[2]);
+        var h = pageHtml(runGet());
+        var shown = new RegExp('name="custpage_upd_next_contact"[^>]*data-orig="' + c[3] + '" data-orig-text="' + c[4].replace(/\//g, '\\/') + '" value="' + c[3] + '"').test(h);
+        resetState();
+        runPost(basePost({ custpage_upd_next_contact: c[3], custpage_orig_next_contact: '2000-01-01' }));
+        var d = oppWrites()[0] && oppWrites()[0].values.custbody_next_contact;
+        ok(shown && d instanceof Date && d.getFullYear() === c[0] && d.getMonth() === c[1] && d.getDate() === c[2],
+           tz[0] + ' ' + c[4] + ': pre-filled ' + c[3] + ', written back as the same calendar date');
+    });
+});
+process.env.TZ = 'Pacific/Auckland';
+ok(new Date(2026, 9, 1).toISOString().slice(0, 10) === '2026-09-30', '(control: toISOString() would have shifted 01/10/2026 back a day in Auckland)');
+if (ORIGINAL_TZ === undefined) { delete process.env.TZ; } else { process.env.TZ = ORIGINAL_TZ; }
+
+console.log('C3. Invalid dates are rejected');
+['2026-02-30', 'abc', '01/10/2026', '2026-13-01', '2026-1-5'].forEach(function (bad) {
+    resetState();
+    runPost(basePost({ custpage_upd_del_date: bad }));
+    ok(oppWrites().length === 0, '"' + bad + '" not written');
+    ok(auditLogs('SendQuoteSL.OppUpdate').some(function (l) { return l.details.indexOf('"' + bad + '" is not a yyyy-mm-dd calendar date') !== -1; }), '"' + bad + '" audit-logged');
+});
+resetState();
+runPost(basePost({ custpage_upd_del_date: '2026-02-30', custpage_upd_build_stage: '4' }));
+ok(oppWrites().length === 1 && Object.keys(oppWrites()[0].values).join(',') === 'custbody_build_stage', 'a bad date does not block the other changes');
+
+console.log('C4. Unchanged date is not written');
+resetState();
+runPost(basePost({ custpage_upd_next_contact: '2026-10-01', custpage_upd_del_date: '2026-11-15' }));
+ok(oppWrites().length === 0, 'same yyyy-mm-dd as the original → no write');
+
+console.log('C5. Blank date is not written');
+resetState();
+runPost(basePost({ custpage_upd_next_contact: '', custpage_upd_del_date: '' }));
+ok(oppWrites().length === 0, 'blank → no write (never clears)');
+ok(!/function parseDateValue|format\.parse\(/.test(sl201), 'the user-format format.parse path is gone');
 
 console.log('\n' + passes + ' passed, ' + failures + ' failed');
 process.exit(failures ? 1 : 0);
