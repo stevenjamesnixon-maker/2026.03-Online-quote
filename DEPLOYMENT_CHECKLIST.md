@@ -26,17 +26,19 @@
 |--------|------|---------------|
 | **BUS Grant Module** | `nuheat_bus_grant.js` | v1.0.0 |
 | **VAT Rates Module** | `nuheat_vat_rates.js` | v1.0.0 |
+| **Opportunity Update Library** | `nuheat_opp_update_lib.js` | 1.0.0 — pending Sandbox |
 | Quote Suitelet | `nuheat_quote_suitelet.js` | v4.6.0 |
 | Quote UE | `nuheat_quote_ue.js` | v4.0.9 |
 | Quote CS | `nuheat_quote_cs.js` | v4.0.6 |
 | Quote Viewer | `nuheat_quote_viewer_sl.js` | v1.1.0 |
 | Scheduled Script | `nuheat_quote_generator_ss.js` | v1.0.0 |
 | Master Proposal | `nuheat_master_proposal.js` | v1.8.3 |
-| Send Quote SL | `nuheat_send_quote_sl.js` | 2.0.3 — pending Sandbox |
+| Send Quote SL | `nuheat_send_quote_sl.js` | 2.1.0 — pending Sandbox |
+| Update Opportunity SL | `nuheat_update_opp_sl.js` | 1.0.0 — pending Sandbox |
 | Send Quote CS | `nuheat_send_quote_cs.js` | v1.4.0 — detached (no upload needed) |
 | Analytics Suitelet | `nuheat_analytics_sl.js` | v1.0.1 |
-| Opportunity UE | `nuheat_opportunity_ue.js` | 1.2.1 — pending Sandbox |
-| Opportunity CS | `nuheat_opportunity_cs.js` | 1.1.0 — pending Sandbox |
+| Opportunity UE | `nuheat_opportunity_ue.js` | 1.3.0 — pending Sandbox |
+| Opportunity CS | `nuheat_opportunity_cs.js` | 1.2.0 — pending Sandbox |
 
 > Read each version from the `SCRIPT_VERSION` / `MODULE_VERSION` constant in the file, not from the
 > JSDoc header — the two drift. `nuheat_quote_ue.js` is currently out by one patch version
@@ -85,14 +87,15 @@
 
 1. Navigate to **Documents > Files > SuiteScripts > NuHeat > 2026 Quote**
 
-> ### ⚠️ UPLOAD ORDER MATTERS (v4.4.0, v4.5.0)
+> ### ⚠️ UPLOAD ORDER MATTERS (v4.4.0, v4.5.0, Send Quote 2.1.0)
 >
-> **`nuheat_bus_grant.js` AND `nuheat_vat_rates.js` MUST be uploaded FIRST**, before
-> `nuheat_quote_suitelet.js` or `nuheat_send_quote_sl.js` are redeployed. Both consumers
-> `define()` them as `'./nuheat_bus_grant'` and `'./nuheat_vat_rates'`, and **both fail at load
-> time** if either module is not already present in `SuiteScripts/NuHeat/2026 Quote`.
+> **`nuheat_bus_grant.js`, `nuheat_vat_rates.js` AND `nuheat_opp_update_lib.js` MUST be uploaded
+> FIRST**, before `nuheat_quote_suitelet.js`, `nuheat_send_quote_sl.js` or `nuheat_update_opp_sl.js`
+> are redeployed. The consumers `define()` them as `'./nuheat_bus_grant'`, `'./nuheat_vat_rates'` and
+> `'./nuheat_opp_update_lib'`, and **fail at load time** if a module they import is not already
+> present in `SuiteScripts/NuHeat/2026 Quote`.
 >
-> Both are shared custom modules — they need **no script record and no script deployment record**,
+> All three are shared custom modules — they need **no script record and no script deployment record**,
 > only the File Cabinet upload. The relative path resolves against the calling script's own folder,
 > so all files must sit in the same `SuiteScripts/NuHeat/2026 Quote` folder.
 >
@@ -102,6 +105,7 @@
 2. Upload the scripts (all files live at the **repository root** — there is no `src/` directory):
    - **`nuheat_bus_grant.js`** ← **upload FIRST** (shared module, no script record needed)
    - **`nuheat_vat_rates.js`** ← **upload FIRST** (shared module, no script record needed)
+   - **`nuheat_opp_update_lib.js`** ← **upload FIRST** (shared module, no script record needed)
    - `nuheat_quote_suitelet.js`
    - `nuheat_quote_ue.js`
    - `nuheat_quote_cs.js`
@@ -110,6 +114,7 @@
    - `nuheat_master_proposal.js`
    - `nuheat_send_quote_sl.js`
    - `nuheat_send_quote_cs.js`
+   - `nuheat_update_opp_sl.js`
    - `nuheat_opportunity_ue.js`
    - `nuheat_opportunity_cs.js`
 3. If updating existing files, select "Replace" when prompted
@@ -175,6 +180,19 @@ Navigate to **Customization > Scripting > Scripts > New** for each:
 - **Deployment:**
   - ID: `customdeploy_nuheat_send_quote_sl`
   - Status: Released
+
+#### 2f-2. Update Opportunity Suitelet (new, Update Opportunity SL 1.0.0)
+- **Name:** Nu-Heat Update Opportunity
+- **Script ID:** `customscript_nuheat_update_opp_sl`
+- **Script File:** `SuiteScripts/NuHeat/2026 Quote/nuheat_update_opp_sl.js`
+- **Deployment:**
+  - ID: `customdeploy_nuheat_update_opp_sl`
+  - Status: Released (Testing in Sandbox first)
+  - **Execute As Role: Current Role** — the account manager's own permissions decide what can be written
+  - Audience: the sales / account-manager roles
+  - **Log Level: Audit** (the `UpdateOppSL.*` lines are audit-level)
+- The role needs **Create** on Phone Call and on the Customer Objection custom record, and **View** on
+  Objection Type and the Call Title list.
 
 #### 2g. Opportunity User Event
 - **Name:** Nu-Heat Opportunity UE

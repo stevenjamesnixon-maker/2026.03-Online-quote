@@ -305,6 +305,7 @@ var modules = {
 };
 modules['./nuheat_bus_grant'] = loadModule('nuheat_bus_grant.js', modules);
 modules['./nuheat_vat_rates'] = loadModule('nuheat_vat_rates.js', modules);
+modules['./nuheat_opp_update_lib'] = loadModule('nuheat_opp_update_lib.js', modules);
 
 var suitelet = loadModule('nuheat_send_quote_sl.js', modules);
 var oppUe    = loadModule('nuheat_opportunity_ue.js', modules);
@@ -493,7 +494,8 @@ function runUe(type, params, recOverrides) {
 }
 resetState();
 ok(runUe('edit').buttons.length === 0, 'EDIT → no button');
-ok(runUe('view').buttons.length === 1 && runUe('view').buttons[0].id === 'custpage_send_quote', 'VIEW → button');
+var vb = runUe('view').buttons;
+ok(vb.length === 2 && vb[0].id === 'custpage_send_quote' && vb[0].label === 'Send Quote' && vb[0].functionName === 'openSendQuoteSuitelet' && vb[1].id === 'custpage_update_opp' && vb[1].label === 'Update opportunity' && vb[1].functionName === 'openUpdateOppSuitelet', 'VIEW → two buttons, in order: Send Quote, Update opportunity');   // D6 exception (UE 1.3.0)
 ok(runUe('create').buttons.length === 0, 'CREATE → no button');
 
 // A9 (preview) → B19; A14 (success-panel escaping) → B2/B3/B15; success page removed in 2.0.0.
@@ -535,7 +537,7 @@ console.log('B3. Hostile description / contact name');
 ok(blocks[0].indexOf('alert') === -1 && blocks[0].indexOf('EST90') === -1 && blocks[0].indexOf('example.com') === -1, 'no record data inside the script block');
 ok(scriptBlocks(h1).length === 1 && (h1.match(/<script/gi) || []).length === 1, 'no extra <script> in the page');
 ok(!/<\/script><b>Bob/.test(h1) && /&lt;\/script&gt;&lt;b&gt;Bob X \(no email\)/.test(h1), 'contact name escaped');
-var sl = fs.readFileSync(path.join(ROOT, 'nuheat_send_quote_sl.js'), 'utf8');
+var sl = fs.readFileSync(path.join(ROOT, 'nuheat_opp_update_lib.js'), 'utf8');
 var escBody = /function escapeHtml\(str\) \{([\s\S]*?)\n    \}/.exec(sl)[1];
 ok(['&amp;', '&lt;', '&gt;', '&quot;', '&#039;'].every(function (e) { return escBody.indexOf(e) !== -1; }), 'escapeHtml escapes & < > " \'');
 
@@ -668,7 +670,7 @@ ok(m14 && m14.type === 'confirmation' && m14.title === 'Proposal sent', 'CONFIRM
 ok(m14 && m14.message.indexOf('Opportunity updated: Status → Quoted · Next contact → 12/10/2026') === 0, 'values read from the record');
 ok(m14 && /Forecast: 1 quote included, 2 excluded/.test(m14.message), 'forecast line');
 ok(m14 && /<a href="https:\/\/acct\.app\.netsuite\.com\/core\/media\/media\.nl\?id=1&amp;h=abc" target="_blank" rel="noopener">View proposal<\/a>/.test(m14.message), 'View proposal link from the record');
-ok(u14.buttons.length === 1, 'button still added');
+ok(u14.buttons.length === 2 && u14.buttons[0].id === 'custpage_send_quote' && u14.buttons[0].label === 'Send Quote' && u14.buttons[0].functionName === 'openSendQuoteSuitelet' && u14.buttons[1].id === 'custpage_update_opp' && u14.buttons[1].label === 'Update opportunity' && u14.buttons[1].functionName === 'openUpdateOppSuitelet', 'both buttons still added, in order');   // D6 exception (UE 1.3.0)
 resetState();
 runUe('view', { nsq: 'warn', nsqt: String(NOW), nsqff: 'build_stage', nsqqf: '902' });
 var w14 = state.pageMessages[0];
@@ -705,7 +707,7 @@ console.log('B17. UE throws internally');
 resetState();
 var u17 = runUe('view', { nsq: 'ok', nsqt: String(NOW), nsqf: 'entitystatus' },
     { getText: function () { throw new Error('boom'); }, getValue: function () { throw new Error('boom'); } });
-ok(!u17.thrown && u17.buttons.length === 1, 'record getters throw → no exception, button added');
+ok(!u17.thrown && u17.buttons.length === 2 && u17.buttons[0].id === 'custpage_send_quote' && u17.buttons[0].label === 'Send Quote' && u17.buttons[0].functionName === 'openSendQuoteSuitelet' && u17.buttons[1].id === 'custpage_update_opp' && u17.buttons[1].label === 'Update opportunity' && u17.buttons[1].functionName === 'openUpdateOppSuitelet', 'record getters throw → no exception, both buttons added');   // D6 exception (UE 1.3.0)
 resetState();
 var u17b = runUe('view', { nsq: 'ok', nsqt: String(NOW), nsqf: 'entitystatus' });
 u17b.form.addPageInitMessage = function () { throw new Error('no message API'); };
@@ -969,6 +971,60 @@ var gE = {};
 ok(JSON.stringify(gE['901']) === JSON.stringify(PRE_2_0_FIXTURE['901']) && JSON.stringify(gE['902']) === JSON.stringify(PRE_2_0_FIXTURE['902']),
    'identical to the 1.8.0 fixture (B6 itself untouched)');
 ok((state.generated || []).every(function (q) { return !('titleRaw' in q) && !('dateCreatedRaw' in q); }), 'page-only card fields never reach the proposal');
+
+// ═══ F — 2.0.4: header title decode ════════════════════════════════════════════
+
+console.log('F1. Entity-encoded opportunity title in the header');
+resetState();
+state.oppValues.title = 'Barn &lt;b&gt;conversion&lt;/b&gt; &amp; <i>annex</i> &lt;script&gt;x&lt;/script&gt;';
+var hF = pageHtml(runGet());
+var metaF = /<div class="nsq-meta">([\s\S]*?)<\/div>/.exec(hF);
+ok(metaF && metaF[1].indexOf('<span>Barn conversion &amp; annex x</span>') === 0, 'decoded, stripped, escaped once (' + (metaF && metaF[1].substring(0, 60)) + ')');
+ok(metaF && !/&amp;lt;|&lt;b|<i>|<script/i.test(metaF[1]), 'no visible entities, tags or double encoding');
+
+// ═══ G — 2.1.0: extraction proof — Send Quote renders byte-identical to 2.0.4 ═══
+
+var crypto = require('crypto');
+/** Every byte of what the Suitelet hands NetSuite: form title, fields (id, type, label, HTML), buttons, sublists. */
+function formSnapshot(form) {
+    if (!form) return 'NO FORM';
+    return JSON.stringify({
+        title: form.title,
+        fields: form.fields.map(function (f) { return [f.id, f.type, f.label, f.defaultValue === undefined ? null : f.defaultValue, f.displayType]; }),
+        buttons: form.buttons, sublists: form.sublists.length, groups: form.groups, cs: form.clientScriptModulePath === undefined ? null : form.clientScriptModulePath
+    });
+}
+function sha(s) { return crypto.createHash('sha256').update(s, 'utf8').digest('hex'); }
+var SNAPSHOT_CASES = [
+    ['GET, three quotes', function () { return runGet(); }],
+    ['GET, five fields incl. Expected close', function () { state.fieldTypes.expectedclosedate = 'date'; state.oppValues.expectedclosedate = new Date(2026, 11, 20); return runGet(); }],
+    ['GET, one quote (starts at Main)', function () { state.estimates = state.estimates.filter(function (e) { return e.id === '901'; }); return runGet(); }],
+    ['GET, no quotes', function () { state.estimates = state.estimates.filter(function (e) { return e.opp !== '123'; }); return runGet(); }],
+    ['GET, Build stage options fail; encoded titles', function () { state.selectOptionsThrow.custbody_build_stage = true; state.oppValues.title = 'A &lt;b&gt;B&lt;/b&gt;'; estimate('902').desc = '&lt;i&gt;x&lt;/i&gt;'; return runGet(); }],
+    ['POST, foreign quote → re-render', function () { return runPost(basePost({ custpage_sel: JSON.stringify({ '901': 'main', '950': 'additional' }) })); }],
+    ['POST, email fails → re-render with entries restored', function () { state.emailThrows = 'SMTP down'; return runPost(basePost({ custpage_upd_entitystatus: '12', custpage_upd_next_contact: '2026-10-12', custpage_email_cc: 'boss@example.com' })); }],
+    ['GET, no opportunityId → error page', function () { return runGet({}); }]
+];
+
+// SHA-256 of formSnapshot() per case, captured from Send Quote SL 2.0.4 (commit 6203f9b) before the
+// library was extracted. Covers the whole page: CSS, header, sections, footer and the inline script.
+var SEND_QUOTE_2_0_4_SNAPSHOTS = {
+    "GET, three quotes": "0ec7efa9037822f8f2cfe1b303ad784d0a4635a0ee9c3da044eb6aac55d0dab2",
+    "GET, five fields incl. Expected close": "e4df4210d8aafe792a1b9408cf93268a852276c1646829d2e5eca4fdf45a76a6",
+    "GET, one quote (starts at Main)": "aedab3aff9641128451e1af81ce17934d178ab21b20b7711fe36a9a8567785ed",
+    "GET, no quotes": "a4619c34ea410956a46422742224de704ea435789a3eb499482cdcba91eb799f",
+    "GET, Build stage options fail; encoded titles": "dd48e87918b0b3f3a27b6615b763e36d682d5da4dba8ad32d04f3e77f602cec1",
+    "POST, foreign quote → re-render": "5b4ee06480d17af93ee242d472f3e6e4f2cf3e0bbaad44bb26d41ca0d8b22c38",
+    "POST, email fails → re-render with entries restored": "7bdffa2b03e8c5849af23f63dd8b2d24c2eaa926488a03a09f909dcd21d9e349",
+    "GET, no opportunityId → error page": "e2851f0338541bb237685cf2adb5d341d6f8694c3d18f8db024b907af50417b8"
+};
+
+console.log('G1. Send Quote renders byte-identical HTML to 2.0.4 after the extraction');
+SNAPSHOT_CASES.forEach(function (c) {
+    resetState();
+    var got = sha(formSnapshot(c[1]()));
+    ok(got === SEND_QUOTE_2_0_4_SNAPSHOTS[c[0]], c[0] + ': identical to 2.0.4' + (got === SEND_QUOTE_2_0_4_SNAPSHOTS[c[0]] ? '' : ' (got ' + got.substring(0, 16) + ')'));
+});
 
 console.log('\n' + passes + ' passed, ' + failures + ' failed');
 process.exit(failures ? 1 : 0);

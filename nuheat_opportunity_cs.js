@@ -5,14 +5,18 @@
  *
  * @name        Nu-Heat Opportunity Client Script
  * @description Client script for the Opportunity record.
- *              Handles the "Send Quote" button click — opens the Send Quote
- *              Suitelet in the same browser tab.
- * @version     1.1.0
+ *              Handles the "Send Quote" and "Update opportunity" button clicks — opens
+ *              each Suitelet in the same browser tab.
+ * @version     1.2.0
  * @author      Nu-Heat Development
  *
  * Script ID:      customscript_nuheat_opportunity_cs
  * Deployment ID:  customdeploy_nuheat_opportunity_cs
  * Applies To:     Opportunity
+ *
+ * CHANGELOG v1.2.0 (Update Opportunity SL 1.0.0):
+ *   - ADDED: openUpdateOppSuitelet() for the "Update opportunity" button — same pattern as
+ *     openSendQuoteSuitelet(), own script / deployment IDs, same tab.
  *
  * CHANGELOG v1.1.0 (Send Quote SL 2.0.0):
  *   - CHANGED: openSendQuoteSuitelet() navigates in the SAME tab (window.location.href) instead
@@ -25,11 +29,13 @@ function (url, currentRecord, log) {
 
     'use strict';
 
-    var SCRIPT_VERSION = '1.1.0';
+    var SCRIPT_VERSION = '1.2.0';
 
     // ─── Suitelet identifiers ─────────────────────────────────────────────────
     var SEND_QUOTE_SCRIPT_ID     = 'customscript_nuheat_send_quote_sl';
     var SEND_QUOTE_DEPLOYMENT_ID = 'customdeploy_nuheat_send_quote_sl';
+    var UPDATE_OPP_SCRIPT_ID     = 'customscript_nuheat_update_opp_sl';        // v1.2.0
+    var UPDATE_OPP_DEPLOYMENT_ID = 'customdeploy_nuheat_update_opp_sl';
 
     /**
      * pageInit — Runs when the Opportunity form loads.
@@ -77,14 +83,48 @@ function (url, currentRecord, log) {
         }
     }
 
-    // Expose function globally so the button's functionName can invoke it
+    /**
+     * v1.2.0: openUpdateOppSuitelet — Opens the Update Opportunity Suitelet in the same tab.
+     * Called by the "Update opportunity" button added by nuheat_opportunity_ue.js.
+     */
+    function openUpdateOppSuitelet() {
+        try {
+            var rec           = currentRecord.get();
+            var opportunityId = rec.id;
+
+            if (!opportunityId) {
+                alert('Please save the Opportunity record before updating it.');
+                return;
+            }
+
+            var suiteletUrl = url.resolveScript({
+                scriptId:          UPDATE_OPP_SCRIPT_ID,
+                deploymentId:      UPDATE_OPP_DEPLOYMENT_ID,
+                returnExternalUrl: false,
+                params: {
+                    opportunityId: opportunityId
+                }
+            });
+
+            // Same tab — the Suitelet returns here after a save
+            window.location.href = suiteletUrl;
+
+        } catch (e) {
+            log.error('OpportunityCS.openUpdateOppSuitelet', 'Error: ' + e.message);
+            alert('Could not open the Update opportunity page. Error: ' + e.message);
+        }
+    }
+
+    // Expose functions globally so the buttons' functionName can invoke them
     if (typeof window !== 'undefined') {
         window.openSendQuoteSuitelet = openSendQuoteSuitelet;
+        window.openUpdateOppSuitelet = openUpdateOppSuitelet;
     }
 
     return {
         pageInit:                pageInit,
-        openSendQuoteSuitelet:   openSendQuoteSuitelet
+        openSendQuoteSuitelet:   openSendQuoteSuitelet,
+        openUpdateOppSuitelet:   openUpdateOppSuitelet
     };
 
 });

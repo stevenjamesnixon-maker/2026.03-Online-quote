@@ -67,9 +67,9 @@ All custom NetSuite fields used by this solution, organised by record type and p
 |---|---|---|
 | `includeinforecast` | Checkbox — ⚠️ **ID and type ASSUMED, not yet confirmed** | "Include in Forecast". **Written** by Send Quote SL 2.0.0 after a successful send: `true` on quotes sent as Main, `false` on Additional / Leave out — only quotes shown on the page, only where the value differs. The SL reads the type off each Estimate it loads and writes nothing (audit log `SendQuoteSL.Forecast`) unless NetSuite reports `checkbox`. Confirm the ID in Sandbox (R4/R11) |
 
-### Redirect parameters (Send Quote SL → Opportunity, read by Opportunity UE v1.2.0)
+### Redirect parameters (Send Quote SL / Update Opportunity SL → Opportunity, read by Opportunity UE)
 
-After a successful send the Suitelet redirects to the Opportunity in VIEW with these parameters.
+After a successful send (or save) the Suitelet redirects to the Opportunity in VIEW with these parameters.
 **Codes only — never text, addresses or error messages.** The banner builds every word from the
 record; unknown values are dropped.
 
@@ -81,6 +81,46 @@ record; unknown values are dropped.
 | `nsqff` | comma list of keys | Opportunity fields the write failed on — "Please set … on this record." |
 | `nsqfi` / `nsqfx` | counts | Quotes now included / excluded from the forecast (target states of the quotes on the page). Sent only when at least one flag changed |
 | `nsqqf` | comma list of Estimate IDs | Forecast writes that failed. Shown by `tranid`, and only for Estimates linked to this Opportunity |
+| `nsqs` | `send` \| `upd` | *(UE 1.3.0)* Which page sent the user back. Missing or anything else → `send` (old redirects keep working). `upd` uses the "Opportunity updated" titles and never shows "View proposal" |
+| `nsqc` | Phone Call ID | *(upd)* The call just logged — shown as "Call logged: <title from the call>" **only if** the call's `transaction` is this Opportunity |
+| `nsqo` | count | *(upd)* Customer Objections created — "<n> objection(s) logged" |
+| `nsqof` | comma list of Objection Type IDs | *(upd)* Objections that failed to save — named from the Objection Type records; IDs that are not Objection Types are dropped |
+
+## Update Opportunity SL 1.0.0 — phone call, customer objections, lists
+
+### Lists and records (read at runtime by script ID — no internal IDs in code)
+
+| Object | Script ID | Notes |
+|---|---|---|
+| Call Title list | `customlist_nh_call_title` | 10 standard titles; the page copies the chosen one into an editable Title. Shown in internal-ID order. Only the final text is stored (on the Phone Call) |
+| Objection Group list | `customlist_nh_objection_group` | 7 groups; chips are grouped in group internal-ID order |
+| Objection Type record | `customrecord_nh_objection_type` | Name = the objection; `custrecord_nhot_group` → Objection Group. 25 records |
+
+### Customer Objection (`customrecord_nh_objection`) — one record per ticked type
+
+| Field ID | Set to | Notes |
+|---|---|---|
+| `custrecord_nhobj_opportunity` | the Opportunity | parent (Communication subtab), mandatory |
+| `custrecord_nhobj_type` | the ticked Objection Type | mandatory; validated against the Objection Type search |
+| `custrecord_nhobj_quote` | the "About quote" Estimate, if chosen | validated: must be an Estimate on this Opportunity |
+| `custrecord_nhobj_notes` | `<per-objection note>` + blank line + `Call notes (<call date>): <call notes>` (no note → just the call-notes line) | mandatory; the only notes field — the call notes are duplicated deliberately so each objection stands alone |
+| `custrecord_nhobj_raised_by` | the current user | |
+| `custrecord_nhobj_raised_on` | **the call date** | mandatory |
+| `custrecord_nhobj_group` | — | ⚠️ **never set** — NetSuite sources it from the Type |
+| `custrecord_nhobj_customer` | — | ⚠️ **never set** — NetSuite sources it from the Opportunity |
+
+### Phone Call (standard) — ⚠️ field IDs ASSUMED until Sandbox U3
+
+| Field ID | Set to |
+|---|---|
+| `title` | the Title box (max 99 — ⚠️ assumed limit) |
+| `message` | "What was discussed" (max 3,900) |
+| `startdate` | the call date (a Date) |
+| `status` | `COMPLETE` |
+| `company` | the Opportunity's customer (`entity`) |
+| `transaction` | the Opportunity — assumed to be what shows the call under the Opportunity's Communication › Activities |
+| `assigned` | the current user |
+| `contact` | the chosen contact, if any |
 
 ## Doubled and misspelled field IDs — correct as written
 

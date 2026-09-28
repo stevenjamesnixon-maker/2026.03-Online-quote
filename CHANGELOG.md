@@ -1,3 +1,71 @@
+## [Update Opportunity SL v1.0.0 / Opportunity Update Library v1.0.0 / Send Quote SL v2.1.0 / Opportunity UE v1.3.0 / Opportunity CS v1.2.0] — 29 September 2026
+**Status:** ⏳ Pending Sandbox testing (U1–U10)
+**Components:** `nuheat_opp_update_lib.js` (NEW), `nuheat_update_opp_sl.js` (NEW), `nuheat_send_quote_sl.js`,
+`nuheat_opportunity_ue.js`, `nuheat_opportunity_cs.js`, `test/update-opp.js` (NEW), `test/send-quote-opp-update.js`
+
+⚠️ **Upload `nuheat_opp_update_lib.js` FIRST** — both Suitelets import it and fail at load time without it.
+New script record: `customscript_nuheat_update_opp_sl` / `customdeploy_nuheat_update_opp_sl` (execute as
+the current role, Log Level Audit).
+
+### Added — Update Opportunity (SL 1.0.0)
+- A second VIEW-only button, **Update opportunity**, opens a page in the Send Quote style:
+  **1 Log the call** (standard title from `customlist_nh_call_title` copied into an editable Title, call
+  date, optional contact, notes) → **2 Update the opportunity** (the shared fields; **Next contact
+  required**) → **3 Log any objections** (chips by group from `customrecord_nh_objection_type`, optional
+  note each, optional About quote).
+- **Save** validates everything first, then writes **phone call → one Customer Objection per tick →
+  Opportunity fields last**, and returns to the Opportunity with a banner. A failed phone call stops the
+  save ("Nothing was saved", entries kept); a failed objection or field update gives an amber banner.
+- Next contact is checked **against the record** (`search.lookupFields`), not the posted originals.
+- Objection notes: `<note>` + blank line + `Call notes (<call date>): <call notes>`; raised on = the call
+  date. `custrecord_nhobj_group` / `_customer` are never set (NetSuite sources them).
+- Phone Call field IDs and the 99-character title limit are ⚠️ **assumed** until Sandbox U3.
+- Never writes forecast flags or `custbody_opportunity_sub_status`.
+
+### Added — Opportunity Update Library (1.0.0)
+- Shared by both Suitelets: field definitions and display order, `prepareFields` / `updateFields`
+  (unchanged logic, per-page rules and log key), `validateRequired`, `readPostedUpdateValues`,
+  `fieldRedirectParams`, the date and text helpers, the page CSS, header, update section and error page,
+  `loadOppPageBase` (with contacts), and `PAGE_SCRIPT_CORE` / `pageScript()` with a documented hook contract.
+
+### Changed — Send Quote SL 2.1.0 (no behaviour change)
+- The code above moved to the library. **Byte-identical HTML to 2.0.4** across eight page states (hashed
+  in the test, script block included); call sequence, logs, writes and redirects also compared equal.
+- Send Quote keeps its own page script — its copy of the changed-marker logic is a known duplication
+  (`PAGE_SCRIPT_CORE` is canonical); migrating it is a separate change with its own browser test.
+
+### Changed — Opportunity UE 1.3.0 / CS 1.2.0
+- Second button; banner source `nsqs` (`send` | `upd`, default `send` — Send Quote banners unchanged, compared
+  against the real 1.2.1); for `upd`: "Call logged: <title>" (only the call linked to this opportunity),
+  "<n> objections logged", "Objections not saved: <names>", no proposal link.
+- CS: `openUpdateOppSuitelet()`, same tab.
+
+### Governance
+- Update Opportunity page load **50** units; a save with 25 objections **206** units in the test ledger
+  (validation 31: type, estimate and contact searches 10 each + customer lookup 1 [+1 for the Next contact
+  lookup when it is left blank]; call 15; 6 per objection = 150; Opportunity write 10). A failed save's
+  re-render adds a page load (50). Well inside the 1,000 limit.
+
+### Tests
+- `test/update-opp.js` (new): 93 assertions — T1–T17.
+- `test/send-quote-opp-update.js`: 217 assertions. Changed only where agreed: the library loader line, B3
+  retargeted at the library, and A13 / B14 / B17 for the second button; new F1 (header decode) and G1
+  (byte-identical render).
+
+---
+
+## [Send Quote SL v2.0.4] — 29 September 2026
+**Status:** ⏳ Pending Sandbox testing (first commit of the Update Opportunity PR)
+**Components:** `nuheat_send_quote_sl.js`, `test/send-quote-opp-update.js`
+
+### Fixed — header title decode
+- The page header's opportunity title went through `stripTags()` without decoding, so an entity-encoded
+  title (`&lt;b&gt;`) showed raw entities — the same defect 2.0.3 fixed on the quote cards. It now goes
+  through `cleanCardText()` (decode → strip → collapse) and `escapeHtml()` once.
+- `TESTING_GUIDE.md` R12 named SL 2.0.2 after 2.0.3 shipped; corrected.
+
+---
+
 ## [Send Quote SL v2.0.3] — 28 September 2026
 **Status:** ⏳ Pending Sandbox testing (amendment 5 to PR #28)
 **Components:** `nuheat_send_quote_sl.js`, `test/send-quote-opp-update.js`

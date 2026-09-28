@@ -361,6 +361,18 @@
 
 ## Send Quote Suitelet (`nuheat_send_quote_sl.js`) & Client Script (`nuheat_send_quote_cs.js`)
 
+### Update Opportunity SL v1.0.0 / Opportunity Update Library v1.0.0 / Send Quote SL v2.1.0 / Opportunity UE v1.3.0 / Opportunity CS v1.2.0 — 29 September 2026 ⏳ Pending Sandbox testing
+
+- ADDED: Update Opportunity page — log a phone call, update the opportunity (Next contact required),
+  log customer objections; save order call → objections → opportunity last.
+- ADDED: `nuheat_opp_update_lib.js`, shared by both Suitelets (upload first).
+- CHANGED (Send Quote 2.1.0): code moved to the library; byte-identical output to 2.0.4.
+- CHANGED (UE/CS): Update opportunity button; banner source `nsqs`.
+
+### Send Quote SL v2.0.4 — 29 September 2026 ⏳ Pending Sandbox testing
+
+- FIXED: header opportunity title decoded before stripping (same fix as the 2.0.3 cards).
+
 ### Send Quote SL v2.0.3 — 28 September 2026 ⏳ Pending Sandbox testing
 
 - CHANGED: quote card shows `tranid · description` plus Created / type / BUS facts; title no longer shown.

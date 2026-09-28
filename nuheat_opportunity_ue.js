@@ -4,15 +4,30 @@
  * @NModuleScope SameAccount
  *
  * @name        Nu-Heat Opportunity User Event
- * @description Adds a "Send Quote" button to the Opportunity form (VIEW only) and, after a
- *              proposal is sent, shows the Send Quote result banner.
- * @version     1.2.1
+ * @description Adds the "Send Quote" and "Update opportunity" buttons to the Opportunity form (VIEW
+ *              only) and, after either page saves, shows its result banner.
+ * @version     1.3.0
  * @author      Nu-Heat Development
  *
  * Script ID:      customscript_nuheat_opportunity_ue
  * Deployment ID:  customdeploy_nuheat_opportunity_ue
  * Applies To:     Opportunity
  * Event Types:    Before Load
+ *
+ * CHANGELOG v1.3.0 (Update Opportunity SL 1.0.0):
+ *   - ADDED: second VIEW-only button "Update opportunity" (custpage_update_opp →
+ *     openUpdateOppSuitelet in nuheat_opportunity_cs.js v1.2.0), after the Send Quote button.
+ *   - ADDED: banner source code nsqs = 'send' | 'upd' (whitelisted; missing or unknown → 'send', so
+ *     redirects already in flight still work and the Send Quote banner is unchanged). For 'upd':
+ *       - titles "Opportunity updated" / "Opportunity updated — but not everything saved";
+ *       - "Call logged: <title>" — nsqc is looked up as a Phone Call and shown ONLY if its
+ *         transaction is this Opportunity;
+ *       - "<n> objection(s) logged" from nsqo;
+ *       - "Objections not saved: <names>" — nsqof IDs looked up on customrecord_nh_objection_type
+ *         (anything that is not one is dropped);
+ *       - the same field lines; NO proposal link.
+ *   - Deliberately does NOT depend on nuheat_opp_update_lib.js: a missing library would stop this
+ *     UE loading and could break the Opportunity view. It carries a small local text cleaner.
  *
  * CHANGELOG v1.2.1 (Send Quote SL 2.0.2):
  *   - ADDED: close_date → Expected close (expectedclosedate) in BANNER_FIELDS. Without it the
@@ -40,7 +55,7 @@ function (log, runtime, message, search, format) {
 
     'use strict';
 
-    var SCRIPT_VERSION = '1.2.1';
+    var SCRIPT_VERSION = '1.3.0';
 
     /** Banner lifetime. A refresh or a shared link after this shows nothing. */
     var BANNER_MAX_AGE_SECONDS = 300;
@@ -78,6 +93,7 @@ function (log, runtime, message, search, format) {
         }
 
         addSendQuoteButton(context);
+        addUpdateOppButton(context);
         addSendQuoteBanner(context);
     }
 
@@ -115,7 +131,30 @@ function (log, runtime, message, search, format) {
         }
     }
 
-    // ─── Send Quote result banner (v1.2.0) ────────────────────────────────────────
+    /**
+     * v1.3.0: the "Update opportunity" button, after Send Quote. Same client script. Never throws.
+     */
+    function addUpdateOppButton(context) {
+        try {
+            var form = context.form;
+            try {
+                form.removeButton({ id: 'custpage_update_opp' });
+            } catch (e) {
+                // Button doesn't exist yet — expected
+            }
+            form.addButton({
+                id: 'custpage_update_opp',
+                label: 'Update opportunity',
+                functionName: 'openUpdateOppSuitelet'
+            });
+            form.clientScriptModulePath = './nuheat_opportunity_cs.js';
+        } catch (e) {
+            log.error('OpportunityUE.beforeLoad',
+                'Error adding Update opportunity button: ' + e.message + '\n' + e.stack);
+        }
+    }
+
+    // ─── Result banner (v1.2.0; Update Opportunity source from v1.3.0) ────────────
 
     function escapeHtml(str) {
         if (str === null || str === undefined) return '';
@@ -153,6 +192,66 @@ function (log, runtime, message, search, format) {
         } catch (e) {
             return '';
         }
+    }
+
+    /**
+     * v1.3.0: minimal text cleaner for record text shown in the banner (decode entities, strip
+     * tags, collapse whitespace). The library has the canonical version; this UE deliberately
+     * does not depend on the library (see the header).
+     */
+    function cleanText(str) {
+        var named = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", nbsp: ' ' };
+        return String(str || '').replace(/&(#x[0-9a-f]+|#\d+|[a-z]+);/gi, function (m, e) {
+            if (e.charAt(0) === '#') {
+                var code = (e.charAt(1) === 'x' || e.charAt(1) === 'X') ? parseInt(e.substring(2), 16) : parseInt(e.substring(1), 10);
+                return (code > 0 && code <= 0x10FFFF) ? String.fromCodePoint(code) : m;
+            }
+            var k = e.toLowerCase();
+            return Object.prototype.hasOwnProperty.call(named, k) ? named[k] : m;
+        }).replace(/<[^>]*>/g, '').replace(/\s+/g, ' ').trim();
+    }
+
+    /** A comma list of numeric internal IDs, de-duplicated; anything else dropped. */
+    function idList(str) {
+        var ids = [];
+        String(str || '').split(',').forEach(function (id) {
+            id = id.trim();
+            if (/^\d{1,12}$/.test(id) && ids.indexOf(id) === -1) ids.push(id);
+        });
+        return ids.slice(0, 50);
+    }
+
+    /**
+     * v1.3.0: nsqc → the Phone Call's title, ONLY if the call's transaction is this Opportunity.
+     * '' otherwise (not numeric, not found, another record's call).
+     */
+    function lookupCallTitle(opportunityId, str) {
+        var ids = idList(str);
+        if (ids.length !== 1 || !opportunityId) return '';
+        try {
+            var f = search.lookupFields({ type: search.Type.PHONE_CALL, id: ids[0], columns: ['title', 'transaction'] });
+            var tx = Array.isArray(f.transaction) && f.transaction.length ? String(f.transaction[0].value) : '';
+            return tx === String(opportunityId) ? cleanText(f.title) : '';
+        } catch (e) {
+            log.debug('OpportunityUE.banner', 'Call ' + ids[0] + ' not shown: ' + e.message);
+            return '';
+        }
+    }
+
+    /** v1.3.0: nsqof → Objection Type names. IDs that are not Objection Types are dropped. */
+    function lookupObjectionTypeNames(str) {
+        var ids = idList(str);
+        if (!ids.length) return [];
+        var names = [];
+        search.create({
+            type:    'customrecord_nh_objection_type',
+            filters: [['internalid', 'anyof', ids]],
+            columns: ['name']
+        }).run().getRange({ start: 0, end: 50 }).forEach(function (r) {
+            var n = cleanText(r.getValue({ name: 'name' }));
+            if (n) names.push(n);
+        });
+        return names;
     }
 
     /**
@@ -207,6 +306,9 @@ function (log, runtime, message, search, format) {
                 return;
             }
 
+            // v1.3.0: which page sent us here. Whitelisted; missing or unknown → 'send'.
+            var source = p.nsqs === 'upd' ? 'upd' : 'send';
+
             var rec = context.newRecord;
             var lines = [];
 
@@ -219,8 +321,8 @@ function (log, runtime, message, search, format) {
                 }).join(' · '));
             }
 
-            var included = parseCount(p.nsqfi);
-            var excluded = parseCount(p.nsqfx);
+            var included = source === 'send' ? parseCount(p.nsqfi) : null;
+            var excluded = source === 'send' ? parseCount(p.nsqfx) : null;
             if (included !== null && excluded !== null) {
                 lines.push('Forecast: ' + included + ' quote' + (included === 1 ? '' : 's') + ' included, ' +
                     excluded + ' excluded');
@@ -232,31 +334,49 @@ function (log, runtime, message, search, format) {
                 warnings.push('Please set ' + failed.map(function (k) { return BANNER_FIELDS[k].label; }).join(', ') +
                     ' on this record.');
             }
-            var failedQuotes = lookupFailedQuotes(rec.id, p.nsqqf);
+            var failedQuotes = source === 'send' ? lookupFailedQuotes(rec.id, p.nsqqf) : [];
             if (failedQuotes.length) {
                 warnings.push('Forecast flag not updated on ' + failedQuotes.join(', ') + '.');
             }
 
+            // v1.3.0: Update Opportunity — the call and the objections, words from the records
+            var updLines = [];
+            if (source === 'upd') {
+                var callTitle = lookupCallTitle(rec.id, p.nsqc);
+                if (callTitle) updLines.push('Call logged: ' + callTitle);
+                var logged = parseCount(p.nsqo);
+                if (logged) updLines.push(logged + ' objection' + (logged === 1 ? '' : 's') + ' logged');
+                var notSaved = lookupObjectionTypeNames(p.nsqof);
+                if (notSaved.length) warnings.push('Objections not saved: ' + notSaved.join(', ') + '.');
+            }
+            lines = updLines.concat(lines);
+
             var isWarn = status === 'warn';
             var parts = (isWarn ? warnings.concat(lines) : lines).map(escapeHtml);
 
-            var proposalUrl = '';
-            try {
-                proposalUrl = String(rec.getValue({ fieldId: 'custbody_master_proposal_url' }) || '');
-            } catch (e) {
-                proposalUrl = '';
-            }
-            if (/^https:\/\//i.test(proposalUrl)) {
-                parts.push('<a href="' + escapeHtml(proposalUrl) + '" target="_blank" rel="noopener">View proposal</a>');
+            if (source === 'send') {
+                var proposalUrl = '';
+                try {
+                    proposalUrl = String(rec.getValue({ fieldId: 'custbody_master_proposal_url' }) || '');
+                } catch (e) {
+                    proposalUrl = '';
+                }
+                if (/^https:\/\//i.test(proposalUrl)) {
+                    parts.push('<a href="' + escapeHtml(proposalUrl) + '" target="_blank" rel="noopener">View proposal</a>');
+                }
             }
 
+            var TITLES = {
+                send: ['Proposal sent', 'Proposal sent — but the opportunity wasn’t fully updated'],
+                upd:  ['Opportunity updated', 'Opportunity updated — but not everything saved']
+            };
             context.form.addPageInitMessage({
                 type:    isWarn ? message.Type.WARNING : message.Type.CONFIRMATION,
-                title:   escapeHtml(isWarn ? 'Proposal sent — but the opportunity wasn’t fully updated' : 'Proposal sent'),
+                title:   escapeHtml(TITLES[source][isWarn ? 1 : 0]),
                 message: parts.join('<br>')
             });
 
-            log.audit('OpportunityUE.banner', 'Opportunity ' + rec.id + ' — ' + status +
+            log.audit('OpportunityUE.banner', 'Opportunity ' + rec.id + ' — ' + source + '/' + status +
                 ' | changed: ' + (changed.join(',') || 'none') + ' | failed fields: ' + (failed.join(',') || 'none') +
                 ' | failed quotes: ' + (failedQuotes.join(',') || 'none'));
 

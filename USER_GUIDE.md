@@ -14,6 +14,7 @@
 4. [Viewing & Sharing Quotes](#4-viewing--sharing-quotes)
 5. [Regenerating a Quote](#5-regenerating-a-quote)
 6. [Creating a Master Proposal](#6-creating-a-master-proposal)
+   - [Updating an Opportunity (log a call and objections)](#updating-an-opportunity-log-a-call-and-objections)
 7. [Understanding Quote URLs](#7-understanding-quote-urls)
 8. [What Customers See](#8-what-customers-see)
 9. [FAQ](#9-faq)
@@ -182,6 +183,25 @@ The generated Master Proposal includes:
 - Call-to-action banner with contact details
 
 ---
+
+## Updating an Opportunity (log a call and objections)
+
+Use **Update opportunity** after a call with the customer — it logs the call, moves the opportunity on
+and records any objections in one save.
+
+1. Open the Opportunity (view mode) and click **Update opportunity**. The page opens in the same tab.
+2. **Log the call** — pick a **Standard title** (it fills the Title box; you can type over it), check the
+   **Call date** (today by default; it can't be in the future), choose a **Contact** if you spoke to one,
+   and write **What was discussed**.
+3. **Update the opportunity** — the same fields as Send Quote. **Next contact is required**: if the
+   opportunity has none, you must set one before you can save.
+4. **Log any objections** (optional) — tick every objection the customer raised. Each ticked objection
+   gets an optional one-line note, and you can say which quote they were about. Each objection also keeps
+   a copy of the call notes.
+5. Click **Save**. You go back to the opportunity with a banner: the call logged, how many objections
+   were saved and what changed. If something could not be saved, the banner says what to set by hand.
+   If the call itself can't be saved, nothing is saved and you stay on the page with everything you
+   entered.
 
 ## 7. Understanding Quote URLs
 
