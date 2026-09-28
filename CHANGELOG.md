@@ -1,3 +1,31 @@
+## [Send Quote SL v2.0.2 / Opportunity UE v1.2.1] — 28 September 2026
+**Status:** ⏳ Pending Sandbox testing (amendment 4 to PR #28)
+**Components:** `nuheat_send_quote_sl.js`, `nuheat_opportunity_ue.js`, `test/send-quote-opp-update.js`
+
+Sandbox (28 Sep): the 2.0.1 reorder (forecast flags first, Opportunity last) **fixed the Status revert**.
+
+### Added — Expected close date
+- Fifth update field: **Expected close** — standard Opportunity field `expectedclosedate` (Date), key
+  `close_date`. Same rules as the other dates: runtime type check (hidden and audit-logged if not a
+  date), native picker posting `yyyy-mm-dd` pre-filled from the date's own parts, written only when
+  changed and never when blank, in the single Opportunity `submitFields` that is still the last write.
+- Section order: **Status, Build stage, Expected close, Next contact, Est. delivery date**
+  (`OPP_UPDATE_DISPLAY_ORDER`). `OPP_UPDATE_FIELDS` keeps its processing order with the new field
+  appended, so posted key lists and redirect parameters only gain `close_date`.
+- Layout: grid columns of at least 200 px — five in a row at the page's 1120 px (≈203 px each),
+  wrapping onto a second row when narrower.
+- **Opportunity UE v1.2.1:** `close_date` → "Expected close" added to `BANNER_FIELDS`; without it the
+  banner would silently drop the change.
+
+### Unchanged
+- Forecast logic, the write order and `enableSourcing`.
+
+### Tests
+- 190 assertions (D1–D7): pre-fill, display order, type mismatch, round trip in three time zones,
+  bad / unchanged / blank dates, same single `submitFields` still last, banner text from the record.
+
+---
+
 ## [Send Quote SL v2.0.1] — 28 September 2026
 **Status:** ⏳ Pending Sandbox testing (amendment 3 to PR #28)
 **Components:** `nuheat_send_quote_sl.js`, `test/send-quote-opp-update.js`

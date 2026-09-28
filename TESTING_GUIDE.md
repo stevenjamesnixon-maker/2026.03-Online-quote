@@ -8,6 +8,7 @@
 ## Send proposal redesign, return to the opportunity, forecast flags (Send Quote SL v2.0.1 / Opportunity UE v1.2.0 / Opportunity CS v1.1.0)
 
 > 2.0.0 in Sandbox (28 Sep): send and banner OK; **Status reverted** → 2.0.1 reorders the writes (R13). Dates now use a picker (R14).
+> 2.0.1 in Sandbox (28 Sep): **the reorder fixed the revert.** 2.0.2 adds Expected close (R15).
 
 > **Upload** `nuheat_send_quote_sl.js`, `nuheat_opportunity_ue.js` and `nuheat_opportunity_cs.js` to
 > `SuiteScripts/NuHeat/2026 Quote/`. `nuheat_send_quote_cs.js` is detached and needs no upload.
@@ -21,7 +22,7 @@
 ### Automated (before uploading)
 
 ```bash
-node test/send-quote-opp-update.js      # must end "160 passed, 0 failed" (or more)
+node test/send-quote-opp-update.js      # must end "190 passed, 0 failed" (or more)
 for f in nuheat_send_quote_sl.js nuheat_opportunity_ue.js nuheat_opportunity_cs.js; do node --check "$f"; done
 ```
 
@@ -40,9 +41,10 @@ for f in nuheat_send_quote_sl.js nuheat_opportunity_ue.js nuheat_opportunity_cs.
 | R9 | Preview | Opens in a new tab; nothing written; prices match the sent proposal |
 | R10 | An Estimate after a forecast write | Online quote **not** regenerated; margin fields unchanged (checks the legacy SS1 margin script on XEDIT) |
 | R11 | Read the Execution Log | `SendQuoteSL.Forecast`, `SendQuoteSL.OppUpdate` and `SendQuoteSL.Redirect` lines present |
-| R12 | Upload check | Version header read back off every uploaded file: SL **2.0.1**, UE 1.2.0, Opportunity CS 1.1.0 |
+| R12 | Upload check | Version header read back off every uploaded file: SL **2.0.2**, UE **1.2.1**, Opportunity CS 1.1.0 |
 | R13 | **2.0.1:** change Status in a send where **at least one forecast flag also changes** (e.g. make a different quote Main) | Status sticks; Probability follows it. **Read the Opportunity's system notes** for the send: the order and source of the Status changes is the evidence for §9 pitfall 20 (and whether `enableSourcing` is involved). Also try a Status change with **no** forecast change — if that reverts too, the Estimate re-sync is not the cause |
 | R14 | **2.0.1:** pick Next contact and Est. delivery date with the picker | The saved dates match what was picked, no day shift. Note the picker's display order (it follows the browser's language, not NetSuite's date preference) |
+| R15 | **2.0.2:** change **Expected close** with the picker (the section now shows Status, Build stage, Expected close, Next contact, Est. delivery date) | Saves with no day shift; the green banner shows "Expected close → <date>"; the "Changed · was …" marker and the footer summary include it |
 
 Also worth a look: the banner's "View proposal" link renders as a link (not as literal HTML), and a
 single-quote Opportunity starts with that quote at **Main**.

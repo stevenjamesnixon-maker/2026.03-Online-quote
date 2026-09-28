@@ -361,7 +361,12 @@
 
 ## Send Quote Suitelet (`nuheat_send_quote_sl.js`) & Client Script (`nuheat_send_quote_cs.js`)
 
-### Send Quote SL v2.0.1 — 28 September 2026 ⏳ Pending Sandbox testing
+### Send Quote SL v2.0.2 / Opportunity UE v1.2.1 — 28 September 2026 ⏳ Pending Sandbox testing
+
+- ADDED: Expected close (`expectedclosedate`) as a fifth update field; banner support in the UE.
+- CHANGED: section order Status, Build stage, Expected close, Next contact, Est. delivery date.
+
+### Send Quote SL v2.0.1 — 28 September 2026 — Sandbox: reorder fixed the Status revert
 
 - FIXED (suspected cause): Status change reverted after send — forecast (Estimate) writes now run
   before the Opportunity update.

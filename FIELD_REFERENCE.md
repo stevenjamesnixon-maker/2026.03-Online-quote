@@ -26,6 +26,7 @@ All custom NetSuite fields used by this solution, organised by record type and p
 | custbody_next_contact | Date — **assumed** | Next contact. **Written** by Send Quote SL v1.8.0 when changed on send. ID confirmed by Steve |
 | custbody_opp_del_date | Date — **assumed** | Est. delivery date. **Written** by Send Quote SL v1.8.0 when changed on send. Changes sync to linked sales orders' ship dates (separate repo) — wanted. ID confirmed by Steve |
 | custbody_build_stage | List/Record — **assumed** | Build stage. **Written** by Send Quote SL v1.8.0 when changed on send. ID confirmed by Steve |
+| expectedclosedate | Date (standard) | Expected close. **Written** by Send Quote SL v2.0.2 when changed on send (native date picker; never cleared). Type checked at runtime like the other dates; the reported type is logged as `SendQuoteSL.OppUpdate … reported field types` |
 | custbody_opportunity_sub_status | List | ⚠️ **Never written by this repository.** Some values create Design Instruction rows. Listed only so nobody adds it to the Send Quote update |
 
 > **Assumed types.** The Send Quote SL checks each update field's type as NetSuite reports it
@@ -76,7 +77,7 @@ record; unknown values are dropped.
 |---|---|---|
 | `nsq` | `ok` \| `warn` | Banner type: green confirmation, or amber "wasn't fully updated". Anything else → no banner |
 | `nsqt` | epoch seconds | When the send finished. Missing, non-numeric or older than **300 s** → no banner (a refresh or shared link cannot replay it) |
-| `nsqf` | comma list of keys | Opportunity fields changed: `entitystatus`, `next_contact`, `del_date`, `build_stage`. Values are read from the record |
+| `nsqf` | comma list of keys | Opportunity fields changed: `entitystatus`, `next_contact`, `del_date`, `build_stage`, `close_date` (v2.0.2). Values are read from the record |
 | `nsqff` | comma list of keys | Opportunity fields the write failed on — "Please set … on this record." |
 | `nsqfi` / `nsqfx` | counts | Quotes now included / excluded from the forecast (target states of the quotes on the page). Sent only when at least one flag changed |
 | `nsqqf` | comma list of Estimate IDs | Forecast writes that failed. Shown by `tranid`, and only for Estimates linked to this Opportunity |

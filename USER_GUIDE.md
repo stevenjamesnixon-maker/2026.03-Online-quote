@@ -158,7 +158,7 @@ to remove one, or pick someone from **Add a contact on this opportunity**. Use *
 
 ### Step 4: Update the opportunity (optional)
 
-Change **Status**, **Next contact**, **Est. delivery date** or **Build stage** — dates are picked from a calendar — if the send moves the
+Change **Status**, **Build stage**, **Expected close**, **Next contact** or **Est. delivery date** — dates are picked from a calendar — if the send moves the
 opportunity on. Changed fields are outlined and show what they were. Clearing a field here does not
 clear it on the record.
 

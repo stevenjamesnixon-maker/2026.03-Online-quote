@@ -291,9 +291,9 @@ that something has regressed at source. See §6.
 | Quote Viewer | v1.1.0 | `nuheat_quote_viewer_sl.js` | ✅ Live in Production |
 | Scheduled Script | v1.0.0 | `nuheat_quote_generator_ss.js` | ✅ Live in Production |
 | Master Proposal | v1.8.3 | `nuheat_master_proposal.js` | ✅ Live in Production |
-| Send Quote SL | 2.0.1 — pending Sandbox | `nuheat_send_quote_sl.js` | ⏳ Pending Sandbox testing (live: v1.7.0; 1.8.0 passed S1–S4, S6–S9; 2.0.0 submitted and bannered but Status reverted) |
+| Send Quote SL | 2.0.2 — pending Sandbox | `nuheat_send_quote_sl.js` | ⏳ Pending Sandbox testing (live: v1.7.0; 1.8.0 passed S1–S4, S6–S9; 2.0.0 Status reverted; 2.0.1 reorder fixed the revert) |
 | Send Quote CS | v1.4.0 — detached in SL 2.0.0 (pending Sandbox) | `nuheat_send_quote_cs.js` | ✅ Live in Production today; **not attached** once SL 2.0.0 deploys — kept for reference |
-| Opportunity UE | 1.2.0 — pending Sandbox | `nuheat_opportunity_ue.js` | ⏳ Pending Sandbox testing (live: v1.0.0) |
+| Opportunity UE | 1.2.1 — pending Sandbox | `nuheat_opportunity_ue.js` | ⏳ Pending Sandbox testing (live: v1.0.0) |
 | Opportunity CS | 1.1.0 — pending Sandbox | `nuheat_opportunity_cs.js` | ⏳ Pending Sandbox testing (live: v1.0.0) |
 | Analytics Suitelet | v1.0.1 | `nuheat_analytics_sl.js` | ✅ Live in Production |
 | **BUS Grant Module** | **v1.0.0** | **`nuheat_bus_grant.js`** | ✅ Live in Production |
@@ -386,7 +386,7 @@ Two open items:
 | **Quote Viewer** | Proxy pattern — decouples the URL from the physical file. Without this, every regeneration would produce a different URL, breaking shared links. |
 | **Scheduled Script** | Fallback when UE script runs low on governance (1,000 units). The SS has 10,000 units. |
 | **Master Proposal** | Business requirement to combine multiple quotes. Separated as a module (not Suitelet) so it can be called from the Send Quote SL. |
-| **Send Quote SL** | UI for selecting which quotes to include in a proposal. Needed because the user must choose Main vs Alternative. From v1.8.0 also updates four Opportunity fields after the email is sent; from v2.0.0 sets the quotes' Include in Forecast and returns to the Opportunity. |
+| **Send Quote SL** | UI for selecting which quotes to include in a proposal. Needed because the user must choose Main vs Alternative. From v1.8.0 also updates Opportunity fields after the email is sent (five from v2.0.2); from v2.0.0 sets the quotes' Include in Forecast and returns to the Opportunity. |
 | **Opportunity UE/CS** | Entry point for Master Proposal workflow — "Send Quote" button on Opportunity form, **VIEW mode only** from UE v1.1.0, same tab from CS v1.1.0. UE v1.2.0 also shows the Send Quote result banner. |
 
 ### Design Decisions and Rationale
@@ -410,9 +410,12 @@ Two open items:
 **Page.** The Suitelet GET renders a `serverWidget` form (NetSuite's header and menu stay) carrying
 **one** `INLINEHTML` field: header, "1 Choose quotes" (a Leave out / Main / Additional control per
 quote — every quote starts at Leave out unless there is exactly one), "2 Send to" (To tags, contact
-picker, CC/BCC), "3 Update the opportunity" (Status `entitystatus`, Next contact
-`custbody_next_contact`, Est. delivery date `custbody_opp_del_date`, Build stage
-`custbody_build_stage`) and a sticky footer. **No native buttons, no sublists and no client script** —
+picker, CC/BCC), "3 Update the opportunity" (shown in this order: Status `entitystatus`, Build stage
+`custbody_build_stage`, Expected close `expectedclosedate` (v2.0.2), Next contact
+`custbody_next_contact`, Est. delivery date `custbody_opp_del_date`) and a sticky footer.
+**Adding a field** means `OPP_UPDATE_FIELDS` and `OPP_UPDATE_DISPLAY_ORDER` in the Suitelet **and**
+`BANNER_FIELDS` in `nuheat_opportunity_ue.js` — a key missing from the UE whitelist is silently
+dropped from the banner. **No native buttons, no sublists and no client script** —
 `nuheat_send_quote_cs.js` is **detached in 2.0.0** and kept for reference only. The page's static
 inline script (`PAGE_SCRIPT`) submits NetSuite's own `main_form` (see §9 pitfall 18).
 
@@ -1066,6 +1069,8 @@ To modify, edit `renderProductCard()` and update CSS in `generateCSS()`.
     writes. **Not yet observed directly** — to be confirmed or corrected from the Opportunity's system
     notes after Sandbox R13. The other change since 1.8.0, `enableSourcing: true` on a Status change,
     is the second suspect and is deliberately unchanged until that evidence is in.
+    **Sandbox, 28 Sep 2026:** the 2.0.1 reorder fixed the reported revert. Stays ⚠️ suspected until
+    both R13 variants (with and without a forecast change) are reported as passed.
 
 21. **`<input type="date">` and NetSuite dates** — the value is always `yyyy-mm-dd` whatever the
     display. Build it from `getFullYear()` / `getMonth() + 1` / `getDate()`, never `toISOString()`
