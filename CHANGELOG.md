@@ -1,3 +1,33 @@
+## [Send Quote SL v2.0.3] — 28 September 2026
+**Status:** ⏳ Pending Sandbox testing (amendment 5 to PR #28)
+**Components:** `nuheat_send_quote_sl.js`, `test/send-quote-opp-update.js`
+
+Sandbox (28 Sep): R15 (Expected close) **passed**. Forecast flags are "not quite working as expected" —
+⚠️ **open, parked**; no forecast code changed here.
+
+### Changed — quote card text
+- **Line 1** (bold): `tranid · description` — the title is **no longer shown** on the card (it repeated
+  the description). Empty description → the cleaned title; both empty → `tranid` alone (the search's
+  `'(Untitled)'` placeholder is not used on the card). Wraps to two lines at most, full text on hover.
+- **Line 2** (muted, one line): `Created <date>` · quote type (the raw value, e.g. `Full System (DFD)`) ·
+  `BUS grant £7,500 applied` — each only when present. The date is NetSuite's `datecreated` text with the
+  time removed, so it is already in the user's own date format; no parsing, no new lookups.
+
+### Fixed — double encoding
+- Titles and descriptions can arrive entity-encoded (`&lt;b&gt;Ground Floor&lt;/b&gt;`). `stripTags()`
+  found no tags and `escapeHtml()` encoded them again, so the card showed `&lt;b&gt;`. Card text is now
+  `decodeEntities()` → `stripTags()` → collapse whitespace → `escapeHtml()` once. Decode before strip,
+  never after.
+
+### Unchanged
+- The quote objects sent to the Master Proposal (raw `title` / `description`; the 1.8.0 shape fixture
+  still matches). Forecast logic, write order, `enableSourcing`.
+
+### Tests
+- 207 assertions (E1–E8). B2 changed: it asserted the title on the card.
+
+---
+
 ## [Send Quote SL v2.0.2 / Opportunity UE v1.2.1] — 28 September 2026
 **Status:** ⏳ Pending Sandbox testing (amendment 4 to PR #28)
 **Components:** `nuheat_send_quote_sl.js`, `nuheat_opportunity_ue.js`, `test/send-quote-opp-update.js`

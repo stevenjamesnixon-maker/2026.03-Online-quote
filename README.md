@@ -67,7 +67,7 @@ Opportunity ──▶ Send Quote SL ──▶ Master Proposal ──▶ HTML Fil
 ├── nuheat_quote_viewer_sl.js      # Proxy Suitelet for stable URLs (v1.1.0)
 ├── nuheat_quote_generator_ss.js   # Scheduled Script fallback (v1.0.0)
 ├── nuheat_master_proposal.js      # Master Proposal generator (v1.8.3)
-├── nuheat_send_quote_sl.js        # Send proposal Suitelet (2.0.2 — pending Sandbox; live: v1.7.0)
+├── nuheat_send_quote_sl.js        # Send proposal Suitelet (2.0.3 — pending Sandbox; live: v1.7.0)
 ├── nuheat_send_quote_cs.js        # Send Quote form handler (v1.4.0) — detached from SL 2.0.0, kept for reference
 ├── nuheat_opportunity_ue.js       # Opportunity "Send Quote" button + result banner (1.2.1 — pending Sandbox; live: v1.0.0)
 ├── nuheat_opportunity_cs.js       # Opportunity button handler (1.1.0 — pending Sandbox; live: v1.0.0)
@@ -220,7 +220,7 @@ See [FIELD_REFERENCE.md](FIELD_REFERENCE.md) for every field used, and
 | Quote Client Script | v4.0.6 | 28 Mar 2026 |
 | Quote Viewer | v1.1.0 | 28 Mar 2026 |
 | Master Proposal | v1.8.3 | 18 Aug 2026 |
-| Send Quote Suitelet | 2.0.2 — pending Sandbox (live: v1.7.0) | 28 Sep 2026 |
+| Send Quote Suitelet | 2.0.3 — pending Sandbox (live: v1.7.0) | 28 Sep 2026 |
 | Send Quote CS | v1.4.0 — detached in SL 2.0.0 (pending Sandbox) | 28 Sep 2026 |
 | Opportunity UE | 1.2.1 — pending Sandbox (live: v1.0.0) | 28 Sep 2026 |
 | Opportunity CS | 1.1.0 — pending Sandbox (live: v1.0.0) | 28 Sep 2026 |

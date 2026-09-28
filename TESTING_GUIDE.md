@@ -8,7 +8,8 @@
 ## Send proposal redesign, return to the opportunity, forecast flags (Send Quote SL v2.0.1 / Opportunity UE v1.2.0 / Opportunity CS v1.1.0)
 
 > 2.0.0 in Sandbox (28 Sep): send and banner OK; **Status reverted** → 2.0.1 reorders the writes (R13). Dates now use a picker (R14).
-> 2.0.1 in Sandbox (28 Sep): **the reorder fixed the revert.** 2.0.2 adds Expected close (R15).
+> 2.0.1 in Sandbox (28 Sep): **the reorder fixed the revert.** 2.0.2 adds Expected close (R15 ✅ passed 28 Sep).
+> 2.0.3 fixes the quote card text (R16). Forecast flags (R4) are ⚠️ open — parked for a later session.
 
 > **Upload** `nuheat_send_quote_sl.js`, `nuheat_opportunity_ue.js` and `nuheat_opportunity_cs.js` to
 > `SuiteScripts/NuHeat/2026 Quote/`. `nuheat_send_quote_cs.js` is detached and needs no upload.
@@ -22,7 +23,7 @@
 ### Automated (before uploading)
 
 ```bash
-node test/send-quote-opp-update.js      # must end "190 passed, 0 failed" (or more)
+node test/send-quote-opp-update.js      # must end "207 passed, 0 failed" (or more)
 for f in nuheat_send_quote_sl.js nuheat_opportunity_ue.js nuheat_opportunity_cs.js; do node --check "$f"; done
 ```
 
@@ -33,7 +34,7 @@ for f in nuheat_send_quote_sl.js nuheat_opportunity_ue.js nuheat_opportunity_cs.
 | R1 | From the Opportunity (view), click **Send Quote** | Opens in the **same tab**; the page matches the design (screen 1) inside NetSuite's header and menu |
 | R2 | Segmented control, To tags (add, remove, invalid shows red), contact picker, + Add CC / BCC, "Changed · was …" markers, live total | Behave as designed. Send stays disabled with a reason until there is a Main quote and a valid To |
 | R3 | Send with one Main, one Additional, one Leave out; change Status and Next contact | Lands on the Opportunity with a green banner: "Opportunity updated: Status → … · Next contact → …" and "Forecast: 1 quote included, 2 excluded", plus "View proposal" |
-| R4 | The Opportunity's Estimates subtab | **Include in Forecast** ticked only on the Main quote. (This also confirms the assumed `includeinforecast` ID — if nothing changed, read `SendQuoteSL.Forecast` in the log) |
+| R4 | The Opportunity's Estimates subtab | **Include in Forecast** ticked only on the Main quote. (This also confirms the assumed `includeinforecast` ID — if nothing changed, read `SendQuoteSL.Forecast` in the log) ⚠️ Open — behaviour not as expected in Sandbox, 28 Sep; to be investigated. |
 | R5 | **Probability** after R3 | Follows the new Status |
 | R6 | Refresh the Opportunity 6 minutes later | No banner |
 | R7 | Make one field read-only for the role, then send | Amber banner naming the field; proposal sent |
@@ -45,6 +46,7 @@ for f in nuheat_send_quote_sl.js nuheat_opportunity_ue.js nuheat_opportunity_cs.
 | R13 | **2.0.1:** change Status in a send where **at least one forecast flag also changes** (e.g. make a different quote Main) | Status sticks; Probability follows it. **Read the Opportunity's system notes** for the send: the order and source of the Status changes is the evidence for §9 pitfall 20 (and whether `enableSourcing` is involved). Also try a Status change with **no** forecast change — if that reverts too, the Estimate re-sync is not the cause |
 | R14 | **2.0.1:** pick Next contact and Est. delivery date with the picker | The saved dates match what was picked, no day shift. Note the picker's display order (it follows the browser's language, not NetSuite's date preference) |
 | R15 | **2.0.2:** change **Expected close** with the picker (the section now shows Status, Build stage, Expected close, Next contact, Est. delivery date) | Saves with no day shift; the green banner shows "Expected close → <date>"; the "Changed · was …" marker and the footer summary include it |
+| R16 | **2.0.3:** look at the quote cards | Card shows ref · description, then Created / type / BUS facts; no raw `&lt;`. Line 1 wraps to two lines at most, full text on hover |
 
 Also worth a look: the banner's "View proposal" link renders as a link (not as literal HTML), and a
 single-quote Opportunity starts with that quote at **Main**.

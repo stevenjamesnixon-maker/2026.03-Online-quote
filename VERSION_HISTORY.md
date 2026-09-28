@@ -361,7 +361,12 @@
 
 ## Send Quote Suitelet (`nuheat_send_quote_sl.js`) & Client Script (`nuheat_send_quote_cs.js`)
 
-### Send Quote SL v2.0.2 / Opportunity UE v1.2.1 — 28 September 2026 ⏳ Pending Sandbox testing
+### Send Quote SL v2.0.3 — 28 September 2026 ⏳ Pending Sandbox testing
+
+- CHANGED: quote card shows `tranid · description` plus Created / type / BUS facts; title no longer shown.
+- FIXED: entity-encoded titles/descriptions shown raw and double-encoded (decode → strip → escape once).
+
+### Send Quote SL v2.0.2 / Opportunity UE v1.2.1 — 28 September 2026 — Sandbox: R15 passed
 
 - ADDED: Expected close (`expectedclosedate`) as a fifth update field; banner support in the UE.
 - CHANGED: section order Status, Build stage, Expected close, Next contact, Est. delivery date.

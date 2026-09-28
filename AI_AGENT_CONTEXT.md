@@ -291,7 +291,7 @@ that something has regressed at source. See §6.
 | Quote Viewer | v1.1.0 | `nuheat_quote_viewer_sl.js` | ✅ Live in Production |
 | Scheduled Script | v1.0.0 | `nuheat_quote_generator_ss.js` | ✅ Live in Production |
 | Master Proposal | v1.8.3 | `nuheat_master_proposal.js` | ✅ Live in Production |
-| Send Quote SL | 2.0.2 — pending Sandbox | `nuheat_send_quote_sl.js` | ⏳ Pending Sandbox testing (live: v1.7.0; 1.8.0 passed S1–S4, S6–S9; 2.0.0 Status reverted; 2.0.1 reorder fixed the revert) |
+| Send Quote SL | 2.0.3 — pending Sandbox | `nuheat_send_quote_sl.js` | ⏳ Pending Sandbox testing (live: v1.7.0; 1.8.0 passed S1–S4, S6–S9; 2.0.0 Status reverted; 2.0.1 reorder fixed the revert; 2.0.2 Expected close passed R15; forecast flags ⚠️ open) |
 | Send Quote CS | v1.4.0 — detached in SL 2.0.0 (pending Sandbox) | `nuheat_send_quote_cs.js` | ✅ Live in Production today; **not attached** once SL 2.0.0 deploys — kept for reference |
 | Opportunity UE | 1.2.1 — pending Sandbox | `nuheat_opportunity_ue.js` | ⏳ Pending Sandbox testing (live: v1.0.0) |
 | Opportunity CS | 1.1.0 — pending Sandbox | `nuheat_opportunity_cs.js` | ⏳ Pending Sandbox testing (live: v1.0.0) |
@@ -1076,6 +1076,14 @@ To modify, edit `renderProductCard()` and update CSS in `generateCSS()`.
     display. Build it from `getFullYear()` / `getMonth() + 1` / `getDate()`, never `toISOString()`
     (the UTC conversion moves a midnight date back a day in zones east of UTC); parse it back with
     `new Date(y, m - 1, d)` after checking the parts round-trip (rejects `2026-02-30`).
+
+22. **Quote titles and descriptions can arrive entity-encoded; decode, then strip, then escape
+    once.** A title can hold literal `<b>Ground Floor</b>` **or** the already-encoded
+    `&lt;b&gt;Ground Floor&lt;/b&gt;`. `stripTags()` finds no tags in the second, and `escapeHtml()`
+    then encodes it again, so the user sees `&lt;b&gt;`. SL 2.0.3's `cleanCardText()` runs
+    `decodeEntities()` → `stripTags()` → whitespace collapse, and the caller escapes once. **Decode
+    before stripping, never after** — decoding after would turn `&lt;script&gt;` into a live tag.
+    The Master Proposal still receives the raw `title` / `description`; this is display only.
 
 ### NetSuite Record Types Used
 
