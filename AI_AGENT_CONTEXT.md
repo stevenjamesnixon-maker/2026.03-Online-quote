@@ -39,9 +39,13 @@ Production `26895192`, Sandbox `21719365`. All three must change together —
 copies are hand-edited in the File Cabinet and never committed. A mismatch surfaces as
 `Invalid folder reference key <id>`. See §9, pitfall 12.
 
+**File Cabinet script folder:** every script — all 13, shared modules included — lives in
+`SuiteScripts/NuHeat/2026 Quote/`. Capitalisation is `NuHeat` (capital H), and the folder name
+`2026 Quote` contains a space. Relative `define()` paths resolve against this folder.
+
 **3. Two shared modules must be uploaded before their consumers.** `nuheat_bus_grant.js` and
 `nuheat_vat_rates.js` are `@NModuleScope Public` AMD modules with no `@NScriptType`. They need no
-script record and no deployment record — File Cabinet upload to `SuiteScripts/NuHeat` only — but
+script record and no deployment record — File Cabinet upload to `SuiteScripts/NuHeat/2026 Quote` only — but
 both must be present **before** `nuheat_quote_suitelet.js` or `nuheat_send_quote_sl.js` is
 redeployed, or both consumers fail at load time. See §9, pitfall 13.
 
@@ -287,9 +291,9 @@ that something has regressed at source. See §6.
 | Quote Viewer | v1.1.0 | `nuheat_quote_viewer_sl.js` | ✅ Live in Production |
 | Scheduled Script | v1.0.0 | `nuheat_quote_generator_ss.js` | ✅ Live in Production |
 | Master Proposal | v1.8.3 | `nuheat_master_proposal.js` | ✅ Live in Production |
-| Send Quote SL | v1.8.0 | `nuheat_send_quote_sl.js` | ⏳ Pending Sandbox testing |
+| Send Quote SL | 1.8.0 — pending Sandbox | `nuheat_send_quote_sl.js` | ⏳ Pending Sandbox testing (live: v1.7.0) |
 | Send Quote CS | v1.4.0 | `nuheat_send_quote_cs.js` | ✅ Live in Production |
-| Opportunity UE | v1.1.0 | `nuheat_opportunity_ue.js` | ⏳ Pending Sandbox testing |
+| Opportunity UE | 1.1.0 — pending Sandbox | `nuheat_opportunity_ue.js` | ⏳ Pending Sandbox testing (live: v1.0.0) |
 | Opportunity CS | v1.0.0 | `nuheat_opportunity_cs.js` | ✅ Live in Production |
 | Analytics Suitelet | v1.0.1 | `nuheat_analytics_sl.js` | ✅ Live in Production |
 | **BUS Grant Module** | **v1.0.0** | **`nuheat_bus_grant.js`** | ✅ Live in Production |
@@ -307,7 +311,7 @@ that something has regressed at source. See §6.
 
 > ⚠️ **`nuheat_bus_grant.js` and `nuheat_vat_rates.js` are shared custom modules.** Neither needs a
 > script deployment record, only a File Cabinet upload — but **both** must be uploaded to
-> `SuiteScripts/NuHeat` **before** the Quote Suitelet or the Send Quote SL is redeployed, or both
+> `SuiteScripts/NuHeat/2026 Quote` **before** the Quote Suitelet or the Send Quote SL is redeployed, or both
 > consumers fail at load time.
 
 ### Current Configuration
@@ -949,7 +953,7 @@ To modify, edit `renderProductCard()` and update CSS in `generateCSS()`.
 
 13. **Custom module load order** — `nuheat_bus_grant.js` and `nuheat_vat_rates.js` are
     `@NModuleScope Public` AMD modules with **no `@NScriptType`**. They therefore need no script
-    record and no deployment record; a File Cabinet upload to `SuiteScripts/NuHeat` is the entire
+    record and no deployment record; a File Cabinet upload to `SuiteScripts/NuHeat/2026 Quote` is the entire
     deployment. But `nuheat_quote_suitelet.js` and `nuheat_send_quote_sl.js` both `define()` them
     by relative path (`'./nuheat_bus_grant'`, `'./nuheat_vat_rates'`), so **both modules must be
     uploaded before either consumer is redeployed** or the consumers fail at load time. The
@@ -1023,7 +1027,7 @@ Order matters. Follow it exactly:
 
 1. **Upload `nuheat_bus_grant.js` and `nuheat_vat_rates.js` first.** Both consumers fail at load
    time if either is missing (§9, pitfall 13).
-2. **Upload the remaining changed scripts** to `SuiteScripts/NuHeat`.
+2. **Upload the remaining changed scripts** to `SuiteScripts/NuHeat/2026 Quote`.
 3. **Verify the folder IDs match the target environment** before uploading — Production `26895192`,
    Sandbox `21719365`, in all three files (§9, pitfall 12). Upload the **repository** versions to
    Production; never upload a hand-edited Sandbox copy.
@@ -1070,7 +1074,7 @@ Current task: [describe what you need]
 ### How to Test Changes
 
 1. After making code changes, the updated script needs to be uploaded to NetSuite File Cabinet
-2. In NetSuite Sandbox: Documents > Files > SuiteScripts > NuHeat
+2. In NetSuite Sandbox: Documents > Files > SuiteScripts > NuHeat > 2026 Quote
 3. Upload the modified file (overwrite existing)
 4. Test by opening an Estimate and clicking "Regen quote"
 5. Check Script Execution Log for errors

@@ -48,7 +48,7 @@ Also: clear Est. delivery date and send — the date must **not** be cleared on 
 ## BUS Grant Rates & Post-Grant Balance (v4.4.0 / v1.7.0 / v1.6.0 / v1.0.0)
 
 > ⚠️ **Before testing:** upload **`nuheat_bus_grant.js` AND `nuheat_vat_rates.js`** to
-> `SuiteScripts/NuHeat` **first**, then the Quote Suitelet and Send Quote SL. Both consumers fail at
+> `SuiteScripts/NuHeat/2026 Quote` **first**, then the Quote Suitelet and Send Quote SL. Both consumers fail at
 > load time if either module is missing. See `DEPLOYMENT_CHECKLIST.md`.
 
 Check **both** the quote page and the Master Proposal for every scenario.

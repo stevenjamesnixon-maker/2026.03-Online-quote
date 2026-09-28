@@ -67,9 +67,9 @@ Opportunity ──▶ Send Quote SL ──▶ Master Proposal ──▶ HTML Fil
 ├── nuheat_quote_viewer_sl.js      # Proxy Suitelet for stable URLs (v1.1.0)
 ├── nuheat_quote_generator_ss.js   # Scheduled Script fallback (v1.0.0)
 ├── nuheat_master_proposal.js      # Master Proposal generator (v1.8.3)
-├── nuheat_send_quote_sl.js        # Quote selection Suitelet (v1.8.0)
+├── nuheat_send_quote_sl.js        # Quote selection Suitelet (1.8.0 — pending Sandbox; live: v1.7.0)
 ├── nuheat_send_quote_cs.js        # Send Quote form handler (v1.4.0)
-├── nuheat_opportunity_ue.js       # Opportunity "Send Quote" button (v1.1.0)
+├── nuheat_opportunity_ue.js       # Opportunity "Send Quote" button (1.1.0 — pending Sandbox; live: v1.0.0)
 ├── nuheat_opportunity_cs.js       # Opportunity button handler (v1.0.0)
 ├── nuheat_analytics_sl.js         # Analytics Suitelet — quote and proposal view events (v1.0.1)
 ├── test/send-quote-opp-update.js  # Node test for Send Quote SL — `node test/send-quote-opp-update.js`
@@ -127,7 +127,7 @@ Opportunity ──▶ Send Quote SL ──▶ Master Proposal ──▶ HTML Fil
 
 ### 1. Deploy Scripts
 
-Upload all scripts to **File Cabinet > SuiteScripts > NuHeat**.
+Upload all scripts to **File Cabinet > SuiteScripts > NuHeat > 2026 Quote**.
 
 > ⚠️ Upload `nuheat_bus_grant.js` and `nuheat_vat_rates.js` **first** — `nuheat_quote_suitelet.js`
 > and `nuheat_send_quote_sl.js` import both and fail at load time if either is not already present.
@@ -220,9 +220,9 @@ See [FIELD_REFERENCE.md](FIELD_REFERENCE.md) for every field used, and
 | Quote Client Script | v4.0.6 | 28 Mar 2026 |
 | Quote Viewer | v1.1.0 | 28 Mar 2026 |
 | Master Proposal | v1.8.3 | 18 Aug 2026 |
-| Send Quote Suitelet | v1.8.0 | 28 Sep 2026 |
+| Send Quote Suitelet | 1.8.0 — pending Sandbox (live: v1.7.0) | 28 Sep 2026 |
 | Send Quote CS | v1.4.0 | 18 Aug 2026 |
-| Opportunity UE | v1.1.0 | 28 Sep 2026 |
+| Opportunity UE | 1.1.0 — pending Sandbox (live: v1.0.0) | 28 Sep 2026 |
 | Opportunity CS | v1.0.0 | 28 Mar 2026 |
 | Scheduled Script | v1.0.0 | Mar 2026 |
 | Analytics Suitelet | v1.0.1 | Apr 2026 |

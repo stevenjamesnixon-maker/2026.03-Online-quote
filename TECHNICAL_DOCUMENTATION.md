@@ -3,7 +3,7 @@
 **Version:** 1.1.0  
 **Last Updated:** 20 August 2026  
 **Applies to:** Suitelet v4.6.0, UE v4.0.9, CS v4.0.6, Viewer v1.1.0, Master Proposal v1.8.3,
-Send Quote SL v1.8.0, Send Quote CS v1.4.0, Opportunity UE v1.1.0, BUS Grant Module v1.0.0, VAT Rates Module v1.0.0
+Send Quote SL 1.8.0 — pending Sandbox, Send Quote CS v1.4.0, Opportunity UE 1.1.0 — pending Sandbox, BUS Grant Module v1.0.0, VAT Rates Module v1.0.0
 
 ---
 
@@ -170,9 +170,9 @@ EXTERNAL ACCESS:
 | Quote Viewer | `nuheat_quote_viewer_sl.js` | v1.1.0 | Suitelet | Proxy that serves latest quote HTML via stable URL |
 | Scheduled Script | `nuheat_quote_generator_ss.js` | v1.0.0 | ScheduledScript | Fallback for governance-limited UE contexts |
 | Master Proposal | `nuheat_master_proposal.js` | v1.8.3 | Module | Generates multi-quote master proposals |
-| Send Quote SL | `nuheat_send_quote_sl.js` | v1.8.0 | Suitelet | Quote selection UI for proposal generation |
+| Send Quote SL | `nuheat_send_quote_sl.js` | 1.8.0 — pending Sandbox | Suitelet | Quote selection UI for proposal generation |
 | Send Quote CS | `nuheat_send_quote_cs.js` | v1.4.0 | ClientScript | Handles Send Quote form interactions |
-| Opportunity UE | `nuheat_opportunity_ue.js` | v1.1.0 | UserEventScript | Adds "Send Quote" button to Opportunity form (VIEW mode only) |
+| Opportunity UE | `nuheat_opportunity_ue.js` | 1.1.0 — pending Sandbox | UserEventScript | Adds "Send Quote" button to Opportunity form (VIEW mode only) |
 | Opportunity CS | `nuheat_opportunity_cs.js` | v1.0.0 | ClientScript | Opens Send Quote Suitelet from Opportunity |
 
 ### 2.2 Dependencies Between Components
@@ -238,7 +238,7 @@ look correct. `QUOTE_TYPE_ALIASES` mirrors `QUOTE_TYPE_MAPPING` in `nuheat_send_
 quote type must be added in both.
 
 > ⚠️ **Deployment ordering.** Same rule as the BUS module — upload `nuheat_vat_rates.js` to
-> `SuiteScripts/NuHeat` **before** either consumer is redeployed.
+> `SuiteScripts/NuHeat/2026 Quote` **before** either consumer is redeployed.
 
 #### Shared BUS module dependency (v4.4.0)
 
@@ -269,7 +269,7 @@ The Send Quote SL passes the values through a `serverWidget` sublist, which carr
 in. `nuheat_send_quote_cs.js` collects the same two fields into the preview payload so preview
 and the saved proposal agree.
 
-> ⚠️ **Deployment ordering.** `nuheat_bus_grant.js` must be uploaded to `SuiteScripts/NuHeat`
+> ⚠️ **Deployment ordering.** `nuheat_bus_grant.js` must be uploaded to `SuiteScripts/NuHeat/2026 Quote`
 > **before** either consumer is redeployed — both fail at load time otherwise. It requires no script
 > record and no script deployment record; the relative path resolves against the calling script's own
 > File Cabinet folder, so all files must live in the same folder. See `DEPLOYMENT_CHECKLIST.md`.
@@ -401,17 +401,21 @@ and the saved proposal agree.
 ```
 SuiteScripts/
 └── NuHeat/
-    ├── nuheat_quote_suitelet.js
-    ├── nuheat_quote_ue.js
-    ├── nuheat_quote_cs.js
-    ├── nuheat_quote_viewer_sl.js
-    ├── nuheat_quote_generator_ss.js
-    ├── nuheat_master_proposal.js
-    ├── nuheat_send_quote_sl.js
-    ├── nuheat_send_quote_cs.js
-    ├── nuheat_opportunity_ue.js
-    ├── nuheat_opportunity_cs.js
-    └── Quote HTML Files/          ← Folder ID: environment-specific (see below)
+    ├── 2026 Quote/                ← all 13 scripts live here (capital H in NuHeat)
+    │   ├── nuheat_bus_grant.js
+    │   ├── nuheat_vat_rates.js
+    │   ├── nuheat_quote_suitelet.js
+    │   ├── nuheat_quote_ue.js
+    │   ├── nuheat_quote_cs.js
+    │   ├── nuheat_quote_viewer_sl.js
+    │   ├── nuheat_quote_generator_ss.js
+    │   ├── nuheat_master_proposal.js
+    │   ├── nuheat_send_quote_sl.js
+    │   ├── nuheat_send_quote_cs.js
+    │   ├── nuheat_opportunity_ue.js
+    │   ├── nuheat_opportunity_cs.js
+    │   └── nuheat_analytics_sl.js
+    └── Quote HTML Files/          ← Folder ID: environment-specific (see below); scripts address it by ID, not path
         ├── quote_12345_67890_1711612800000.html
         ├── quote_12345_67890_1711612900000.html
         ├── proposal_67890_1711613000000.html
@@ -725,7 +729,7 @@ Refer to `PRODUCT_TYPE_ID_MAP` and `PRODUCT_CATEGORY_MAP` in `nuheat_quote_suite
 |---------|---------|------------|
 | Account ID | 472052_SB1 | — |
 | SuiteScript Version | 2.1 | 2.1 |
-| Script Folder | SuiteScripts > NuHeat | SuiteScripts > NuHeat |
+| Script Folder | SuiteScripts > NuHeat > 2026 Quote | SuiteScripts > NuHeat > 2026 Quote |
 | HTML Folder ID | `21719365` | `26895192` |
 | Domain (External) | 472052-sb1.extforms.netsuite.com | — |
 
