@@ -1026,5 +1026,53 @@ SNAPSHOT_CASES.forEach(function (c) {
     ok(got === SEND_QUOTE_2_0_4_SNAPSHOTS[c[0]], c[0] + ': identical to 2.0.4' + (got === SEND_QUOTE_2_0_4_SNAPSHOTS[c[0]] ? '' : ' (got ' + got.substring(0, 16) + ')'));
 });
 
+// ═══ M — 2.1.1: proposal email — duplicated contact buttons, left drift ═════════
+
+/** The email body exactly as email.send() received it, for a normal send. */
+function renderEmail() {
+    resetState();
+    runPost(basePost());
+    return state.emails[0] ? String(state.emails[0].body) : '';
+}
+var MSO_BLOCK = /<!--\[if (?:gte )?mso[^\]]*\]>([\s\S]*?)<!\[endif\]-->/g;          // [if mso], [if gte mso 9]
+var NOT_MSO_BLOCK = /<!--\[if !mso\]><!-- -->([\s\S]*?)<!--<!\[endif\]-->/g;
+/** What a non-Outlook viewer that strips inline styles (NetSuite's message view, some webmail) shows. */
+function nonOutlookStripped(h) {
+    return h.replace(MSO_BLOCK, '').replace(/\sstyle="[^"]*"/g, '').replace(/<!--[\s\S]*?-->/g, '');
+}
+/** What Outlook shows: [if mso] content unwrapped, [if !mso] content removed. */
+function outlookView(h) {
+    return h.replace(NOT_MSO_BLOCK, '').replace(MSO_BLOCK, '$1').replace(/<!--[\s\S]*?-->/g, '');
+}
+function count(h, text) { return h.split(text).length - 1; }
+var BUTTONS = ['CLICK TO CALL', 'SEND AN EMAIL', 'VIEW YOUR QUOTE(S) HERE'];
+var emailHtml = renderEmail();
+
+console.log('M1. Non-Outlook view with every inline style stripped: each button once');
+ok(emailHtml.length > 10000, 'email rendered (' + emailHtml.length + ' chars)');
+var m1 = nonOutlookStripped(emailHtml);
+BUTTONS.forEach(function (b) { ok(count(m1, b) === 1, '"' + b + '" appears exactly once (' + count(m1, b) + ')'); });
+
+console.log('M2. Outlook view: each button once');
+var m2 = outlookView(emailHtml);
+BUTTONS.forEach(function (b) { ok(count(m2, b) === 1, '"' + b + '" appears exactly once (' + count(m2, b) + ')'); });
+
+console.log('M3. No display:none / mso-hide wrapper element remains');
+var wrappers = emailHtml.match(/<[a-z]+[^>]*style="[^"]*display:\s*none[^"]*"[^>]*>/gi) || [];
+ok(!wrappers.some(function (w) { return /mso-hide/i.test(w); }), 'no element with display:none + mso-hide');
+ok(wrappers.length === 1 && /^<span style="display:none;font-size:0px/.test(wrappers[0]) && emailHtml.indexOf('Here\'s your Nu-Heat quote.</span>') !== -1,
+   'the only display:none element is the preheader span (' + wrappers.length + ')');
+
+console.log('M4. Both main containers carry an attribute width');
+var containers = emailHtml.match(/<table class="width600 main-container"[^>]*>/g) || [];
+ok(containers.length === 2, 'two main-container tables');
+ok(containers.every(function (c) { return / width="600"/.test(c) && /style="[^"]*max-width:600px/.test(c); }),
+   'each has width="600" and max-width:600px in its style (' + containers.map(function (c) { return (/ width="([^"]*)"/.exec(c) || [])[1]; }).join(', ') + ')');
+
+if (process.env.WRITE_EMAIL_SAMPLE) {
+    fs.writeFileSync(path.join(ROOT, 'docs', 'samples', 'send-quote-email-2.1.1.html'), emailHtml);
+    console.log('  (wrote docs/samples/send-quote-email-2.1.1.html)');
+}
+
 console.log('\n' + passes + ' passed, ' + failures + ' failed');
 process.exit(failures ? 1 : 0);

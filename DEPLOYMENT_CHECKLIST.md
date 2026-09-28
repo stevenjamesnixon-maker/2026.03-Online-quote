@@ -33,7 +33,7 @@
 | Quote Viewer | `nuheat_quote_viewer_sl.js` | v1.1.0 |
 | Scheduled Script | `nuheat_quote_generator_ss.js` | v1.0.0 |
 | Master Proposal | `nuheat_master_proposal.js` | v1.8.3 |
-| Send Quote SL | `nuheat_send_quote_sl.js` | 2.1.0 — pending Sandbox |
+| Send Quote SL | `nuheat_send_quote_sl.js` | 2.1.1 — pending Sandbox |
 | Update Opportunity SL | `nuheat_update_opp_sl.js` | 1.0.0 — pending Sandbox |
 | Send Quote CS | `nuheat_send_quote_cs.js` | v1.4.0 — detached (no upload needed) |
 | Analytics Suitelet | `nuheat_analytics_sl.js` | v1.0.1 |

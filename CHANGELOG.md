@@ -1,3 +1,32 @@
+## [Send Quote SL v2.1.1] — 29 September 2026
+**Status:** ⏳ Pending Sandbox testing (R17)
+**Components:** `nuheat_send_quote_sl.js` (`buildEmailBody()` only), `test/send-quote-opp-update.js`,
+`docs/samples/send-quote-email-2.1.1.html` (new reference render)
+
+⚠️ **Long-standing, not caused by the 2.x work:** `buildEmailBody()` was byte-identical from `539edc5`
+(before any 28 Sep work) through 2.1.0. No copy, colour, image, link or merge tag changed.
+
+### Fixed — "CLICK TO CALL" and "SEND AN EMAIL" appeared twice
+- Their Outlook fallbacks were wrapped in `<div style="display:none; mso-hide: none;">`. Viewers that
+  strip inline styles (NetSuite's message view, some webmail) showed both copies. They now use
+  `<!--[if mso]> … <![endif]-->`, as the VIEW YOUR QUOTE(S) button has since v1.4.1. No other such
+  wrapper remains; the hidden preheader span is unchanged.
+
+### Fixed — the email sat against the left edge
+- Both `main-container` tables were `width="100%" style="max-width:600px;"`. Once a viewer strips
+  styles (inline **and** `<style>` blocks — with only inline styles gone, the head rule `.width600
+  { width: 600px }` still held them), they stretched full width and the 600 px content sat at the left.
+  Now `width="600" style="width:100%;max-width:600px;"`: styled clients unchanged, unstyled ones centre a
+  600 px column. The mobile rules (`.width600` / `.main-container { width: 100% !important; }` under
+  599 px) still force full width.
+
+### Tests
+- M1–M4 (228 assertions): each button exactly once in a stripped non-Outlook view and in an Outlook view;
+  no `display:none` + `mso-hide` wrapper; both containers `width="600"`. M1, M3 and M4 fail on `main`
+  (2 × each contact button; containers `100%`) and pass on this branch.
+
+---
+
 ## [Update Opportunity SL v1.0.0 / Opportunity Update Library v1.0.0 / Send Quote SL v2.1.0 / Opportunity UE v1.3.0 / Opportunity CS v1.2.0] — 29 September 2026
 **Status:** ⏳ Pending Sandbox testing (U1–U10)
 **Components:** `nuheat_opp_update_lib.js` (NEW), `nuheat_update_opp_sl.js` (NEW), `nuheat_send_quote_sl.js`,

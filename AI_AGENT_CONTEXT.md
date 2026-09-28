@@ -292,7 +292,7 @@ that something has regressed at source. See §6.
 | Quote Viewer | v1.1.0 | `nuheat_quote_viewer_sl.js` | ✅ Live in Production |
 | Scheduled Script | v1.0.0 | `nuheat_quote_generator_ss.js` | ✅ Live in Production |
 | Master Proposal | v1.8.3 | `nuheat_master_proposal.js` | ✅ Live in Production |
-| Send Quote SL | 2.1.0 — pending Sandbox | `nuheat_send_quote_sl.js` | ⏳ Pending Sandbox testing (live: v1.7.0; 1.8.0 passed S1–S4, S6–S9; 2.0.0 Status reverted; 2.0.1 reorder fixed the revert; 2.0.2 Expected close passed R15; forecast flags ⚠️ open) |
+| Send Quote SL | 2.1.1 — pending Sandbox | `nuheat_send_quote_sl.js` | ⏳ Pending Sandbox testing (live: v1.7.0; 1.8.0 passed S1–S4, S6–S9; 2.0.0 Status reverted; 2.0.1 reorder fixed the revert; 2.0.2 Expected close passed R15; forecast flags ⚠️ open) |
 | Send Quote CS | v1.4.0 — detached in SL 2.0.0 (pending Sandbox) | `nuheat_send_quote_cs.js` | ✅ Live in Production today; **not attached** once SL 2.0.0 deploys — kept for reference |
 | Update Opportunity SL | 1.0.0 — pending Sandbox | `nuheat_update_opp_sl.js` | ⏳ New — pending Sandbox U1–U10 |
 | Opportunity Update Library | 1.0.0 — pending Sandbox | `nuheat_opp_update_lib.js` | ⏳ New — pending Sandbox (upload first) |
@@ -1156,6 +1156,22 @@ To modify, edit `renderProductCard()` and update CSS in `generateCSS()`.
     by the browser and can be forged. They are fine for change detection (writing an unchanged value is
     harmless) but not for a gate: `lib.validateRequired()` reads the current value with
     `search.lookupFields`. Validation runs before the phone call, so a failed gate writes nothing.
+
+25. **HTML email: Outlook fallbacks use `[if mso]`, never `display:none`; containers need an attribute
+    width, not only `max-width`.** Some viewers strip inline styles (NetSuite's own message view, some
+    webmail), and some strip `<style>` blocks too. Two consequences, both fixed in Send Quote SL 2.1.1's
+    `buildEmailBody()`:
+    - An Outlook-only copy wrapped in `<div style="display:none; mso-hide: none;">` becomes **visible**
+      once the style is stripped, so the button appears twice. Wrap Outlook-only markup in
+      `<!--[if mso]> … <![endif]-->`, which every non-Outlook client treats as a comment. (The
+      `<!--[if !mso]><!-- --> … <!--<![endif]-->` copy is the non-Outlook half.) The hidden preheader
+      `<span style="display:none…">` is a different thing and stays.
+    - A container that is `width="100%"` with only `max-width:600px` in its style stretches to the full
+      window when styles are gone, and the fixed-width content drifts left. Give it `width="600"` as
+      the attribute and `width:100%;max-width:600px` as the style: styled clients behave as before,
+      unstyled ones fall back to 600 px, centred by the parent `align="center"`. Mobile rules with
+      `width: 100% !important` still win over the attribute.
+    `test/send-quote-opp-update.js` M1–M4 check both, in a stripped and an Outlook view.
 
 ### NetSuite Record Types Used
 
