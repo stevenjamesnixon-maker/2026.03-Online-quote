@@ -3,7 +3,7 @@
 **Version:** 1.1.0  
 **Last Updated:** 20 August 2026  
 **Applies to:** Suitelet v4.6.0, UE v4.0.9, CS v4.0.6, Viewer v1.1.0, Master Proposal v1.8.3,
-Send Quote SL 2.1.1 — pending Sandbox, Update Opportunity SL 1.0.0 — pending Sandbox, Opportunity Update Library 1.0.0 — pending Sandbox, Send Quote CS v1.4.0 (detached), Opportunity UE 1.3.0 — pending Sandbox, Opportunity CS 1.2.0 — pending Sandbox, BUS Grant Module v1.0.0, VAT Rates Module v1.0.0
+Send Quote SL 2.3.0, Update Opportunity SL 1.0.0, Opportunity Update Library 1.0.0, Send Quote CS v1.4.0 (detached), Opportunity UE 1.3.0, Opportunity CS 1.2.0 (all in Production, 29 Sep 2026), BUS Grant Module v1.0.0, VAT Rates Module v1.0.0
 
 ---
 
@@ -164,18 +164,18 @@ EXTERNAL ACCESS:
 |--------|------|---------|------|---------|
 | BUS Grant Module | `nuheat_bus_grant.js` | v1.0.0 | Module | Shared BUS grant resolution from the Suppak line item |
 | VAT Rates Module | `nuheat_vat_rates.js` | v1.0.0 | Module | Shared VAT rate resolution by quote technology |
-| Opportunity Update Library | `nuheat_opp_update_lib.js` | 1.0.0 — pending Sandbox | Module | Shared by Send Quote and Update Opportunity: update fields, required gate, redirect codes, text cleaning, page CSS / header / sections, page-script core |
+| Opportunity Update Library | `nuheat_opp_update_lib.js` | 1.0.0 — in Production | Module | Shared by Send Quote and Update Opportunity: update fields, required gate, redirect codes, text cleaning, page CSS / header / sections, page-script core |
 | Quote Suitelet | `nuheat_quote_suitelet.js` | v4.6.0 | Suitelet | Core HTML quote generation engine |
 | Quote User Event | `nuheat_quote_ue.js` | v4.0.9 | UserEventScript | Auto-generates quotes on Estimate save; adds "Regen quote" button |
 | Quote Client Script | `nuheat_quote_cs.js` | v4.0.6 | ClientScript | Handles "Regen quote" button click; saves record first, passes fresh pricing |
 | Quote Viewer | `nuheat_quote_viewer_sl.js` | v1.1.0 | Suitelet | Proxy that serves latest quote HTML via stable URL |
 | Scheduled Script | `nuheat_quote_generator_ss.js` | v1.0.0 | ScheduledScript | Fallback for governance-limited UE contexts |
 | Master Proposal | `nuheat_master_proposal.js` | v1.8.3 | Module | Generates multi-quote master proposals |
-| Send Quote SL | `nuheat_send_quote_sl.js` | 2.1.1 — pending Sandbox | Suitelet | "Send proposal" page: quotes, recipients, opportunity fields; generates, emails, updates, returns to the Opportunity |
+| Send Quote SL | `nuheat_send_quote_sl.js` | 2.3.0 — in Production | Suitelet | "Send proposal" page: quotes, recipients, opportunity fields; generates, emails, updates, returns to the Opportunity |
 | Send Quote CS | `nuheat_send_quote_cs.js` | v1.4.0 — detached | ClientScript | **Not attached from SL 2.0.0** — kept for reference only |
-| Update Opportunity SL | `nuheat_update_opp_sl.js` | 1.0.0 — pending Sandbox | Suitelet | "Update opportunity" page: log a phone call, update the opportunity, log customer objections |
-| Opportunity UE | `nuheat_opportunity_ue.js` | 1.3.0 — pending Sandbox | UserEventScript | Adds "Send Quote" and "Update opportunity" buttons (VIEW only) and the result banner (`nsqs` = send / upd) |
-| Opportunity CS | `nuheat_opportunity_cs.js` | 1.2.0 — pending Sandbox | ClientScript | Opens the Send Quote and Update Opportunity Suitelets from Opportunity (same tab) |
+| Update Opportunity SL | `nuheat_update_opp_sl.js` | 1.0.0 — in Production | Suitelet | "Update opportunity" page: log a phone call, update the opportunity, log customer objections |
+| Opportunity UE | `nuheat_opportunity_ue.js` | 1.3.0 — in Production | UserEventScript | Adds "Send Quote" and "Update opportunity" buttons (VIEW only) and the result banner (`nsqs` = send / upd) |
+| Opportunity CS | `nuheat_opportunity_cs.js` | 1.2.0 — in Production | ClientScript | Opens the Send Quote and Update Opportunity Suitelets from Opportunity (same tab) |
 
 ### 2.2 Dependencies Between Components
 

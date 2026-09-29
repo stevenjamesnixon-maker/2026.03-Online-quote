@@ -292,12 +292,12 @@ that something has regressed at source. See §6.
 | Quote Viewer | v1.1.0 | `nuheat_quote_viewer_sl.js` | ✅ Live in Production |
 | Scheduled Script | v1.0.0 | `nuheat_quote_generator_ss.js` | ✅ Live in Production |
 | Master Proposal | v1.8.3 | `nuheat_master_proposal.js` | ✅ Live in Production |
-| Send Quote SL | 2.3.0 — pending Sandbox (faster send, forecast tags, R19; 2.2.0 email redesign R18) | `nuheat_send_quote_sl.js` | ⏳ Pending Sandbox testing (live: v1.7.0; 1.8.0 passed S1–S4, S6–S9; 2.0.0 Status reverted; 2.0.1 reorder fixed the revert; 2.0.2 Expected close passed R15; forecast flags ⚠️ open) |
-| Send Quote CS | v1.4.0 — detached in SL 2.0.0 (pending Sandbox) | `nuheat_send_quote_cs.js` | ✅ Live in Production today; **not attached** once SL 2.0.0 deploys — kept for reference |
-| Update Opportunity SL | 1.0.0 — pending Sandbox | `nuheat_update_opp_sl.js` | ⏳ New — pending Sandbox U1–U10 |
-| Opportunity Update Library | 1.0.0 — pending Sandbox | `nuheat_opp_update_lib.js` | ⏳ New — pending Sandbox (upload first) |
-| Opportunity UE | 1.3.0 — pending Sandbox | `nuheat_opportunity_ue.js` | ⏳ Pending Sandbox testing (live: v1.0.0) |
-| Opportunity CS | 1.2.0 — pending Sandbox | `nuheat_opportunity_cs.js` | ⏳ Pending Sandbox testing (live: v1.0.0) |
+| Send Quote SL | 2.3.0 | `nuheat_send_quote_sl.js` | ✅ Live in Production (29 Sep 2026; R13–R19 passed in Sandbox) — forecast flags ⚠️ R4 open |
+| Send Quote CS | v1.4.0 — detached | `nuheat_send_quote_cs.js` | Not attached (the Send Quote SL has its own inline script) — kept for reference |
+| Update Opportunity SL | 1.0.0 | `nuheat_update_opp_sl.js` | ✅ Live in Production (29 Sep 2026; U1–U10 passed in Sandbox) |
+| Opportunity Update Library | 1.0.0 | `nuheat_opp_update_lib.js` | ✅ Live in Production (29 Sep 2026; upload first) |
+| Opportunity UE | 1.3.0 | `nuheat_opportunity_ue.js` | ✅ Live in Production (29 Sep 2026) |
+| Opportunity CS | 1.2.0 | `nuheat_opportunity_cs.js` | ✅ Live in Production (29 Sep 2026) |
 | Analytics Suitelet | v1.0.1 | `nuheat_analytics_sl.js` | ✅ Live in Production |
 | **BUS Grant Module** | **v1.0.0** | **`nuheat_bus_grant.js`** | ✅ Live in Production |
 | **VAT Rates Module** | **v1.0.0** | **`nuheat_vat_rates.js`** | ✅ Live in Production |
@@ -490,7 +490,7 @@ objections (optional)** and a sticky footer with Cancel and **Save**.
 
 - **1 Log the call:** a "Standard title" select (`customlist_nh_call_title`, read at runtime) copied into
   an editable **Title** (only when Title is empty or still equals the previous standard title — typing
-  is never overwritten; max `CALL_TITLE_MAX` = 99, ⚠️ assumed); **Call date** (native picker, today by
+  is never overwritten; max `CALL_TITLE_MAX` = 99 — a deliberate cap, our choice, not a proven NetSuite limit); **Call date** (native picker, today by
   default, not in the future); optional **Contact** (the opportunity's contacts); **What was discussed**
   (required, max 3,900).
 - **2 Update the opportunity:** the shared fields from `nuheat_opp_update_lib.js`, with rules
@@ -524,7 +524,7 @@ Decisions — **settled, do not re-open without Steve** (brief of 29 Sep 2026):
 
 Also: `custrecord_nhobj_group` and `custrecord_nhobj_customer` are sourced by NetSuite and **never set**;
 the Phone Call field IDs (`title`, `message`, `startdate`, `status` = `COMPLETE`, `company`, `transaction`,
-`assigned`, `contact`) are ⚠️ **assumed** until Sandbox U3. The UE deliberately does not import the
+`assigned`, `contact`) are ✅ **confirmed** (Sandbox U3, Sep 2026). The UE deliberately does not import the
 library — a missing library must never break the opportunity view.
 
 ### The Master Proposal never loads an Estimate
@@ -1117,16 +1117,16 @@ To modify, edit `renderProductCard()` and update CSS in `generateCSS()`.
     word of the message from the record in `beforeLoad`; verify IDs belong to the record; expire the
     message (`nsqt`, 300 s); wrap the whole thing in try/catch so `beforeLoad` fails closed.
 
-20. ⚠️ **SUSPECTED — saving an Estimate can re-sync its Status to the Opportunity. Write Estimates
-    before the Opportunity.** Inferred from Sandbox (28 Sep 2026): with Send Quote SL 2.0.0 a Status
+20. ✅ **CONFIRMED — saving an Estimate re-syncs its Status onto the Opportunity. Write Estimates
+    before the Opportunity; the Opportunity is written last.** Inferred from Sandbox (28 Sep 2026): with Send Quote SL 2.0.0 a Status
     change did not stick (Quoted → "In Negotiation – Warm" stayed Quoted; Def Order → Quoted stayed Def
     Order), where 1.8.0 had worked. 2.0.0 added `submitFields` on Estimates (`includeinforecast`)
     *after* the Opportunity write, each Estimate still carrying the old Status. SL 2.0.1 reorders the
     writes. **Not yet observed directly** — to be confirmed or corrected from the Opportunity's system
     notes after Sandbox R13. The other change since 1.8.0, `enableSourcing: true` on a Status change,
     is the second suspect and is deliberately unchanged until that evidence is in.
-    **Sandbox, 28 Sep 2026:** the 2.0.1 reorder fixed the reported revert. Stays ⚠️ suspected until
-    both R13 variants (with and without a forecast change) are reported as passed.
+    **Sandbox, 28 Sep 2026:** the 2.0.1 reorder fixed the reported revert. **Confirmed, Sep 2026:** R13
+    passed (both variants) — Send Quote writes the forecast flags first and the Opportunity last.
 
 21. **`<input type="date">` and NetSuite dates** — the value is always `yyyy-mm-dd` whatever the
     display. Build it from `getFullYear()` / `getMonth() + 1` / `getDate()`, never `toISOString()`
@@ -1193,6 +1193,16 @@ To modify, edit `renderProductCard()` and update CSS in `generateCSS()`.
     7. Every merge value HTML-escaped; URLs escaped for `href` / `src`; `tel:` digits only; tags
        substituted in one pass. A user-supplied image URL (the rep photo) is used only if `https://`.
     A stripped viewer also shows the preheader text at the top (its `display:none` is gone) — accepted.
+
+26. **A missing role permission shows up as an empty dropdown or list, not as an error on screen.**
+    Learned in Production (29 Sep 2026) on Update Opportunity: without Lists › Custom Lists: View the
+    Call Title dropdown is empty (`customlist_nh_call_title` search → Permission Violation); a role not on
+    the Objection Type record's "Use Permission List" gets an empty objection picker; without
+    Create/Edit on Customer Objection the objections do not save (amber banner). A deployment left on
+    **Testing** runs only for its owner ("That Suitelet is invalid, disabled, or no longer exists" for
+    everyone else). **When a page looks empty for one role, check the Execution Log for Permission
+    Violation first.** The full list is in DEPLOYMENT_CHECKLIST › Roles and permissions; test as a
+    non-admin sales role (TESTING_GUIDE U11).
 
 ### NetSuite Record Types Used
 

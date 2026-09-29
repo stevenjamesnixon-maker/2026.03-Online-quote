@@ -93,7 +93,7 @@ record; unknown values are dropped.
 | Field ID | Type | Purpose |
 |---|---|---|
 | `firstname` | Text (standard) | The first name on the CALL / EMAIL buttons. Empty → first word of the rep's name → CLICK TO CALL / SEND AN EMAIL |
-| `custentity_employee_photo_link` | ⚠️ **Type and URL form UNCONFIRMED** | The account manager's photo in the email card. Used only if, trimmed, it is an absolute `https://` URL; anything else (empty, `http://`, relative, a file reference) → no photo. Audit log `SendQuoteSL.RepPhoto` says which and why. Confirm the type in Sandbox (R18 E1/E4) |
+| `custentity_employee_photo_link` | ⚠️ **Field type still unconfirmed** (not yet read from the field definition) | The account manager's photo in the email card. ✅ **Works with an absolute `https://` URL** — shown in the NetSuite message view (R18 E1). Used only if, trimmed, it is an absolute `https://` URL; anything else (empty, `http://`, relative, a file reference) → no photo. Audit log `SendQuoteSL.RepPhoto` says which and why |
 
 ### Email merge tags (`buildEmailBody()`)
 
@@ -107,6 +107,8 @@ record; unknown values are dropped.
 | `{{PROPOSAL_URL}}` | The generated Master Proposal URL |
 
 All values are HTML-escaped; tags are substituted in one pass.
+
+⚠️ Known cosmetic issue (not fixed): with **no sales rep** on the Opportunity, the card shows the label YOUR ACCOUNT MANAGER above the fallback name "Your Account Manager" — the label repeats.
 
 ## Update Opportunity SL 1.0.0 — phone call, customer objections, lists
 
@@ -131,16 +133,16 @@ All values are HTML-escaped; tags are substituted in one pass.
 | `custrecord_nhobj_group` | — | ⚠️ **never set** — NetSuite sources it from the Type |
 | `custrecord_nhobj_customer` | — | ⚠️ **never set** — NetSuite sources it from the Opportunity |
 
-### Phone Call (standard) — ⚠️ field IDs ASSUMED until Sandbox U3
+### Phone Call (standard) — ✅ field IDs confirmed (Sandbox U3, Sep 2026)
 
 | Field ID | Set to |
 |---|---|
-| `title` | the Title box (max 99 — ⚠️ assumed limit) |
+| `title` | the Title box (max 99 — a deliberate cap, `CALL_TITLE_MAX`; our choice, not a proven NetSuite limit) |
 | `message` | "What was discussed" (max 3,900) |
 | `startdate` | the call date (a Date) |
 | `status` | `COMPLETE` |
 | `company` | the Opportunity's customer (`entity`) |
-| `transaction` | the Opportunity — assumed to be what shows the call under the Opportunity's Communication › Activities |
+| `transaction` | the Opportunity — shows the call under the Opportunity's Communication › Activities (U3) |
 | `assigned` | the current user |
 | `contact` | the chosen contact, if any |
 

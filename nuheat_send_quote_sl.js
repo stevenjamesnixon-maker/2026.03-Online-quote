@@ -14,7 +14,7 @@
  * Script ID:      customscript_nuheat_send_quote_sl
  * Deployment ID:  customdeploy_nuheat_send_quote_sl
  *
- * CHANGELOG v2.3.0 (Faster send with many quotes; "In forecast" tags — pending Sandbox):
+ * CHANGELOG v2.3.0 (Faster send with many quotes; "In forecast" tags — in Production):
  *   - WHY: Send re-ran searchRelatedQuotes(), a full record.load (pricing + BUS line loop) of EVERY
  *     Estimate on the Opportunity, including the ones left out.
  *   - CHANGED (POST only): runQuoteSearch() (the same search, no loads) → the selection is validated
@@ -32,7 +32,7 @@
  *   - Governance, 6 quotes with 1 Main + 1 Additional: Estimate loads 6 → 2 (60 → 20 units) plus
  *     4 lookups (4 units).
  *
- * CHANGELOG v2.2.1 (Timing only — no behaviour change; pending Sandbox):
+ * CHANGELOG v2.2.1 (Timing only — no behaviour change; in Production):
  *   - ADDED: one audit line SendQuoteSL.Timing per page load (GET) and per send (POST), with the
  *     elapsed ms per phase (Date.now() differences) and the quote counts. Baseline for 2.3.0.
  *
