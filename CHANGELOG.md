@@ -1,3 +1,62 @@
+## [Send Quote SL v2.2.0] — 29 September 2026
+**Status:** ⏳ Pending Sandbox testing (R18, E1–E6)
+**Components:** `nuheat_send_quote_sl.js` (`buildEmailBody()` rewritten, `loadRepCardData()` new, one line in
+`sendProposalEmail()`), `test/send-quote-opp-update.js`, `docs/samples/send-quote-email-2.2.0.html` and
+`-stripped.html` (new reference renders)
+
+The proposal email is redesigned ("Send Quote redesign" artboards 5 and 6) and rebuilt so it stays
+centred and single-column in viewers that strip every `style` attribute **and** every `<style>` block
+(NetSuite's message view).
+
+### Changed — layout
+- One centred 600 px column: logo · purple header · hero · Your quote · Why choose Nu-Heat? (2 × 2 on
+  desktop, stacked on phones) · What's next? with an Account Manager card · footer.
+- Layout, width, alignment and colour are carried by HTML attributes (`width`, `align="center"` on every
+  `td`, `bgcolor`, `valign`, `<font color>`); CSS only adds polish and the phone stacking. No floats,
+  no percentage-width side-by-side "col" tables; two-up content is one row of two `td width="50%"`.
+- Every button is a bulletproof table with exactly one `[if !mso]` / `[if mso]` pair. No `display:none`
+  wrapper anywhere except the preheader span.
+- The footer's logo, social icons and links are unchanged; its markup is rebuilt the same way (one row
+  of five 42 px cells instead of percentage spacer cells).
+
+### Changed — copy
+- New header label **YOUR QUOTE IS READY**; the project line is now one line,
+  **Project: {ref} · {tranid}**, with "· {tranid}" in a no-wrap span.
+- "You can view your tailored quote(s) below. This is provided subject to our Terms and Conditions." →
+  **"Open your quote online to see your system, prices and options. It's provided subject to our Terms
+  and Conditions."** (same T&C link).
+- Button **VIEW YOUR QUOTE(S) HERE** → **VIEW YOUR QUOTE**.
+- "To discuss your quote or place your order please contact your Account Manager below." →
+  **"To discuss your quote or place your order, get in touch with your Account Manager."**
+- New Account Manager card: photo (if any), **YOUR ACCOUNT MANAGER**, name, phone · email, and buttons
+  **CALL {FIRST NAME}** / **EMAIL {FIRST NAME}** (were CLICK TO CALL / SEND AN EMAIL, which remain the
+  fallback when there is no first name).
+- New footer line: **"You're receiving this because you requested a quote from Nu-Heat."**
+- **Removed:** the "Nu-Heat team" image and the closing line "If you have any questions, you can contact
+  your Account Manager, …".
+- Unchanged: the preheader, the four Why choose Nu-Heat? tiles (icons, titles, texts), the Calibri font
+  link, the T&C, social and image URLs, sender, subject, recipients and `relatedRecords`.
+
+### Added — account manager first name and photo
+- `loadRepCardData()`: one `search.lookupFields` on the Opportunity's `salesrep` (the same employee
+  whose name, email and phone the email already shows) for `firstname` and
+  `custentity_employee_photo_link`. No sales rep → no lookup. A lookup failure costs the photo and the
+  first name only, never the send.
+- First name: `firstname`, else the first word of the rep's name, else CLICK TO CALL / SEND AN EMAIL.
+- Photo: used only if, trimmed, it starts with `https://` (and has no spaces, quotes or angle brackets);
+  otherwise the photo row is left out. Audit log `SendQuoteSL.RepPhoto` once per send: used, or skipped
+  and why.
+- `tel:` links now carry digits and `+` only (were the escaped phone text, spaces included). A phone
+  with no digits gets no CALL button. Merge tags are now substituted in one pass (a value can no longer
+  inject another tag, and `$&` in a value is literal).
+
+### Tests
+- N1–N9 in `test/send-quote-opp-update.js` (345 assertions in total): fully stripped view, Outlook view,
+  agreed copy, merge tags, first name, photo, escaping, a 120-character project name, no `display:none`.
+- Changed M-series assertions (old design): M1/M2 button texts; M4 one container instead of two.
+
+---
+
 ## [Send Quote SL v2.1.1] — 29 September 2026
 **Status:** ⏳ Pending Sandbox testing (R17)
 **Components:** `nuheat_send_quote_sl.js` (`buildEmailBody()` only), `test/send-quote-opp-update.js`,

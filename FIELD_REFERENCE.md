@@ -86,6 +86,28 @@ record; unknown values are dropped.
 | `nsqo` | count | *(upd)* Customer Objections created — "<n> objection(s) logged" |
 | `nsqof` | comma list of Objection Type IDs | *(upd)* Objections that failed to save — named from the Objection Type records; IDs that are not Objection Types are dropped |
 
+## Send Quote SL 2.2.0 — proposal email: account manager card
+
+### Employee (read with one `search.lookupFields` on the Opportunity's `salesrep`)
+
+| Field ID | Type | Purpose |
+|---|---|---|
+| `firstname` | Text (standard) | The first name on the CALL / EMAIL buttons. Empty → first word of the rep's name → CLICK TO CALL / SEND AN EMAIL |
+| `custentity_employee_photo_link` | ⚠️ **Type and URL form UNCONFIRMED** | The account manager's photo in the email card. Used only if, trimmed, it is an absolute `https://` URL; anything else (empty, `http://`, relative, a file reference) → no photo. Audit log `SendQuoteSL.RepPhoto` says which and why. Confirm the type in Sandbox (R18 E1/E4) |
+
+### Email merge tags (`buildEmailBody()`)
+
+| Tag | Value |
+|---|---|
+| `{{QUOTE_EMAIL_REF}}` | `custbody_quote_email_ref`, else the Opportunity title |
+| `{{TRAN_ID}}` | Opportunity `tranid` |
+| `{{SALES_REP_NAME}}` / `{{SALES_REP_EMAIL}}` / `{{SALES_REP_PHONE}}` | From `loadOpportunityData()` (unchanged): `salesrep` employee; phone prefers `custbody_sales_rep_phone`; fallbacks Your Account Manager / info@nu-heat.co.uk / 01404 540604 |
+| `{{SALES_REP_FIRST_NAME}}` | *(2.2.0)* the first name above, **upper-cased** for the buttons |
+| `{{SALES_REP_PHOTO_URL}}` | *(2.2.0)* the photo URL above; the photo row is omitted when there is none |
+| `{{PROPOSAL_URL}}` | The generated Master Proposal URL |
+
+All values are HTML-escaped; tags are substituted in one pass.
+
 ## Update Opportunity SL 1.0.0 — phone call, customer objections, lists
 
 ### Lists and records (read at runtime by script ID — no internal IDs in code)
