@@ -12,6 +12,8 @@
  *            C — 2.0.1: write order (status revert) and date pickers (C1–C5)
  *            D — 2.0.2 / UE 1.2.1: Expected close date (D1–D7)
  *            E — 2.0.3: quote card text (E1–E8)
+ *            … F, G (2.0.4, 2.1.0), M — 2.1.1 email (M1–M4)
+ *            N — 2.2.0: proposal email redesign (N1–N9)
  */
 'use strict';
 
@@ -64,6 +66,8 @@ function resetState() {
         estimateSubmitThrows: {},    // estimate id → error message
         selectOptionsThrow: {},
         forecastFieldType: 'checkbox',   // 'absent' → getField returns null
+        employee: {},                // search.lookupFields on the sales rep (2.2.0)
+        employeeThrows: null,
         generated: null,
         previewed: null,
         fieldTypes: { entitystatus: 'select', custbody_next_contact: 'date', custbody_opp_del_date: 'date', custbody_build_stage: 'select' },
@@ -224,12 +228,17 @@ function estimateResult(e) {
 }
 
 var searchStub = {
-    Type: { CUSTOMER: 'customer', OPPORTUNITY: 'opportunity', ESTIMATE: 'estimate' },
+    Type: { CUSTOMER: 'customer', OPPORTUNITY: 'opportunity', ESTIMATE: 'estimate', EMPLOYEE: 'employee' },
     Sort: { DESC: 'DESC', ASC: 'ASC' },
     createColumn: function (o) { return o; },
     lookupFields: function (o) {
         state.calls.push('search.lookupFields:' + o.type);
         if (o.type === 'customer') return { email: 'cust@example.com' };
+        if (o.type === 'employee') {
+            state.employeeLookups = (state.employeeLookups || []).concat([o]);
+            if (state.employeeThrows) throw new Error(state.employeeThrows);
+            return state.employee;
+        }
         return {};
     },
     create: function (o) {
@@ -279,7 +288,7 @@ var masterProposalStub = {
     },
     generatePreviewHTML: function (oppId, quotes) { state.calls.push('generatePreviewHTML'); state.previewed = quotes; return '<html>preview</html>'; },
     loadOpportunityData: function () {
-        return { tranId: 'OPP123', title: 'Test Opp', quoteEmailRef: 'Ref', customerId: '55',
+        return state.oppData || { tranId: 'OPP123', title: 'Test Opp', quoteEmailRef: 'Ref', customerId: '55',
                  salesRep: { id: '7', name: 'AM', email: 'am@example.com', phone: '0123' } };
     }
 };
@@ -1045,7 +1054,7 @@ function outlookView(h) {
     return h.replace(NOT_MSO_BLOCK, '').replace(MSO_BLOCK, '$1').replace(/<!--[\s\S]*?-->/g, '');
 }
 function count(h, text) { return h.split(text).length - 1; }
-var BUTTONS = ['CLICK TO CALL', 'SEND AN EMAIL', 'VIEW YOUR QUOTE(S) HERE'];
+var BUTTONS = ['CALL AM', 'EMAIL AM', 'VIEW YOUR QUOTE'];   // changed in 2.2.0 (was: CLICK TO CALL, SEND AN EMAIL, VIEW YOUR QUOTE(S) HERE)
 var emailHtml = renderEmail();
 
 console.log('M1. Non-Outlook view with every inline style stripped: each button once');
@@ -1063,15 +1072,208 @@ ok(!wrappers.some(function (w) { return /mso-hide/i.test(w); }), 'no element wit
 ok(wrappers.length === 1 && /^<span style="display:none;font-size:0px/.test(wrappers[0]) && emailHtml.indexOf('Here\'s your Nu-Heat quote.</span>') !== -1,
    'the only display:none element is the preheader span (' + wrappers.length + ')');
 
-console.log('M4. Both main containers carry an attribute width');
-var containers = emailHtml.match(/<table class="width600 main-container"[^>]*>/g) || [];
-ok(containers.length === 2, 'two main-container tables');
+console.log('M4. The main container carries an attribute width');   // changed in 2.2.0 (was: both main containers)
+var containers = emailHtml.match(/<table [^>]*class="width600 main-container"[^>]*>/g) || [];
+ok(containers.length === 1, 'one main-container table');   // changed in 2.2.0 (was: two)
 ok(containers.every(function (c) { return / width="600"/.test(c) && /style="[^"]*max-width:600px/.test(c); }),
    'each has width="600" and max-width:600px in its style (' + containers.map(function (c) { return (/ width="([^"]*)"/.exec(c) || [])[1]; }).join(', ') + ')');
 
+// 2.2.0: the sample writer moved to section N (docs/samples/send-quote-email-2.2.0*.html);
+// send-quote-email-2.1.1.html is kept as the record of the old design.
+
+// ═══ N — 2.2.0: proposal email redesign ════════════════════════════════════════
+
+/** Every <style> block and style attribute removed, [if mso] blocks dropped: the most hostile viewer. */
+function fullyStripped(h) {
+    return h.replace(MSO_BLOCK, '').replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, '')
+        .replace(/\sstyle="[^"]*"/g, '').replace(/<!--[\s\S]*?-->/g, '');
+}
+/** Visible text of the <body> for a non-Outlook client: tags stripped, entities decoded, spaces collapsed. */
+function textOf(h) {
+    var body = (/<body[^>]*>([\s\S]*)<\/body>/.exec(h) || [, h])[1];
+    return body.replace(MSO_BLOCK, '').replace(/<!--[\s\S]*?-->/g, '').replace(/<\/?(a|b|font|span)\b[^>]*>/g, '').replace(/<[^>]+>/g, ' ')
+        .replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#0?39;/g, "'")
+        .replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/\s+/g, ' ').trim();
+}
+/** Send once with the given Opportunity data / employee lookup; returns the email body. */
+function sendWith(opts) {
+    resetState();
+    if (opts.oppData) state.oppData = opts.oppData;
+    if (opts.employee) state.employee = opts.employee;
+    if (opts.employeeThrows) state.employeeThrows = opts.employeeThrows;
+    runPost(basePost());
+    return state.emails[0] ? String(state.emails[0].body) : '';
+}
+function oppDataWith(rep, extra) {
+    var d = { tranId: 'OPP123', title: 'Test Opp', quoteEmailRef: 'Ref', customerId: '55',
+              salesRep: { id: '7', name: 'AM', email: 'am@example.com', phone: '0123' } };
+    Object.keys(rep || {}).forEach(function (k) { d.salesRep[k] = rep[k]; });
+    Object.keys(extra || {}).forEach(function (k) { d[k] = extra[k]; });
+    return d;
+}
+var PHOTO = 'https://1234567.app.netsuite.com/core/media/media.nl?id=5&c=1234567&h=ab';
+function photoImgs(h) { return h.match(/<img [^>]*width="96"[^>]*>/g) || []; }
+function imgCount(h) { return (h.match(/<img\b/g) || []).length; }
+
+console.log('N1. Fully stripped view: one of each button, no floats, every td centred, container 600');
+var n1 = fullyStripped(emailHtml);
+ok(!/<style/i.test(n1) && !/\sstyle=/.test(n1), 'no <style> block or style attribute left');
+BUTTONS.forEach(function (b) { ok(count(n1, b) === 1, '"' + b + '" appears exactly once (' + count(n1, b) + ')'); });
+ok(!/float/i.test(emailHtml), 'no float anywhere in the email');
+ok(!/align="(left|right)"/.test(emailHtml), 'no align="left" / align="right"');
+ok(!/class="[^"]*\bm?col\b/.test(emailHtml), 'no "col" / "mcol" tables');
+var n1Tables = n1.match(/<table\b[^>]*>/g) || [];
+ok(n1Tables.every(function (t) { return !/width="(\d+(\.\d+)?)%"/.test(t) || / width="100%"/.test(t); }),
+   'no table with a percentage width other than 100%');
+var n1Tds = n1.match(/<td\b[^>]*>/g) || [];
+ok(n1Tds.length > 15 && n1Tds.every(function (t) { return / align="center"/.test(t); }),
+   'every td has align="center" (' + n1Tds.length + ' tds)');
+ok(n1Tds.filter(function (t) { return / width="\d/.test(t); }).every(function (t) { return / width="(50%|100%|42)"/.test(t); }),
+   'td widths are only 50% (two-up), 100% or the 42px social cells');
+ok(/<table [^>]*class="width600 main-container"[^>]* width="600" align="center"/.test(n1), 'container: width="600" align="center"');
+ok(/bgcolor="#59315f"[^>]*>\s*<p[^>]*><font face="[^"]*" color="#ffffff">/.test(n1), 'header: bgcolor attribute, white text via <font color>');
+ok((n1.match(/<table [^>]*bgcolor="#ffb500"/g) || []).length === 3, 'three yellow buttons, each coloured by bgcolor');
+
+console.log('N2. Outlook view: each button once');
+var n2 = outlookView(emailHtml);
+BUTTONS.forEach(function (b) { ok(count(n2, b) === 1, '"' + b + '" appears exactly once (' + count(n2, b) + ')'); });
+ok((emailHtml.match(/<!--\[if !mso\]><!-- -->/g) || []).length === 3 && (emailHtml.match(/<!--\[if mso\]>\n<table/g) || []).length === 3,
+   'exactly one [if !mso] / [if mso] pair per button');
+
+console.log('N3. Agreed copy');
+var n3 = textOf(emailHtml);
+[
+    'YOUR QUOTE IS READY', 'Thank you for requesting a quote', 'Project: Ref · OPP123',
+    'Your quote',
+    'Open your quote online to see your system, prices and options. It\'s provided subject to our Terms and Conditions.',
+    'VIEW YOUR QUOTE', 'Why choose Nu-Heat?',
+    'Bespoke heating design', 'We tailor each system to the property for maximum performance',
+    'The heating experts', 'Our systems heat more than 80,000 homes across the country!',
+    'Lifetime support', 'We support our systems for life, so you can always call on us if needed',
+    'Award-winning service', 'Proud to hold a Distinction from the Institute of Customer Service',
+    'What\'s next?', 'To discuss your quote or place your order, get in touch with your Account Manager.',
+    'YOUR ACCOUNT MANAGER', 'AM', '0123 · am@example.com', 'CALL AM', 'EMAIL AM',
+    'You\'re receiving this because you requested a quote from Nu-Heat.'
+].forEach(function (t) { ok(n3.indexOf(t) !== -1, 'copy: "' + t + '"'); });
+ok(n3.indexOf('Here\'s your Nu-Heat quote.') === 0, 'preheader "Here\'s your Nu-Heat quote." kept, first');
+ok(!/tailored/.test(emailHtml), '"tailored" gone');
+ok(!/If you have any questions/.test(emailHtml), 'closing "If you have any questions…" line removed');
+ok(!/Account%20manager\.jpg/.test(emailHtml) && !/Nu-Heat team/.test(emailHtml), 'team image removed');
+ok(/<a href="https:\/\/www\.nu-heat\.co\.uk\/wp-content\/uploads\/2021\/04\/Nu-Heat-TCs-Consumer-and-Trade\.pdf"/.test(emailHtml), 'T&C link unchanged');
+ok(emailHtml.indexOf('<link href="https://www.nu-heat.co.uk/wp-content/themes/nu-heat/assets/fonts/calibri/calibri-font.css"') !== -1, 'Calibri font link kept');
+['1698400306920_Nu-Heat%20Master%20logo%20green%20-%20transparent%20v3.png', '1613738610524_Order%20conformation.jpg',
+ '1698665508018_Design.png', '1698665474858_Installer%20skills%202.png', '1698665569030_Lifetime%20tech%20support.png',
+ '1698665474762_Award%20winning%20customer%20service.png', '1604422010305_Nu-Heat%20Master%20logo%20wht%20on%20green.png'
+].forEach(function (img) { ok(emailHtml.indexOf(img) !== -1, 'image kept: ' + decodeURIComponent(img)); });
+[['https://www.facebook.com/nuheatuk/', 'facebook'], ['https://www.instagram.com/nuheatufh/', 'instagram'],
+ ['https://www.linkedin.com/company/nu-heat/', 'linkedin'], ['https://twitter.com/nuheatuk', 'twitter'],
+ ['https://youtube.com/channel/UCsfB8s56fcERuaBFovwYnGQ', 'youtube']
+].forEach(function (sl) {
+    ok(new RegExp('<a href="' + sl[0].replace(/[.?/]/g, '\\$&') + '" target="_blank"><img src="[^"]*white%20-%20' + sl[1] + '\\.png"').test(emailHtml), 'social link and icon: ' + sl[1]);
+});
+ok(/<a href="https:\/\/acct\.app\.netsuite\.com\/core\/media\/media\.nl\?id=1" target="_blank"[^>]*><font[^>]*><b>VIEW YOUR QUOTE<\/b>/.test(emailHtml), 'VIEW YOUR QUOTE → proposal URL');
+ok(/<a href="tel:0123"[^>]*><font[^>]*><b>CALL AM<\/b>/.test(emailHtml) && /<a href="mailto:am@example\.com"[^>]*><font[^>]*><b>EMAIL AM<\/b>/.test(emailHtml),
+   'CALL → tel:, EMAIL → mailto:');
+var order3 = ['YOUR QUOTE IS READY', 'Order%20conformation', 'Your quote<', 'Why choose', 'What\'s next?', 'YOUR ACCOUNT MANAGER', 'CALL AM', 'wht%20on%20green', 'You\'re receiving'];
+ok(order3.every(function (t, i) { return i === 0 || emailHtml.indexOf(t) > emailHtml.indexOf(order3[i - 1]); }), 'blocks in design order');
+
+console.log('N4. Merge tags');
+var n4 = [emailHtml, sendWith({ employee: { firstname: 'Steve', custentity_employee_photo_link: PHOTO } }),
+          sendWith({ oppData: oppDataWith({ id: '', name: 'Your Account Manager' }) })];
+n4.forEach(function (h, i) { ok(h.length > 5000 && !/\{\{[^}]*\}\}/.test(h), 'variant ' + (i + 1) + ': no {{…}} left'); });
+var n4b = sendWith({ oppData: oppDataWith({ name: 'Ann {{TRAN_ID}} $& Lee' }) });
+ok(n4b.indexOf('Ann {{TRAN_ID}} $&amp; Lee') !== -1, 'a value is never re-substituted, and "$&" is literal');
+
+console.log('N5. First name');
+var n5a = sendWith({ employee: { firstname: 'Steve' }, oppData: oppDataWith({ name: 'Steven Nixon' }) });
+ok(count(fullyStripped(n5a), 'CALL STEVE') === 1 && count(fullyStripped(n5a), 'EMAIL STEVE') === 1 && n5a.indexOf('CLICK TO CALL') === -1, 'from firstname: CALL STEVE / EMAIL STEVE');
+ok(state.employeeLookups.length === 1 && state.employeeLookups[0].id === '7' &&
+   state.employeeLookups[0].columns.join() === 'firstname,custentity_employee_photo_link', 'one lookupFields on the Opportunity\'s sales rep (7): firstname, photo');
+var n5b = sendWith({ employee: { firstname: '  ' }, oppData: oppDataWith({ name: 'Jo Bloggs' }) });
+ok(count(fullyStripped(n5b), 'CALL JO') === 1 && count(fullyStripped(n5b), 'EMAIL JO') === 1, 'firstname empty → first word of the name: CALL JO');
+var n5c = sendWith({ employeeThrows: 'no permission', oppData: oppDataWith({ name: 'Jo Bloggs' }) });
+ok(state.emails.length === 1 && count(fullyStripped(n5c), 'CALL JO') === 1, 'lookup throws → still sent, first word of the name');
+ok(auditLogs('SendQuoteSL.RepPhoto').some(function (l) { return /photo skipped — employee lookup failed: no permission/.test(l.details); }), 'lookup failure logged');
+var n5d = sendWith({ oppData: oppDataWith({ id: '', name: 'Your Account Manager', email: 'info@nu-heat.co.uk', phone: '01404 540604' }) });
+ok(count(fullyStripped(n5d), 'CLICK TO CALL') === 1 && count(fullyStripped(n5d), 'SEND AN EMAIL') === 1 && !/CALL YOUR/.test(n5d), 'no sales rep → CLICK TO CALL / SEND AN EMAIL (not "CALL YOUR")');
+ok(!state.employeeLookups, 'no sales rep → no employee lookup');
+var n5e = sendWith({ oppData: oppDataWith({ name: '' }) });
+ok(count(fullyStripped(n5e), 'CLICK TO CALL') === 1 && count(fullyStripped(n5e), 'SEND AN EMAIL') === 1, 'no first name and no name → CLICK TO CALL / SEND AN EMAIL');
+ok([n5a, n5b, n5c, n5d, n5e].every(function (h) { var t = fullyStripped(h); return count(t, 'mailto:') === 1 && count(t, 'tel:') === 1; }),
+   'every variant: one tel: and one mailto: in the stripped view');
+
+console.log('N6. Photo');
+var n6 = sendWith({ employee: { firstname: 'Steve', custentity_employee_photo_link: '  ' + PHOTO + ' ' } });
+var n6img = photoImgs(n6);
+ok(n6img.length === 1 && n6img[0].indexOf('src="' + PHOTO.replace(/&/g, '&amp;') + '"') !== -1, 'https URL → one photo img, trimmed, & escaped');
+ok(/ alt="AM"/.test(n6img[0]) && / height="96"/.test(n6img[0]), 'alt = the rep\'s name, 96 × 96');
+ok(n6.indexOf('YOUR ACCOUNT MANAGER') > n6.indexOf(n6img[0]), 'photo above the label');
+ok(auditLogs('SendQuoteSL.RepPhoto').length === 1 && /Opportunity 123 — employee 7: photo used/.test(auditLogs('SendQuoteSL.RepPhoto')[0].details), 'audit once: photo used');
+ok(photoImgs(fullyStripped(n6)).length === 1, 'photo still there in the stripped view');
+var BASE_IMGS = imgCount(emailHtml);
+ok(BASE_IMGS === 12, 'no photo: 12 images (logo, hero, 4 icons, footer logo, 5 social) (' + BASE_IMGS + ')');
+[['', 'empty', /custentity_employee_photo_link is empty/], [undefined, 'absent', /custentity_employee_photo_link is empty/],
+ ['http://example.com/p.jpg', 'http://', /not an https:\/\/ URL/], ['javascript:alert(1)', 'javascript:', /not an https:\/\/ URL/],
+ ['/core/media/media.nl?id=5&c=1&h=ab', 'relative', /not an https:\/\/ URL/], ['p.jpg', 'bare file name', /not an https:\/\/ URL/],
+ ['https://x.example/a b.jpg', 'https with a space', /spaces, quotes/], ['https://x.example/a.jpg"onerror="x', 'https with a quote', /spaces, quotes/],
+ [[{ value: '12', text: 'photo.jpg' }], 'a file (select-style value)', /not an https:\/\/ URL/]
+].forEach(function (c) {
+    var h = sendWith({ employee: { firstname: 'Steve', custentity_employee_photo_link: c[0] } });
+    var logs = auditLogs('SendQuoteSL.RepPhoto');
+    ok(photoImgs(h).length === 0 && imgCount(h) === BASE_IMGS && h.indexOf('border-radius:48px') === -1,
+       c[1] + ' → no photo <img>, no empty circle');
+    ok(logs.length === 1 && /photo skipped/.test(logs[0].details) && c[2].test(logs[0].details), c[1] + ' → audit once: skipped, why (' + (logs[0] || {}).details + ')');
+});
+sendWith({ oppData: oppDataWith({ id: '' }) });
+ok(auditLogs('SendQuoteSL.RepPhoto').length === 1 && /employee none: photo skipped — the Opportunity has no sales rep/.test(auditLogs('SendQuoteSL.RepPhoto')[0].details), 'no sales rep → audit: skipped, no sales rep');
+
+console.log('N7. Escaping');
+var EVIL = '<script>alert(1)</script> & "Q\'s"';
+var n7 = sendWith({
+    employee: { firstname: '<i>Jo</i> & "x"', custentity_employee_photo_link: PHOTO },
+    oppData: oppDataWith({ name: EVIL, email: 'a"b@example.com', phone: '01404 <b>540604' }, { quoteEmailRef: '<b>Barn</b> & "Loft"', tranId: 'OPP<1>' })
+});
+ok(n7.indexOf('<script>') === -1 && n7.indexOf('<b>Barn') === -1 && n7.indexOf('<i>') === -1 && n7.indexOf('<I>') === -1 && n7.indexOf('<b>540604') === -1,
+   'no raw tag from any value');
+var EVIL_ESC = '&lt;script&gt;alert(1)&lt;/script&gt; &amp; &quot;Q&#039;s&quot;';
+ok(count(n7, EVIL_ESC) === 2 && n7.indexOf('alt="' + EVIL_ESC + '"') !== -1, 'name escaped in the card and the photo alt');
+ok(n7.indexOf('Project: &lt;b&gt;Barn&lt;/b&gt; &amp; &quot;Loft&quot; <span') !== -1 && n7.indexOf('· OPP&lt;1&gt;</span>') !== -1, 'project and reference escaped');
+ok(n7.indexOf('<title>Your quote for &lt;b&gt;Barn&lt;/b&gt; &amp; &quot;Loft&quot; (OPP&lt;1&gt;)</title>') !== -1, 'title escaped');
+ok(count(fullyStripped(n7), 'CALL &lt;I&gt;JO&lt;/I&gt; &amp; &quot;X&quot;') === 1, 'first name upper-cased, then escaped');
+ok(n7.indexOf('href="mailto:a&quot;b@example.com"') !== -1 && n7.indexOf('href="tel:01404540604"') !== -1, 'mailto: escaped; tel: digits only');
+ok(n7.indexOf('01404 &lt;b&gt;540604') !== -1, 'phone text escaped');
+var n7b = sendWith({ oppData: oppDataWith({ phone: 'ask for Sam' }) });
+ok(n7b.indexOf('href="tel:') === -1 && count(fullyStripped(n7b), 'EMAIL AM') === 1 && n7b.indexOf('<td class="stack" width="100%"') !== -1,
+   'phone with no digits → no tel: button, EMAIL alone at full width');
+ok(!/href="(tel|mailto):"/.test(n7b), 'never an empty tel: or mailto:');
+var n7c = sendWith({ oppData: oppDataWith({ phone: '', email: '' }) });
+ok(n7c.indexOf('href="tel:01404540604"') !== -1 && n7c.indexOf('href="mailto:info@nu-heat.co.uk"') !== -1 && textOf(n7c).indexOf('01404 540604 \u00b7 info@nu-heat.co.uk') !== -1,
+   'missing phone / email → today\'s fallbacks (01404 540604, info@nu-heat.co.uk)');
+
+console.log('N8. Long project name');
+var LONG = 'Barn conversion and two-storey extension with a detached garage, annex and a garden studio at Upper Hollow Farm Estate';
+while (LONG.length < 120) LONG += 'x';
+var n8 = sendWith({ oppData: oppDataWith({}, { quoteEmailRef: LONG }) });
+ok(LONG.length === 120 && n8.indexOf('Project: ' + LONG + ' <span style="white-space:nowrap;">· OPP123</span>') !== -1, 'reference and its dot in one no-wrap span');
+ok((n8.match(/<table [^>]*class="width600 main-container"[^>]* width="600"/g) || []).length === 1 &&
+   (fullyStripped(n8).match(/ width="600"/g) || []).length === 2, 'column still width="600" (container + hero), also stripped');
+
+console.log('N9. No display:none wrapper (preheader excepted), every variant');
+[emailHtml, n5d, n6, n7, n7b, n8].forEach(function (h, i) {
+    var w = h.match(/<[a-z]+[^>]*style="[^"]*display:\s*none[^"]*"[^>]*>/gi) || [];
+    ok(w.length === 1 && /^<span style="display:none;font-size:0px/.test(w[0]) && !/mso-hide/i.test(h),
+       'variant ' + (i + 1) + ': only the preheader span (' + w.length + ')');
+});
+
 if (process.env.WRITE_EMAIL_SAMPLE) {
-    fs.writeFileSync(path.join(ROOT, 'docs', 'samples', 'send-quote-email-2.1.1.html'), emailHtml);
-    console.log('  (wrote docs/samples/send-quote-email-2.1.1.html)');
+    var sample = sendWith({
+        employee: { firstname: 'Sam', custentity_employee_photo_link: process.env.SAMPLE_PHOTO_URL || PHOTO },
+        oppData: oppDataWith({ name: 'Sam Taylor', email: 'sam.taylor@nu-heat.co.uk', phone: '01404 549 770' },
+                             { quoteEmailRef: 'Barn conversion, Upper Hollow Farm', tranId: 'OPP41872' })
+    });
+    fs.writeFileSync(path.join(ROOT, 'docs', 'samples', 'send-quote-email-2.2.0.html'), sample);
+    fs.writeFileSync(path.join(ROOT, 'docs', 'samples', 'send-quote-email-2.2.0-stripped.html'), fullyStripped(sample));
+    console.log('  (wrote docs/samples/send-quote-email-2.2.0.html and -stripped.html)');
 }
 
 console.log('\n' + passes + ' passed, ' + failures + ' failed');

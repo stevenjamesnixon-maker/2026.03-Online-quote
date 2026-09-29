@@ -8,11 +8,29 @@
  *              Additional), recipients and four Opportunity fields, then generate and email the
  *              Master Proposal, update the Opportunity and the quotes' forecast flags, and return
  *              to the Opportunity. Supports preview (generates HTML without saving).
- * @version     2.1.1
+ * @version     2.2.0
  * @author      Nu-Heat Development
  *
  * Script ID:      customscript_nuheat_send_quote_sl
  * Deployment ID:  customdeploy_nuheat_send_quote_sl
+ *
+ * CHANGELOG v2.2.0 (Proposal email redesign — pending Sandbox):
+ *   - REWRITTEN: buildEmailBody() — one centred 600px column (logo, purple header, hero, Your quote,
+ *     Why choose Nu-Heat? 2 × 2, What's next? with an Account Manager card, footer). Layout, width,
+ *     alignment and colour are carried by HTML attributes, so it stays centred and single-column where
+ *     every style attribute and <style> block is stripped. No floats, no percentage-width "col" tables,
+ *     no display:none wrappers; each button is one [if !mso] / [if mso] pair.
+ *   - COPY: header label YOUR QUOTE IS READY; project line "Project: ref · tranid" on one line;
+ *     "Open your quote online to see your system, prices and options. It's provided subject to our
+ *     Terms and Conditions."; button VIEW YOUR QUOTE; "To discuss your quote or place your order, get in
+ *     touch with your Account Manager."; buttons CALL / EMAIL <first name>; footer line "You're
+ *     receiving this because you requested a quote from Nu-Heat." REMOVED: the "Nu-Heat team" image and
+ *     the closing "If you have any questions, you can contact your Account Manager, …" line.
+ *   - ADDED: loadRepCardData() — one search.lookupFields on the Opportunity's salesrep (the employee
+ *     the email already uses) for firstname and custentity_employee_photo_link. Photo shown only for an
+ *     absolute https:// URL; audit log SendQuoteSL.RepPhoto once per send (used / skipped and why).
+ *   - CHANGED: tel: links carry digits (and +) only; merge tags are substituted in one pass.
+ *   - Unchanged: sender, subject, recipients, relatedRecords, and where name/email/phone come from.
  *
  * CHANGELOG v2.1.1 (Proposal email — duplicated contact buttons, left drift):
  *   - FIXED (buildEmailBody only): the CLICK TO CALL and SEND AN EMAIL Outlook fallbacks were wrapped
@@ -277,7 +295,7 @@ define([
 
     // ─── Constants ────────────────────────────────────────────────────────────────
 
-    var SCRIPT_VERSION = '2.1.1';
+    var SCRIPT_VERSION = '2.2.0';
 
     /**
      * Mapping from the NetSuite custbody_quote_type list values
@@ -969,8 +987,8 @@ define([
 
         var subject = 'Your quote for ' + (oppData.quoteEmailRef || oppData.title || '') + ' (' + oppData.tranId + ')';
 
-        // Build professional HTML email body
-        var body = buildEmailBody(oppData, proposalUrl);
+        // Build professional HTML email body (v2.2.0: plus the account manager's first name and photo)
+        var body = buildEmailBody(oppData, proposalUrl, loadRepCardData(opportunityId, oppData.salesRep));
 
         log.debug('SendQuoteSL.sendEmail', 'Sender: ' + senderId + ' | To: ' + toList.join(', ') +
             ' | CC: ' + ccList.join(', ') + ' | BCC: ' + bccList.join(', '));
@@ -1002,32 +1020,167 @@ define([
         return { success: true, error: '' };
     }
 
+    // ─── Proposal email (v2.2.0) ──────────────────────────────────────────────────
+
+    /** loadSalesRepData()'s placeholder name when the Opportunity has no usable sales rep. */
+    var GENERIC_REP_NAME = 'Your Account Manager';
+
+    var EMAIL_IMG = 'https://images.chamaileon.io/5b1fac592f38b800113c85ca/5ca8626420e2346b3ee9a013/';
+    var EMAIL_FONT = 'font-family:Calibri, Arial, sans-serif;';
+    var EMAIL_FACE = 'Calibri, Arial, sans-serif';
+    var TERMS_URL = 'https://www.nu-heat.co.uk/wp-content/uploads/2021/04/Nu-Heat-TCs-Consumer-and-Trade.pdf';
+    var SOCIAL_LINKS = [
+        ['https://www.facebook.com/nuheatuk/',                   '1604502171665_white%20-%20facebook.png'],
+        ['https://www.instagram.com/nuheatufh/',                 '1604502172039_white%20-%20instagram.png'],
+        ['https://www.linkedin.com/company/nu-heat/',            '1604502171857_white%20-%20linkedin.png'],
+        ['https://twitter.com/nuheatuk',                         '1604502172417_white%20-%20twitter.png'],
+        ['https://youtube.com/channel/UCsfB8s56fcERuaBFovwYnGQ', '1604502172308_white%20-%20youtube.png']
+    ];
+    var WHY_TILES = [
+        ['1698665508018_Design.png',                          'Bespoke heating design', 'Bespoke heating design', 'We tailor each system to the property for maximum performance'],
+        ['1698665474858_Installer%20skills%202.png',          'Heating experts',        'The heating experts',    'Our systems heat more than 80,000 homes across the country!'],
+        ['1698665569030_Lifetime%20tech%20support.png',       'Lifetime support',       'Lifetime support',       'We support our systems for life, so you can always call on us if needed'],
+        ['1698665474762_Award%20winning%20customer%20service.png', 'Award-winning service', 'Award-winning service', 'Proud to hold a Distinction from the Institute of Customer Service']
+    ];
+
+    /** A lookupFields value as text: plain values as-is, select/document values as their first entry. */
+    function lookupText(v) {
+        if (Array.isArray(v)) return v.length ? String(v[0].text || v[0].value || '') : '';
+        return v == null ? '' : String(v);
+    }
+
+    /** The first name for the contact buttons: firstname, else the first word of the name, else ''. */
+    function resolveFirstName(firstname, fullName) {
+        var first = lookupText(firstname).trim();
+        if (first) return first;
+        var name = String(fullName || '').trim();
+        if (!name || name === GENERIC_REP_NAME) return '';
+        return name.split(/\s+/)[0];
+    }
+
+    /** The photo URL if it is usable in an email (absolute https, no spaces/quotes/angle brackets). */
+    function checkPhotoUrl(value) {
+        var s = lookupText(value).trim();
+        if (!s) return { url: '', reason: 'custentity_employee_photo_link is empty' };
+        if (!/^https:\/\//i.test(s)) return { url: '', reason: 'not an https:// URL' };
+        if (/[\s"'<>]/.test(s)) return { url: '', reason: 'URL contains spaces, quotes or angle brackets' };
+        return { url: s, reason: '' };
+    }
+
     /**
-     * Builds the HTML email body using the Nu-Heat branded email template.
-     * Template source: Chamaileon-designed email (QUOTE_ New quote_2026-3-17.html)
+     * v2.2.0: the account manager's first name and photo for the email card. Same employee as the
+     * name/email/phone the email already uses: the Opportunity's salesrep, via loadOpportunityData().
+     * One search.lookupFields; a failure costs only the photo and first name, never the send.
      *
-     * Merge Tag Mapping:
-     *   {{QUOTE_EMAIL_REF}}  → oppData.quoteEmailRef (custbody_quote_email_ref)
-     *   {{TRAN_ID}}          → oppData.tranId (Opportunity transaction ID)
-     *   {{SALES_REP_NAME}}   → oppData.salesRep.name (Account Manager name)
-     *   {{SALES_REP_EMAIL}}  → oppData.salesRep.email (Account Manager email)
-     *   {{SALES_REP_PHONE}}  → oppData.salesRep.phone (Account Manager phone)
-     *   {{PROPOSAL_URL}}     → proposalUrl (link to the master proposal)
+     * @returns {{ firstName: string, photoUrl: string }}
+     */
+    function loadRepCardData(opportunityId, salesRep) {
+        var fields = {};
+        var photo;
+        if (!salesRep.id) {
+            photo = { url: '', reason: 'the Opportunity has no sales rep' };
+        } else {
+            try {
+                fields = search.lookupFields({
+                    type: search.Type.EMPLOYEE,
+                    id: salesRep.id,
+                    columns: ['firstname', 'custentity_employee_photo_link']
+                }) || {};
+                photo = checkPhotoUrl(fields.custentity_employee_photo_link);
+            } catch (e) {
+                photo = { url: '', reason: 'employee lookup failed: ' + e.message };
+            }
+        }
+        log.audit('SendQuoteSL.RepPhoto', 'Opportunity ' + opportunityId + ' — employee ' + (salesRep.id || 'none') +
+            (photo.url ? ': photo used' : ': photo skipped — ' + photo.reason));
+        return { firstName: resolveFirstName(fields.firstname, salesRep.name), photoUrl: photo.url };
+    }
+
+    /**
+     * A bulletproof button: one [if !mso] / [if mso] pair, never a display:none wrapper. Colour is
+     * carried by bgcolor and <font color>, padding by cellpadding, so it survives stripped styles.
+     * href and label must already be escaped.
+     */
+    function emailButton(href, label) {
+        var bg = '#ffb500', fg = '#3e3b39';
+        var text = EMAIL_FONT + 'font-size:18px;line-height:22px;font-weight:bold;color:' + fg + ';text-decoration:none;';
+        return '' +
+            '<!--[if !mso]><!-- -->\n' +
+            '<table role="presentation" class="btn-full" align="center" cellpadding="14" cellspacing="0" border="0" bgcolor="' + bg + '" style="background-color:' + bg + ';border-radius:5px;border-collapse:separate;">\n' +
+            '<tr><td align="center" valign="middle" bgcolor="' + bg + '" style="padding:0;border-radius:5px;"><a href="' + href + '" target="_blank" style="display:block;padding:15px 28px;' + text + '"><font face="' + EMAIL_FACE + '" color="' + fg + '"><b>' + label + '</b></font></a></td></tr>\n' +
+            '</table>\n' +
+            '<!--<![endif]-->\n' +
+            '<!--[if mso]>\n' +
+            '<table role="presentation" align="center" cellpadding="0" cellspacing="0" border="0" bgcolor="' + bg + '">\n' +
+            '<tr><td align="center" valign="middle" bgcolor="' + bg + '" style="padding:15px 28px;"><a href="' + href + '" target="_blank" style="' + text + '"><font face="Arial, sans-serif" color="' + fg + '"><b>' + label + '</b></font></a></td></tr>\n' +
+            '</table>\n' +
+            '<![endif]-->\n';
+    }
+
+    /**
+     * Builds the HTML email body (v2.2.0 redesign: "Send Quote redesign" artboards 5 and 6).
+     *
+     * One centred 600px column: logo · purple header · hero · Your quote · Why choose Nu-Heat? (2 × 2)
+     * · What's next? with the Account Manager card · footer. Layout, width, alignment and colour are
+     * all carried by HTML attributes (width, align, bgcolor, valign, <font color>), so the email stays
+     * centred and single-column where every style attribute and <style> block is stripped (NetSuite's
+     * message view). CSS only adds polish and the phone stacking. No floats, no percentage-width
+     * side-by-side tables, no display:none wrappers (the preheader span excepted).
+     *
+     * Merge tags (all values HTML-escaped; substituted in one pass, so a value can't inject a tag):
+     *   {{QUOTE_EMAIL_REF}}      → oppData.quoteEmailRef, else oppData.title
+     *   {{TRAN_ID}}              → oppData.tranId
+     *   {{SALES_REP_NAME}}       → oppData.salesRep.name (fallback 'Your Account Manager')
+     *   {{SALES_REP_EMAIL}}      → oppData.salesRep.email (fallback info@nu-heat.co.uk)
+     *   {{SALES_REP_PHONE}}      → oppData.salesRep.phone (fallback 01404 540604)
+     *   {{SALES_REP_FIRST_NAME}} → repCard.firstName, upper-cased for the CALL / EMAIL buttons
+     *                              (no first name → CLICK TO CALL / SEND AN EMAIL instead)
+     *   {{SALES_REP_PHOTO_URL}}  → repCard.photoUrl (no URL → the photo row is left out entirely)
+     *   {{PROPOSAL_URL}}         → proposalUrl
      *
      * @param {Object} oppData - Opportunity data from loadOpportunityData()
      * @param {string} proposalUrl - Public URL to the generated master proposal
+     * @param {Object} [repCard] - { firstName, photoUrl } from loadRepCardData()
      * @returns {string} Complete HTML email body
      */
-    function buildEmailBody(oppData, proposalUrl) {
-        // Resolve merge tag values with fallbacks for missing data
-        var quoteEmailRef = escapeHtml(oppData.quoteEmailRef || oppData.title || '');
-        var tranId        = escapeHtml(oppData.tranId || '');
-        var salesRepName  = escapeHtml(oppData.salesRep.name || 'Your Account Manager');
-        var salesRepEmail = escapeHtml(oppData.salesRep.email || 'info@nu-heat.co.uk');
-        var salesRepPhone = escapeHtml(oppData.salesRep.phone || '01404 540604');
-        var safeProposalUrl = escapeHtml(proposalUrl || '');
+    function buildEmailBody(oppData, proposalUrl, repCard) {
+        repCard = repCard || {};
+        var rep = oppData.salesRep || {};
+        var repEmail  = rep.email || 'info@nu-heat.co.uk';
+        var repPhone  = rep.phone || '01404 540604';
+        var telDigits = String(repPhone).replace(/[^\d+]/g, '');
+        var firstName = String(repCard.firstName || '').trim();
+        var photoUrl  = String(repCard.photoUrl || '');
 
-        // Nu-Heat branded email template (Chamaileon design)
+        var values = {
+            QUOTE_EMAIL_REF:      escapeHtml(oppData.quoteEmailRef || oppData.title || ''),
+            TRAN_ID:              escapeHtml(oppData.tranId || ''),
+            SALES_REP_NAME:       escapeHtml(rep.name || GENERIC_REP_NAME),
+            SALES_REP_EMAIL:      escapeHtml(repEmail),
+            SALES_REP_PHONE:      escapeHtml(repPhone),
+            SALES_REP_FIRST_NAME: escapeHtml(firstName.toUpperCase()),
+            SALES_REP_PHOTO_URL:  escapeHtml(photoUrl),
+            PROPOSAL_URL:         escapeHtml(proposalUrl || '')
+        };
+
+        var callLabel  = firstName ? 'CALL {{SALES_REP_FIRST_NAME}}' : 'CLICK TO CALL';
+        var emailLabel = firstName ? 'EMAIL {{SALES_REP_FIRST_NAME}}' : 'SEND AN EMAIL';
+        var contactButtons = [];
+        if (telDigits) contactButtons.push(emailButton('tel:' + escapeHtml(telDigits), callLabel));
+        if (repEmail) contactButtons.push(emailButton('mailto:{{SALES_REP_EMAIL}}', emailLabel));
+
+        var tiles = WHY_TILES.map(function (t) {
+            return '<td class="stack" width="50%" align="center" valign="top" style="padding:12px 10px;">\n' +
+                '<img src="' + EMAIL_IMG + t[0] + '" width="100" height="100" alt="' + t[1] + '" border="0" style="display:block;margin:0 auto;width:100px;height:100px;">\n' +
+                '<p style="margin:10px 0 4px 0;' + EMAIL_FONT + 'font-size:20px;line-height:24px;color:#000000;"><font face="' + EMAIL_FACE + '" color="#000000"><b>' + t[2] + '</b></font></p>\n' +
+                '<p style="margin:0;' + EMAIL_FONT + 'font-size:16px;line-height:21px;color:#131313;"><font face="' + EMAIL_FACE + '" color="#131313">' + t[3] + '</font></p>\n' +
+                '</td>\n';
+        });
+
+        var social = SOCIAL_LINKS.map(function (s) {
+            return '<td align="center" valign="middle" width="42" style="padding:0 10px;"><a href="' + s[0] + '" target="_blank"><img src="' + EMAIL_IMG + s[1] + '" width="22" height="22" alt="" border="0" style="display:block;width:22px;height:22px;"></a></td>\n';
+        }).join('');
+
         var template = '' +
             '<!DOCTYPE html>\n' +
             '<html lang="en" xmlns="http://www.w3.org/1999/xhtml" xmlns:v="urn:schemas-microsoft-com:vml" xmlns:o="urn:schemas-microsoft-com:office:office">\n' +
@@ -1038,921 +1191,116 @@ define([
             '<meta name="x-apple-disable-message-reformatting">\n' +
             '<meta name="format-detection" content="telephone=no">\n' +
             '<title>Your quote for {{QUOTE_EMAIL_REF}} ({{TRAN_ID}})</title>\n' +
-            '\n' +
             '<link href="https://www.nu-heat.co.uk/wp-content/themes/nu-heat/assets/fonts/calibri/calibri-font.css" rel="stylesheet" type="text/css">\n' +
-            '<!--##custom-font-resource##-->\n' +
             '<!--[if gte mso 16]>\n' +
-            '<xml>\n' +
-            '<o:OfficeDocumentSettings>\n' +
-            '<o:AllowPNG/>\n' +
-            '<o:PixelsPerInch>96</o:PixelsPerInch>\n' +
-            '</o:OfficeDocumentSettings>\n' +
-            '</xml>\n' +
+            '<xml><o:OfficeDocumentSettings><o:AllowPNG/><o:PixelsPerInch>96</o:PixelsPerInch></o:OfficeDocumentSettings></xml>\n' +
             '<![endif]-->\n' +
             '<style>\n' +
-            'html,body,table,tbody,tr,td,div,p,ul,ol,li,h1,h2,h3,h4,h5,h6 {\n' +
-            'margin: 0;\n' +
-            'padding: 0;\n' +
-            '}\n' +
-            '\n' +
-            'body {\n' +
-            '-ms-text-size-adjust: 100%;\n' +
-            '-webkit-text-size-adjust: 100%;\n' +
-            '}\n' +
-            '\n' +
-            'table {\n' +
-            'border-spacing: 0;\n' +
-            'mso-table-lspace: 0pt;\n' +
-            'mso-table-rspace: 0pt;\n' +
-            '}\n' +
-            '\n' +
-            'table td {\n' +
-            'border-collapse: collapse;\n' +
-            '}\n' +
-            '\n' +
-            'h1,h2,h3,h4,h5,h6 {\n' +
-            'font-family: Arial;\n' +
-            '}\n' +
-            '\n' +
-            '.ExternalClass {\n' +
-            'width: 100%;\n' +
-            '}\n' +
-            '\n' +
-            '.ExternalClass,\n' +
-            '.ExternalClass p,\n' +
-            '.ExternalClass span,\n' +
-            '.ExternalClass font,\n' +
-            '.ExternalClass td,\n' +
-            '.ExternalClass div {\n' +
-            'line-height: 100%;\n' +
-            '}\n' +
-            '\n' +
-            '/* Outermost container in Outlook.com */\n' +
-            '.ReadMsgBody {\n' +
-            'width: 100%;\n' +
-            '}\n' +
-            '\n' +
-            'img {\n' +
-            '-ms-interpolation-mode: bicubic;\n' +
-            '}\n' +
-            '\n' +
-            '</style>\n' +
-            '\n' +
-            '<style>\n' +
-            'a[x-apple-data-detectors=true]{\n' +
-            'color: inherit !important;\n' +
-            'text-decoration: inherit !important;\n' +
-            '}\n' +
-            '\n' +
-            'u + #body a {\n' +
-            'color: inherit;\n' +
-            'text-decoration: inherit !important;\n' +
-            'font-size: inherit;\n' +
-            'font-family: inherit;\n' +
-            'font-weight: inherit;\n' +
-            'line-height: inherit;\n' +
-            '}\n' +
-            '\n' +
-            'a, a:link, .no-detect-local a, .appleLinks a {\n' +
-            'color: inherit !important;\n' +
-            'text-decoration: inherit;\n' +
-            '}\n' +
-            '</style>\n' +
-            '\n' +
-            '<style>\n' +
-            '\n' +
-            '.width600 {\n' +
-            'width: 600px;\n' +
-            'max-width: 100%;\n' +
-            '}\n' +
-            '\n' +
+            'body { margin:0; padding:0; -ms-text-size-adjust:100%; -webkit-text-size-adjust:100%; }\n' +
+            'table { border-spacing:0; mso-table-lspace:0pt; mso-table-rspace:0pt; }\n' +
+            'td { border-collapse:collapse; }\n' +
+            'img { -ms-interpolation-mode:bicubic; border:0; outline:none; text-decoration:none; }\n' +
+            'a[x-apple-data-detectors=true] { color:inherit !important; text-decoration:inherit !important; }\n' +
             '@media all and (max-width: 599px) {\n' +
-            '.width600 {\n' +
-            'width: 100% !important;\n' +
+            '.main-container { width:100% !important; }\n' +
+            '.fluid { width:100% !important; height:auto !important; }\n' +
+            '.stack { display:block !important; width:100% !important; box-sizing:border-box; }\n' +
+            '.btn-full { width:100% !important; }\n' +
+            '.cl-sep { display:none !important; }\n' +
+            '.cl-line { display:block !important; }\n' +
+            '.h1 { font-size:30px !important; line-height:34px !important; }\n' +
             '}\n' +
-            '}\n' +
-            '\n' +
-            '@media screen and (min-width: 600px) {\n' +
-            '.hide-on-desktop {\n' +
-            'display: none !important;\n' +
-            '}\n' +
-            '}\n' +
-            '\n' +
-            '@media all and (max-width: 599px),\n' +
-            'only screen and (max-device-width: 599px) {\n' +
-            '.main-container {\n' +
-            'width: 100% !important;\n' +
-            '}\n' +
-            '\n' +
-            '.col {\n' +
-            'width: 100%;\n' +
-            '}\n' +
-            '\n' +
-            '.fluid-on-mobile {\n' +
-            'width: 100% !important;\n' +
-            'height: auto !important;\n' +
-            'text-align:center;\n' +
-            '}\n' +
-            '\n' +
-            '.fluid-on-mobile img {\n' +
-            'width: 100% !important;\n' +
-            '}\n' +
-            '\n' +
-            '.hide-on-mobile {\n' +
-            'display:none !important;\n' +
-            'width:0px !important;\n' +
-            'height:0px !important;\n' +
-            'overflow:hidden;\n' +
-            '}\n' +
-            '}\n' +
-            '\n' +
             '</style>\n' +
-            '\n' +
-            '<!--[if gte mso 9]>\n' +
-            '<style>\n' +
-            '\n' +
-            '.col {\n' +
-            'width: 100%;\n' +
-            '}\n' +
-            '\n' +
-            '.width600 {\n' +
-            'width: 600px;\n' +
-            '}\n' +
-            '\n' +
-            '.width170 {\n' +
-            'width: 170px;\n' +
-            'height: auto;\n' +
-            '}\n' +
-            '.width600 {\n' +
-            'width: 600px;\n' +
-            'height: auto;\n' +
-            '}\n' +
-            '.width125 {\n' +
-            'width: 125px;\n' +
-            'height: auto;\n' +
-            '}\n' +
-            '.width167 {\n' +
-            'width: 167px;\n' +
-            'height: auto;\n' +
-            '}\n' +
-            '.width22 {\n' +
-            'width: 22px;\n' +
-            'height: auto;\n' +
-            '}\n' +
-            '\n' +
-            '.hide-on-desktop {\n' +
-            'display: none;\n' +
-            '}\n' +
-            '\n' +
-            '.hide-on-desktop table {\n' +
-            'mso-hide: all;\n' +
-            '}\n' +
-            '\n' +
-            '.hide-on-desktop div {\n' +
-            'mso-hide: all;\n' +
-            '}\n' +
-            '\n' +
-            '.nounderline { text-decoration: none; }\n' +
-            '\n' +
-            '.mso-font-fix-arial { font-family: Arial, sans-serif; }\n' +
-            '</style>\n' +
+            '<!--[if mso]>\n' +
+            '<style>h1, h2, p, td, a, span, font { font-family:Arial, sans-serif !important; }</style>\n' +
             '<![endif]-->\n' +
-            '\n' +
             '</head>\n' +
-            '<body id="body" leftmargin="0" marginwidth="0" topmargin="0" marginheight="0" offset="0" style="font-family:Arial, sans-serif; font-size:0px;margin:0;padding:0;background-color:#ffffff;">\n' +
+            '<body id="body" bgcolor="#ffffff" style="margin:0;padding:0;background-color:#ffffff;">\n' +
             '<span style="display:none;font-size:0px;line-height:0px;max-height:0px;max-width:0px;opacity:0;overflow:hidden;">Here\'s your Nu-Heat quote.</span>\n' +
-            '<style>\n' +
-            '@media screen and (min-width: 600px) {\n' +
-            '.hide-on-desktop {\n' +
-            'display: none;\n' +
-            '}\n' +
-            '}\n' +
-            '@media all and (max-width: 599px) {\n' +
-            '.hide-on-mobile {\n' +
-            'display:none !important;\n' +
-            'width:0px !important;\n' +
-            'height:0px !important;\n' +
-            'overflow:hidden;\n' +
-            '}\n' +
-            '.main-container {\n' +
-            'width: 100% !important;\n' +
-            '}\n' +
-            '.col {\n' +
-            'width: 100%;\n' +
-            '}\n' +
-            '.fluid-on-mobile {\n' +
-            'width: 100% !important;\n' +
-            'height: auto !important;\n' +
-            'text-align:center;\n' +
-            '}\n' +
-            '.fluid-on-mobile img {\n' +
-            'width: 100% !important;\n' +
-            '}\n' +
-            '}\n' +
-            '</style>\n' +
-            '<div style="background-color:#ffffff;">\n' +
-            '<table height="100%" width="100%" cellpadding="0" cellspacing="0" border="0">\n' +
-            '<tr>\n' +
-            '<td valign="top" align="left">\n' +
-            '<table cellpadding="0" cellspacing="0" border="0" width="100%">\n' +
-            '<tr>\n' +
-            '<td width="100%">\n' +
-            '<table cellpadding="0" cellspacing="0" border="0" width="100%">\n' +
-            '<tr>\n' +
-            '<td align="center" width="100%">\n' +
-            '<!--[if gte mso 9]><table width="600" cellpadding="0" cellspacing="0"><tr><td><![endif]-->\n' +
-            '<table class="width600 main-container" cellpadding="0" cellspacing="0" border="0" width="600" style="width:100%;max-width:600px;">\n' +
-            '<tr>\n' +
-            '<td width="100%">\n' +
-            '<table cellpadding="0" cellspacing="0" border="0" width="100%" bgcolor="#ffffff" style="background-color:#ffffff;"><tr><td>\n' +
-            '<table cellpadding="0" cellspacing="0" border="0" width="100%" class="mcol">\n' +
-            '<tr>\n' +
-            '<td valign="top" style="padding:0;mso-cellspacing:0in;">\n' +
-            '<!--[if gte mso 9]><table cellpadding="0" cellspacing="0" border="0" width="100%"><tr><![endif]-->\n' +
-            '<!--[if gte mso 9]><td valign="top" style="padding:0;width:100px;"><![endif]-->\n' +
-            '<table cellpadding="0" cellspacing="0" border="0" width="16.666666666666668%" height="0" class="col hide-on-mobile" style="float:left;min-width:100px;height:1px;" align="left">\n' +
-            '<tr>\n' +
-            '<td valign="top" width="100%" style="line-height:1px;padding:0;font-size:0px;">&nbsp;</td>\n' +
-            '</tr>\n' +
-            '</table>\n' +
-            '<!--[if gte mso 9]></td><![endif]--><!--[if gte mso 9]><td valign="top" style="padding:0;width:236.99999999999997px;"><![endif]-->\n' +
-            '<table cellpadding="0" cellspacing="0" border="0" width="39.49999999999999%" class="col hide-on-mobile" align="left" style="float:left;">\n' +
-            '<tr>\n' +
-            '<td valign="top" width="100%" style="padding:0;">\n' +
-            '<table cellpadding="0" cellspacing="0" border="0" width="100%">\n' +
-            '<tr>\n' +
-            '<td style="padding-right:10px;padding-left:10px;">\n' +
-            '<table cellpadding="0" cellspacing="0" border="0" width="100%" style="border-top:10px solid transparent;">\n' +
-            '<tr>\n' +
-            '<td style="font-size:0px;line-height:0;mso-line-height-rule:exactly;">&nbsp;\n' +
-            '</td>\n' +
-            '</tr>\n' +
-            '</table>\n' +
-            '</td>\n' +
-            '</tr>\n' +
-            '</table>\n' +
-            '</td>\n' +
-            '</tr>\n' +
-            '</table>\n' +
-            '<!--[if gte mso 9]></td><![endif]--><!--[if gte mso 9]><td valign="top" style="padding:0;width:73px;"><![endif]-->\n' +
-            '<table cellpadding="0" cellspacing="0" border="0" width="12.166666666666666%" height="0" class="col hide-on-mobile" style="float:left;min-width:73px;height:1px;" align="left">\n' +
-            '<tr>\n' +
-            '<td valign="top" width="100%" style="line-height:1px;padding:0;font-size:0px;">&nbsp;</td>\n' +
-            '</tr>\n' +
-            '</table>\n' +
-            '<!--[if gte mso 9]></td><![endif]--><!--[if gte mso 9]><td valign="top" style="padding:0;width:190px;"><![endif]-->\n' +
-            '<table cellpadding="0" cellspacing="0" border="0" width="31.666666666666668%" class="col" align="left" style="float:left;">\n' +
-            '<tr>\n' +
-            '<td valign="top" width="100%" style="padding:0;">\n' +
-            '<table cellpadding="0" cellspacing="0" border="0" width="100%">\n' +
-            '<tr>\n' +
-            '<td valign="top" align="center"><!--[if gte mso 9]><table width="190" cellpadding="0" cellspacing="0"><tr><td><![endif]-->\n' +
-            '<table cellpadding="0" cellspacing="0" border="0" class="img-wrap" style="max-width:100%;">\n' +
-            '<tr>\n' +
-            '<td valign="top" align="center" style="padding:10px;"><img src="https://images.chamaileon.io/5b1fac592f38b800113c85ca/5ca8626420e2346b3ee9a013/1698400306920_Nu-Heat%20Master%20logo%20green%20-%20transparent%20v3.png" width="170" height="73" alt="Nu-Heat Underfloor Heating & Renewables" border="0" style="display:block;font-size:14px;max-width:100%;height:auto;" class="width170" />\n' +
-            '</td>\n' +
-            '</tr>\n' +
-            '</table>\n' +
-            '<!--[if gte mso 9]></td></tr></table><![endif]-->\n' +
-            '</td>\n' +
-            '</tr>\n' +
-            '</table>\n' +
-            '</td>\n' +
-            '</tr>\n' +
-            '</table>\n' +
-            '<!--[if gte mso 9]></td><![endif]-->\n' +
-            '<!--[if gte mso 9]></tr></table><![endif]-->\n' +
-            '</td>\n' +
-            '</tr>\n' +
-            '</table>\n' +
-            '</td></tr></table>\n' +
-            '<table cellpadding="0" cellspacing="0" border="0" width="100%">\n' +
-            '<tr>\n' +
-            '<td valign="top"><table cellpadding="0" cellspacing="0" border="0" width="100%" bgcolor="#59315f" style="background-color:#59315f;"><tr><td>\n' +
-            '<table cellpadding="0" cellspacing="0" border="0" width="100%">\n' +
-            '<tr>\n' +
-            '<td valign="top" style="padding:15px;">\n' +
-            '<table cellpadding="0" cellspacing="0" border="0" width="100%">\n' +
-            '<tr>\n' +
-            '<td valign="top" style="padding:10px;"><h1 style="font-family:Calibri, Arial, sans-serif;font-size:40px;color:#ffffff;font-weight:normal;line-height:43px;mso-line-height-rule:exactly;letter-spacing:normal;mso-text-raise:1px;text-align:center;padding:0;margin:0;"><span class="mso-font-fix-arial"><b>Thank you for requesting a quote</b></span></h1>\n' +
-            '</td>\n' +
-            '</tr>\n' +
-            '</table>\n' +
-            '<table cellpadding="0" cellspacing="0" border="0" width="100%">\n' +
-            '<tr>\n' +
-            '<td valign="top" style="padding:10px;"><div style="font-family:Calibri, Arial, sans-serif;font-size:20px;color:#ffffff;font-weight:normal;line-height:25px;mso-line-height-rule:exactly;letter-spacing:normal;mso-text-raise:2px;text-align:center;"><p style="margin-left:0px;margin-top:0px;margin-right:0px;margin-bottom:0px;padding:0;"><span class="mso-font-fix-arial">Project: {{QUOTE_EMAIL_REF}}</span></p>\n' +
-            '<p style="padding:0;margin:0;"><span class="mso-font-fix-arial">{{TRAN_ID}}</span></p></div>\n' +
-            '</td>\n' +
-            '</tr>\n' +
-            '</table>\n' +
-            '</td>\n' +
-            '</tr>\n' +
-            '</table>\n' +
-            '</td></tr></table>\n' +
-            '</td>\n' +
-            '</tr>\n' +
-            '</table>\n' +
-            '<table cellpadding="0" cellspacing="0" border="0" width="100%">\n' +
-            '<tr>\n' +
-            '<td valign="top" align="center"><!--[if gte mso 9]><table width="600" cellpadding="0" cellspacing="0"><tr><td><![endif]-->\n' +
-            '<table cellpadding="0" cellspacing="0" border="0" class="fluid-on-mobile img-wrap" style="max-width:100%;">\n' +
-            '<tr>\n' +
-            '<td valign="top" align="center"><img src="https://images.chamaileon.io/5b1fac592f38b800113c85ca/5ca8626420e2346b3ee9a013/1613738610524_Order%20conformation.jpg" width="600" height="337" alt="Thank you for choosing Nu-Heat" border="0" style="display:block;font-size:14px;max-width:100%;height:auto;" class="width600" />\n' +
-            '</td>\n' +
-            '</tr>\n' +
-            '</table>\n' +
-            '<!--[if gte mso 9]></td></tr></table><![endif]-->\n' +
-            '</td>\n' +
-            '</tr>\n' +
-            '</table>\n' +
-            '<table cellpadding="0" cellspacing="0" border="0" width="100%">\n' +
-            '<tr>\n' +
-            '<td valign="top" style="padding-top:15px;padding-right:10px;padding-bottom:15px;padding-left:10px;"><h1 style="font-family:Calibri, Arial, sans-serif;font-size:32px;color:#59315f;font-weight:normal;line-height:35px;mso-line-height-rule:exactly;letter-spacing:normal;mso-text-raise:1px;text-align:center;padding:0;margin:0;"><span class="mso-font-fix-arial"><strong>Your quote</strong></span></h1>\n' +
-            '</td>\n' +
-            '</tr>\n' +
-            '</table>\n' +
-            '<table cellpadding="0" cellspacing="0" border="0" width="100%">\n' +
-            '<tr>\n' +
-            '<td valign="top" style="padding-top:5px;padding-right:10px;padding-bottom:5px;padding-left:10px;"><div style="font-family:Calibri, Arial, sans-serif;font-size:18px;color:#131313;font-weight:normal;line-height:24px;mso-line-height-rule:exactly;letter-spacing:normal;mso-text-raise:3px;text-align:center;"><p style="padding:0;margin:0;"><span class="mso-font-fix-arial"><strong>You can view your tailored quote(s) below. This is provided subject to our <a href="https://www.nu-heat.co.uk/wp-content/uploads/2021/04/Nu-Heat-TCs-Consumer-and-Trade.pdf" target="_blank" style="text-decoration:underline !important;color:#59315f !important;"><font style="color:#59315f;">Terms and Conditions</font></a>.</strong></span></p></div>\n' +
-            '</td>\n' +
-            '</tr>\n' +
-            '</table>\n' +
-            '<table cellpadding="0" cellspacing="0" border="0" width="100%" bgcolor="#ffffff" style="background-color:#ffffff;"><tr><td>\n' +
-            '<table cellpadding="0" cellspacing="0" border="0" width="100%">\n' +
-            '<tr>\n' +
-            '<td valign="top">\n' +
-            '<table cellpadding="0" cellspacing="0" border="0" width="100%">\n' +
-            '<tr>\n' +
-            '<td valign="top" align="center" style="padding:20px;">\n' +
-            '<!-- Button for non-Outlook clients (v1.4.1: fixed duplication, updated text) -->\n' +
-            '<!--[if !mso]><!-- -->\n' +
-            '<a href="{{PROPOSAL_URL}}" target="_blank" style="display:inline-block; text-decoration:none;" class="fluid-on-mobile">\n' +
-            '<span>\n' +
-            '<table cellpadding="0" cellspacing="0" border="0" bgcolor="#ffb500" class="fluid-on-mobile" style="border-radius:5px;border-collapse:separate !important;background-color:#ffb500;">\n' +
-            '<tr>\n' +
-            '<td align="center" style="padding:15px;">\n' +
-            '<span style="color:#3e3b39 !important;font-family:Calibri, Arial, sans-serif;font-size:18px;mso-line-height:exactly;line-height:22px;mso-text-raise:2px;letter-spacing: normal;">\n' +
-            '<font style="color:#3e3b39;" class="button">\n' +
-            '<span><b>VIEW YOUR QUOTE(S) HERE</b></span>\n' +
-            '</font>\n' +
-            '</span>\n' +
-            '</td>\n' +
-            '</tr>\n' +
-            '</table>\n' +
-            '</span>\n' +
-            '</a>\n' +
-            '<!--<![endif]-->\n' +
-            '<!-- Button for Outlook/MSO clients only (v1.4.1: uses conditional comment instead of CSS display:none to prevent duplication) -->\n' +
-            '<!--[if mso]>\n' +
-            '<table cellpadding="0" cellspacing="0" border="0" bgcolor="#ffb500" class="fluid-on-mobile" style="border-radius:5px;border-collapse:separate !important;background-color:#ffb500;">\n' +
-            '<tr>\n' +
-            '<td align="center" style="padding:15px;">\n' +
-            '<a href="{{PROPOSAL_URL}}" target="_blank" style="color:#3e3b39 !important;font-family:Calibri, Arial, sans-serif;font-size:18px;mso-line-height:exactly;line-height:22px;mso-text-raise:2px;letter-spacing: normal;text-decoration:none;text-align:center;">\n' +
-            '<span style="color:#3e3b39 !important;font-family:Calibri, Arial, sans-serif;font-size:18px;mso-line-height:exactly;line-height:22px;mso-text-raise:2px;letter-spacing: normal;">\n' +
-            '<font style="color:#3e3b39;" class="button">\n' +
-            '<span><b>VIEW YOUR QUOTE(S) HERE</b></span>\n' +
-            '</font>\n' +
-            '</span>\n' +
-            '</a>\n' +
-            '</td>\n' +
-            '</tr>\n' +
-            '</table>\n' +
-            '<![endif]-->\n' +
-            '</td>\n' +
-            '</tr>\n' +
-            '</table>\n' +
-            '</td>\n' +
-            '</tr>\n' +
-            '</table>\n' +
-            '</td></tr></table>\n' +
-            '<table cellpadding="0" cellspacing="0" border="0" width="100%">\n' +
-            '<tr>\n' +
-            '<td valign="top" style="padding-top:10px;"><table cellpadding="0" cellspacing="0" border="0" width="100%" bgcolor="#d8d8d8" style="background-color:#d8d8d8;"><tr><td>\n' +
-            '<table cellpadding="0" cellspacing="0" border="0" width="100%">\n' +
-            '<tr>\n' +
-            '<td valign="top" style="padding-top:10px;padding-right:10px;padding-bottom:20px;padding-left:10px;">\n' +
-            '<table cellpadding="0" cellspacing="0" border="0" width="100%">\n' +
-            '<tr>\n' +
-            '<td valign="top" style="padding-top:5px;padding-right:10px;padding-left:10px;"><h1 style="font-family:Calibri, Arial, sans-serif;font-size:32px;color:#aa0061;font-weight:normal;line-height:35px;mso-line-height-rule:exactly;letter-spacing:normal;mso-text-raise:1px;text-align:center;padding:0;margin:0;"><span style="font-family: Arial, Helvetica Neue, Helvetica, sans-serif; font-size: 31px; color: #aa0061; font-weight: normal; line-height: 40px; padding: 0px; margin: 0px;" class="mso-font-fix-arial"><span><strong>Why choose Nu-Heat?</strong></span></span></h1>\n' +
-            '</td>\n' +
-            '</tr>\n' +
-            '</table>\n' +
-            '<table cellpadding="0" cellspacing="0" border="0" width="100%" class="mcol">\n' +
-            '<tr>\n' +
-            '<td valign="top" style="padding:0;mso-cellspacing:0in;">\n' +
-            '<!--[if gte mso 9]><table cellpadding="0" cellspacing="0" border="0" width="100%"><tr><![endif]-->\n' +
-            '<!--[if gte mso 9]><td valign="top" style="padding:0;width:145px;"><![endif]-->\n' +
-            '<table cellpadding="0" cellspacing="0" border="0" width="25%" class="col" align="left" style="float:left;">\n' +
-            '<tr>\n' +
-            '<td valign="top" width="100%" style="padding:0;">\n' +
-            '<table cellpadding="0" cellspacing="0" border="0" width="100%">\n' +
-            '<tr>\n' +
-            '<td valign="top" style="padding-top:15px;padding-bottom:5px;padding-left:10px;"><div style="font-family:Calibri, Arial, sans-serif;font-size:20px;color:#000000;font-weight:normal;line-height:24px;mso-line-height-rule:exactly;letter-spacing:normal;mso-text-raise:2px;text-align:center;"><p style="padding:0;margin:0;"><span class="mso-font-fix-arial"><span style="padding: 0px; margin: 0px;"><strong>Bespoke heating design</strong></span></span></p></div>\n' +
-            '</td>\n' +
-            '</tr>\n' +
-            '</table>\n' +
-            '<table cellpadding="0" cellspacing="0" border="0" width="100%">\n' +
-            '<tr>\n' +
-            '<td valign="top" style="padding-top:10px;padding-bottom:10px;">\n' +
-            '<table cellpadding="0" cellspacing="0" border="0" width="100%">\n' +
-            '<tr>\n' +
-            '<td valign="top" align="center"><!--[if gte mso 9]><table width="125" cellpadding="0" cellspacing="0"><tr><td><![endif]-->\n' +
-            '<table cellpadding="0" cellspacing="0" border="0" class="img-wrap" style="max-width:100%;">\n' +
-            '<tr>\n' +
-            '<td valign="top" align="center"><img src="https://images.chamaileon.io/5b1fac592f38b800113c85ca/5ca8626420e2346b3ee9a013/1698665508018_Design.png" width="125" height="125" alt="Bespoke heating design" border="0" style="display:block;font-size:14px;max-width:100%;height:auto;" class="width125" />\n' +
-            '</td>\n' +
-            '</tr>\n' +
-            '</table>\n' +
-            '<!--[if gte mso 9]></td></tr></table><![endif]-->\n' +
-            '</td>\n' +
-            '</tr>\n' +
-            '</table>\n' +
-            '</td>\n' +
-            '</tr>\n' +
-            '</table>\n' +
-            '<table cellpadding="0" cellspacing="0" border="0" width="100%">\n' +
-            '<tr>\n' +
-            '<td valign="top" style="padding-top:5px;padding-bottom:5px;padding-left:10px;"><div style="font-family:Calibri, Arial, sans-serif;font-size:18px;color:#000000;font-weight:normal;line-height:22px;mso-line-height-rule:exactly;letter-spacing:normal;mso-text-raise:2px;text-align:center;"><p style="padding:0;margin:0;"><span class="mso-font-fix-arial"><span style="padding: 0px; margin: 0px;">We tailor each system to the property for maximum performance</span></span></p></div>\n' +
-            '</td>\n' +
-            '</tr>\n' +
-            '</table>\n' +
-            '</td>\n' +
-            '</tr>\n' +
-            '</table>\n' +
-            '<!--[if gte mso 9]></td><![endif]--><!--[if gte mso 9]><td valign="top" style="padding:0;width:145px;"><![endif]-->\n' +
-            '<table cellpadding="0" cellspacing="0" border="0" width="25%" class="col" align="left" style="float:left;">\n' +
-            '<tr>\n' +
-            '<td valign="top" width="100%" style="padding:0;">\n' +
-            '<table cellpadding="0" cellspacing="0" border="0" width="100%">\n' +
-            '<tr>\n' +
-            '<td valign="top" style="padding-top:15px;padding-bottom:5px;padding-left:10px;"><div style="font-family:Calibri, Arial, sans-serif;font-size:20px;color:#000000;font-weight:normal;line-height:24px;mso-line-height-rule:exactly;letter-spacing:normal;mso-text-raise:2px;text-align:center;"><p style="padding:0;margin:0;"><span class="mso-font-fix-arial"><span style="padding: 0px; margin: 0px;"><strong>The heating experts</strong></span></span></p></div>\n' +
-            '</td>\n' +
-            '</tr>\n' +
-            '</table>\n' +
-            '<table cellpadding="0" cellspacing="0" border="0" width="100%">\n' +
-            '<tr>\n' +
-            '<td valign="top" style="padding-top:10px;padding-bottom:10px;">\n' +
-            '<table cellpadding="0" cellspacing="0" border="0" width="100%">\n' +
-            '<tr>\n' +
-            '<td valign="top" align="center"><!--[if gte mso 9]><table width="125" cellpadding="0" cellspacing="0"><tr><td><![endif]-->\n' +
-            '<table cellpadding="0" cellspacing="0" border="0" class="img-wrap" style="max-width:100%;">\n' +
-            '<tr>\n' +
-            '<td valign="top" align="center"><img src="https://images.chamaileon.io/5b1fac592f38b800113c85ca/5ca8626420e2346b3ee9a013/1698665474858_Installer%20skills%202.png" width="125" height="125" alt="Heating experts" border="0" style="display:block;font-size:14px;max-width:100%;height:auto;" class="width125" />\n' +
-            '</td>\n' +
-            '</tr>\n' +
-            '</table>\n' +
-            '<!--[if gte mso 9]></td></tr></table><![endif]-->\n' +
-            '</td>\n' +
-            '</tr>\n' +
-            '</table>\n' +
-            '</td>\n' +
-            '</tr>\n' +
-            '</table>\n' +
-            '<table cellpadding="0" cellspacing="0" border="0" width="100%">\n' +
-            '<tr>\n' +
-            '<td valign="top" style="padding-top:5px;padding-right:10px;padding-bottom:5px;padding-left:10px;"><div style="font-family:Calibri, Arial, sans-serif;font-size:18px;color:#000000;font-weight:normal;line-height:22px;mso-line-height-rule:exactly;letter-spacing:normal;mso-text-raise:2px;text-align:center;"><p style="padding:0;margin:0;"><span class="mso-font-fix-arial"><span style="padding: 0px; margin: 0px;">Our systems heat more than 80,000 homes across the country!</span></span></p></div>\n' +
-            '</td>\n' +
-            '</tr>\n' +
-            '</table>\n' +
-            '</td>\n' +
-            '</tr>\n' +
-            '</table>\n' +
-            '<!--[if gte mso 9]></td><![endif]--><!--[if gte mso 9]><td valign="top" style="padding:0;width:145px;"><![endif]-->\n' +
-            '<table cellpadding="0" cellspacing="0" border="0" width="25%" class="col" align="left" style="float:left;">\n' +
-            '<tr>\n' +
-            '<td valign="top" width="100%" style="padding:0;">\n' +
-            '<table cellpadding="0" cellspacing="0" border="0" width="100%">\n' +
-            '<tr>\n' +
-            '<td valign="top" style="padding-top:15px;padding-bottom:5px;padding-left:10px;"><div style="font-family:Calibri, Arial, sans-serif;font-size:20px;color:#000000;font-weight:normal;line-height:24px;mso-line-height-rule:exactly;letter-spacing:normal;mso-text-raise:2px;text-align:center;"><p style="padding:0;margin:0;"><span class="mso-font-fix-arial"><span style="padding: 0px; margin: 0px;"><strong>Lifetime support</strong></span></span></p></div>\n' +
-            '</td>\n' +
-            '</tr>\n' +
-            '</table>\n' +
-            '<table cellpadding="0" cellspacing="0" border="0" width="100%">\n' +
-            '<tr>\n' +
-            '<td valign="top" style="padding-top:10px;padding-bottom:10px;">\n' +
-            '<table cellpadding="0" cellspacing="0" border="0" width="100%">\n' +
-            '<tr>\n' +
-            '<td valign="top" align="center"><!--[if gte mso 9]><table width="125" cellpadding="0" cellspacing="0"><tr><td><![endif]-->\n' +
-            '<table cellpadding="0" cellspacing="0" border="0" class="img-wrap" style="max-width:100%;">\n' +
-            '<tr>\n' +
-            '<td valign="top" align="center"><img src="https://images.chamaileon.io/5b1fac592f38b800113c85ca/5ca8626420e2346b3ee9a013/1698665569030_Lifetime%20tech%20support.png" width="125" height="125" alt="Lifetime support" border="0" style="display:block;font-size:14px;max-width:100%;height:auto;" class="width125" />\n' +
-            '</td>\n' +
-            '</tr>\n' +
-            '</table>\n' +
-            '<!--[if gte mso 9]></td></tr></table><![endif]-->\n' +
-            '</td>\n' +
-            '</tr>\n' +
-            '</table>\n' +
-            '</td>\n' +
-            '</tr>\n' +
-            '</table>\n' +
-            '<table cellpadding="0" cellspacing="0" border="0" width="100%">\n' +
-            '<tr>\n' +
-            '<td valign="top" style="padding-top:5px;padding-right:10px;padding-bottom:5px;padding-left:10px;"><div style="font-family:Calibri, Arial, sans-serif;font-size:18px;color:#000000;font-weight:normal;line-height:22px;mso-line-height-rule:exactly;letter-spacing:normal;mso-text-raise:2px;text-align:center;"><p style="padding:0;margin:0;"><span class="mso-font-fix-arial"><span style="padding: 0px; margin: 0px;">We support our systems for life, so you can always call on us if needed</span></span></p></div>\n' +
-            '</td>\n' +
-            '</tr>\n' +
-            '</table>\n' +
-            '</td>\n' +
-            '</tr>\n' +
-            '</table>\n' +
-            '<!--[if gte mso 9]></td><![endif]--><!--[if gte mso 9]><td valign="top" style="padding:0;width:145px;"><![endif]-->\n' +
-            '<table cellpadding="0" cellspacing="0" border="0" width="25%" class="col" align="left" style="float:left;">\n' +
-            '<tr>\n' +
-            '<td valign="top" width="100%" style="padding:0;">\n' +
-            '<table cellpadding="0" cellspacing="0" border="0" width="100%">\n' +
-            '<tr>\n' +
-            '<td valign="top" style="padding-top:15px;padding-bottom:5px;padding-left:10px;"><div style="font-family:Calibri, Arial, sans-serif;font-size:20px;color:#000000;font-weight:normal;line-height:24px;mso-line-height-rule:exactly;letter-spacing:normal;mso-text-raise:2px;text-align:center;"><p style="padding:0;margin:0;"><span class="mso-font-fix-arial"><span style="padding: 0px; margin: 0px;"><strong>Award-winning service</strong></span></span></p></div>\n' +
-            '</td>\n' +
-            '</tr>\n' +
-            '</table>\n' +
-            '<table cellpadding="0" cellspacing="0" border="0" width="100%">\n' +
-            '<tr>\n' +
-            '<td valign="top" style="padding-top:10px;padding-bottom:10px;">\n' +
-            '<table cellpadding="0" cellspacing="0" border="0" width="100%">\n' +
-            '<tr>\n' +
-            '<td valign="top" align="center"><!--[if gte mso 9]><table width="125" cellpadding="0" cellspacing="0"><tr><td><![endif]-->\n' +
-            '<table cellpadding="0" cellspacing="0" border="0" class="img-wrap" style="max-width:100%;">\n' +
-            '<tr>\n' +
-            '<td valign="top" align="center"><img src="https://images.chamaileon.io/5b1fac592f38b800113c85ca/5ca8626420e2346b3ee9a013/1698665474762_Award%20winning%20customer%20service.png" width="125" height="125" alt="Award-winning service" border="0" style="display:block;font-size:14px;max-width:100%;height:auto;" class="width125" />\n' +
-            '</td>\n' +
-            '</tr>\n' +
-            '</table>\n' +
-            '<!--[if gte mso 9]></td></tr></table><![endif]-->\n' +
-            '</td>\n' +
-            '</tr>\n' +
-            '</table>\n' +
-            '</td>\n' +
-            '</tr>\n' +
-            '</table>\n' +
-            '<table cellpadding="0" cellspacing="0" border="0" width="100%">\n' +
-            '<tr>\n' +
-            '<td valign="top" style="padding-top:5px;padding-right:10px;padding-bottom:5px;padding-left:10px;"><div style="font-family:Calibri, Arial, sans-serif;font-size:18px;color:#000000;font-weight:normal;line-height:22px;mso-line-height-rule:exactly;letter-spacing:normal;mso-text-raise:2px;text-align:center;"><p style="padding:0;margin:0;"><span class="mso-font-fix-arial"><span style="padding: 0px; margin: 0px;">Proud to hold a Distinction from the Institute of Customer Service</span></span></p></div>\n' +
-            '</td>\n' +
-            '</tr>\n' +
-            '</table>\n' +
-            '</td>\n' +
-            '</tr>\n' +
-            '</table>\n' +
-            '<!--[if gte mso 9]></td><![endif]-->\n' +
-            '<!--[if gte mso 9]></tr></table><![endif]-->\n' +
-            '</td>\n' +
-            '</tr>\n' +
-            '</table>\n' +
-            '</td>\n' +
-            '</tr>\n' +
-            '</table>\n' +
-            '</td></tr></table>\n' +
-            '</td>\n' +
-            '</tr>\n' +
-            '</table>\n' +
-            '<table cellpadding="0" cellspacing="0" border="0" width="100%" bgcolor="#ffffff" style="background-color:#ffffff;"><tr><td>\n' +
-            '<table cellpadding="0" cellspacing="0" border="0" width="100%">\n' +
-            '<tr>\n' +
-            '<td valign="top">\n' +
-            '<table cellpadding="0" cellspacing="0" border="0" width="100%">\n' +
-            '<tr>\n' +
-            '<td valign="top" style="padding-top:20px;padding-right:10px;padding-bottom:10px;padding-left:10px;"><h1 style="font-family:Calibri, Arial, sans-serif;font-size:32px;color:#59315f;font-weight:normal;line-height:35px;mso-line-height-rule:exactly;letter-spacing:normal;mso-text-raise:1px;text-align:center;padding:0;margin:0;"><span style="font-family: Arial, Helvetica Neue, Helvetica, sans-serif; font-size: 31px; color: #59315f; font-weight: normal; line-height: 40px; padding: 0px; margin: 0px;" class="mso-font-fix-arial"><span><strong>What\'s next?</strong></span></span></h1>\n' +
-            '</td>\n' +
-            '</tr>\n' +
-            '</table>\n' +
-            '<table cellpadding="0" cellspacing="0" border="0" width="100%">\n' +
-            '<tr>\n' +
-            '<td valign="top" style="padding-bottom:15px;padding-left:10px;"><div style="font-family:Calibri, Arial, sans-serif;font-size:18px;color:#000000;font-weight:normal;line-height:24px;mso-line-height-rule:exactly;letter-spacing:normal;mso-text-raise:3px;text-align:center;"><p style="padding:0;margin:0;"><span class="mso-font-fix-arial"><span style="padding: 0px; margin: 0px;">To discuss&nbsp;your quote or place your order please contact your Account Manager below.</span></span></p></div>\n' +
-            '</td>\n' +
-            '</tr>\n' +
-            '</table>\n' +
-            '<table cellpadding="0" cellspacing="0" border="0" width="100%">\n' +
-            '<tr>\n' +
-            '<td valign="top" align="center" style="padding-bottom:10px;"><!--[if gte mso 9]><table width="600" cellpadding="0" cellspacing="0"><tr><td><![endif]-->\n' +
-            '<table cellpadding="0" cellspacing="0" border="0" class="fluid-on-mobile img-wrap" style="max-width:100%;">\n' +
-            '<tr>\n' +
-            '<td valign="top" align="center"><img src="https://images.chamaileon.io/5b1fac592f38b800113c85ca/5ca8626420e2346b3ee9a013/1648042888934_Account%20manager.jpg" width="600" height="337" alt="Nu-Heat team" border="0" style="display:block;font-size:14px;max-width:100%;height:auto;" class="width600" />\n' +
-            '</td>\n' +
-            '</tr>\n' +
-            '</table>\n' +
-            '<!--[if gte mso 9]></td></tr></table><![endif]-->\n' +
-            '</td>\n' +
-            '</tr>\n' +
-            '</table>\n' +
-            '<table cellpadding="0" cellspacing="0" border="0" width="100%">\n' +
-            '<tr>\n' +
-            '<td valign="top" style="padding-top:5px;"><table cellpadding="0" cellspacing="0" border="0" width="100%" class="mcol">\n' +
-            '<tr>\n' +
-            '<td valign="top" style="padding:0;mso-cellspacing:0in;">\n' +
-            '<!--[if gte mso 9]><table cellpadding="0" cellspacing="0" border="0" width="100%"><tr><![endif]-->\n' +
-            '<!--[if gte mso 9]><td valign="top" style="padding:0;width:300px;"><![endif]-->\n' +
-            '<table cellpadding="0" cellspacing="0" border="0" width="50%" class="col" align="left" style="float:left;">\n' +
-            '<tr>\n' +
-            '<td valign="top" width="100%" style="padding:0;">\n' +
-            '<table cellpadding="0" cellspacing="0" border="0" width="100%">\n' +
-            '<tr>\n' +
-            '<td valign="top" align="center" style="padding:10px;">\n' +
-            '<!--[if !mso]><!-- -->\n' +
-            '<a href="tel:{{SALES_REP_PHONE}}" target="_blank" style="display:inline-block; text-decoration:none;" class="fluid-on-mobile">\n' +
-            '<span>\n' +
-            '<table cellpadding="0" cellspacing="0" border="0" bgcolor="#ffb500" class="fluid-on-mobile" style="border-radius:5px;border-collapse:separate !important;background-color:#ffb500;">\n' +
-            '<tr>\n' +
-            '<td align="center" style="padding:15px;">\n' +
-            '<span style="color:#3e3b39 !important;font-family:Calibri, Arial, sans-serif;font-size:18px;mso-line-height:exactly;line-height:24px;mso-text-raise:3px;letter-spacing: normal;">\n' +
-            '<font style="color:#3e3b39;" class="button">\n' +
-            '<span><strong>CLICK TO CALL</strong></span>\n' +
-            '</font>\n' +
-            '</span>\n' +
-            '</td>\n' +
-            '</tr>\n' +
-            '</table>\n' +
-            '</span>\n' +
-            '</a>\n' +
-            '<!--<![endif]-->\n' +
-            '<!-- Button for Outlook/MSO clients only (v2.1.1: conditional comment, as the quote button since v1.4.1 — never a display:none div, which viewers that strip styles show as a second button) -->\n' +
-            '<!--[if mso]>\n' +
-            '<table cellpadding="0" cellspacing="0" border="0" bgcolor="#ffb500" class="fluid-on-mobile" style="border-radius:5px;border-collapse:separate !important;background-color:#ffb500;">\n' +
-            '<tr>\n' +
-            '<td align="center" style="padding:15px;">\n' +
-            '<a href="tel:{{SALES_REP_PHONE}}" target="_blank" style="color:#3e3b39 !important;font-family:Calibri, Arial, sans-serif;font-size:18px;mso-line-height:exactly;line-height:24px;mso-text-raise:3px;letter-spacing: normal;text-decoration:none;text-align:center;">\n' +
-            '<span style="color:#3e3b39 !important;font-family:Calibri, Arial, sans-serif;font-size:18px;mso-line-height:exactly;line-height:24px;mso-text-raise:3px;letter-spacing: normal;">\n' +
-            '<font style="color:#3e3b39;" class="button">\n' +
-            '<span><strong>CLICK TO CALL</strong></span>\n' +
-            '</font>\n' +
-            '</span>\n' +
-            '</a>\n' +
-            '</td>\n' +
-            '</tr>\n' +
-            '</table>\n' +
-            '<![endif]-->\n' +
-            '</td>\n' +
-            '</tr>\n' +
-            '</table>\n' +
-            '</td>\n' +
-            '</tr>\n' +
-            '</table>\n' +
-            '<!--[if gte mso 9]></td><![endif]--><!--[if gte mso 9]><td valign="top" style="padding:0;width:300px;"><![endif]-->\n' +
-            '<table cellpadding="0" cellspacing="0" border="0" width="50%" class="col" align="left" style="float:left;">\n' +
-            '<tr>\n' +
-            '<td valign="top" width="100%" style="padding:0;">\n' +
-            '<table cellpadding="0" cellspacing="0" border="0" width="100%">\n' +
-            '<tr>\n' +
-            '<td valign="top" align="center" style="padding:10px;">\n' +
-            '<!--[if !mso]><!-- -->\n' +
-            '<a href="mailto:{{SALES_REP_EMAIL}}" style="display:inline-block; text-decoration:none;" class="fluid-on-mobile">\n' +
-            '<span>\n' +
-            '<table cellpadding="0" cellspacing="0" border="0" bgcolor="#ffb500" class="fluid-on-mobile" style="border-radius:5px;border-collapse:separate !important;background-color:#ffb500;">\n' +
-            '<tr>\n' +
-            '<td align="center" style="padding:15px;">\n' +
-            '<span style="color:#3e3b39 !important;font-family:Calibri, Arial, sans-serif;font-size:18px;mso-line-height:exactly;line-height:24px;mso-text-raise:3px;letter-spacing: normal;">\n' +
-            '<font style="color:#3e3b39;" class="button">\n' +
-            '<span><strong>SEND AN EMAIL</strong></span>\n' +
-            '</font>\n' +
-            '</span>\n' +
-            '</td>\n' +
-            '</tr>\n' +
-            '</table>\n' +
-            '</span>\n' +
-            '</a>\n' +
-            '<!--<![endif]-->\n' +
-            '<!-- Button for Outlook/MSO clients only (v2.1.1: conditional comment, as the quote button since v1.4.1 — never a display:none div, which viewers that strip styles show as a second button) -->\n' +
-            '<!--[if mso]>\n' +
-            '<table cellpadding="0" cellspacing="0" border="0" bgcolor="#ffb500" class="fluid-on-mobile" style="border-radius:5px;border-collapse:separate !important;background-color:#ffb500;">\n' +
-            '<tr>\n' +
-            '<td align="center" style="padding:15px;">\n' +
-            '<a href="mailto:{{SALES_REP_EMAIL}}" style="color:#3e3b39 !important;font-family:Calibri, Arial, sans-serif;font-size:18px;mso-line-height:exactly;line-height:24px;mso-text-raise:3px;letter-spacing: normal;text-decoration:none;text-align:center;">\n' +
-            '<span style="color:#3e3b39 !important;font-family:Calibri, Arial, sans-serif;font-size:18px;mso-line-height:exactly;line-height:24px;mso-text-raise:3px;letter-spacing: normal;">\n' +
-            '<font style="color:#3e3b39;" class="button">\n' +
-            '<span><strong>SEND AN EMAIL</strong></span>\n' +
-            '</font>\n' +
-            '</span>\n' +
-            '</a>\n' +
-            '</td>\n' +
-            '</tr>\n' +
-            '</table>\n' +
-            '<![endif]-->\n' +
-            '</td>\n' +
-            '</tr>\n' +
-            '</table>\n' +
-            '</td>\n' +
-            '</tr>\n' +
-            '</table>\n' +
-            '<!--[if gte mso 9]></td><![endif]-->\n' +
-            '<!--[if gte mso 9]></tr></table><![endif]-->\n' +
-            '</td>\n' +
-            '</tr>\n' +
-            '</table>\n' +
-            '</td>\n' +
-            '</tr>\n' +
-            '</table>\n' +
-            '</td>\n' +
-            '</tr>\n' +
-            '</table>\n' +
-            '</td></tr></table>\n' +
-            '<table cellpadding="0" cellspacing="0" border="0" width="100%">\n' +
-            '<tr>\n' +
-            '<td style="padding-top:20px;padding-right:10px;padding-bottom:10px;padding-left:10px;">\n' +
-            '<table cellpadding="0" cellspacing="0" border="0" width="100%" style="border-top:1px solid #a9a9a9;">\n' +
-            '<tr>\n' +
-            '<td style="font-size:0px;line-height:0;mso-line-height-rule:exactly;">&nbsp;\n' +
-            '</td>\n' +
-            '</tr>\n' +
-            '</table>\n' +
-            '</td>\n' +
-            '</tr>\n' +
-            '</table>\n' +
-            '<table cellpadding="0" cellspacing="0" border="0" width="100%">\n' +
-            '<tr>\n' +
-            '<td valign="top" style="padding-top:10px;padding-right:10px;padding-bottom:20px;padding-left:10px;"><div style="font-family:Calibri, Arial, sans-serif;font-size:18px;color:#000000;font-weight:normal;line-height:24px;mso-line-height-rule:exactly;letter-spacing:normal;mso-text-raise:3px;text-align:center;"><p style="padding:0;margin:0;"><span class="mso-font-fix-arial"><span style="padding: 0px; margin: 0px;">If you have any questions, you can contact your Account Manager, {{SALES_REP_NAME}}, via {{SALES_REP_EMAIL}} or {{SALES_REP_PHONE}}.</span></span></p></div>\n' +
-            '</td>\n' +
-            '</tr>\n' +
-            '</table>\n' +
-            '</td>\n' +
-            '</tr>\n' +
-            '</table>\n' +
-            '<!--[if gte mso 9]></td></tr></table><![endif]-->\n' +
-            '</td>\n' +
-            '</tr>\n' +
-            '</table>\n' +
-            '<table cellpadding="0" cellspacing="0" border="0" width="100%" style="background-color:#ffffff;">\n' +
-            '<tr>\n' +
-            '<td align="center" width="100%">\n' +
-            '<!--[if gte mso 9]><table width="600" cellpadding="0" cellspacing="0"><tr><td><![endif]-->\n' +
-            '<table class="width600 main-container" cellpadding="0" cellspacing="0" border="0" width="600" style="width:100%;max-width:600px;">\n' +
-            '<tr>\n' +
-            '<td width="100%">\n' +
-            '<table cellpadding="0" cellspacing="0" border="0" width="100%" bgcolor="#ffffff" style="background-color:#ffffff;"><tr><td>\n' +
-            '<table cellpadding="0" cellspacing="0" border="0" width="100%">\n' +
-            '<tr>\n' +
-            '<td valign="top" style="padding-bottom:10px;"><table cellpadding="0" cellspacing="0" border="0" width="100%" bgcolor="#00857d" style="background-color:#00857d;"><tr><td>\n' +
-            '<table cellpadding="0" cellspacing="0" border="0" width="100%">\n' +
-            '<tr>\n' +
-            '<td valign="top" style="padding-bottom:20px;">\n' +
-            '<table cellpadding="0" cellspacing="0" border="0" width="100%">\n' +
-            '<tr>\n' +
-            '<td valign="top" align="center"><!--[if gte mso 9]><table width="167" cellpadding="0" cellspacing="0"><tr><td><![endif]-->\n' +
-            '<table cellpadding="0" cellspacing="0" border="0" class="img-wrap" style="max-width:100%;">\n' +
-            '<tr>\n' +
-            '<td valign="top" align="center"><img src="https://images.chamaileon.io/5b1fac592f38b800113c85ca/5ca8626420e2346b3ee9a013/1604422010305_Nu-Heat%20Master%20logo%20wht%20on%20green.png" width="167" height="94" alt="Nu-Heat Underfloor Heating & Renewables" border="0" style="display:block;font-size:14px;max-width:100%;height:auto;" class="width167" />\n' +
-            '</td>\n' +
-            '</tr>\n' +
-            '</table>\n' +
-            '<!--[if gte mso 9]></td></tr></table><![endif]-->\n' +
-            '</td>\n' +
-            '</tr>\n' +
-            '</table>\n' +
-            '<table cellpadding="0" cellspacing="0" border="0" width="100%">\n' +
-            '<tr>\n' +
-            '<td valign="top" width="30%">\n' +
-            '<table cellpadding="0" cellspacing="0" border="0" width="100%">\n' +
-            '<tr>\n' +
-            '<td style="padding-right:10px;padding-left:10px;">\n' +
-            '<table cellpadding="0" cellspacing="0" border="0" width="100%" style="border-top:10px solid transparent;">\n' +
-            '<tr>\n' +
-            '<td style="font-size:0px;line-height:0;mso-line-height-rule:exactly;">&nbsp;\n' +
-            '</td>\n' +
-            '</tr>\n' +
-            '</table>\n' +
-            '</td>\n' +
-            '</tr>\n' +
-            '</table>\n' +
-            '</td>\n' +
-            '<td valign="top" width="0.8333333333333334%">&nbsp;</td>\n' +
-            '<td valign="top" width="7.000000000000003%">\n' +
-            '<table cellpadding="0" cellspacing="0" border="0" width="100%">\n' +
-            '<tr>\n' +
-            '<td valign="top" align="center"><!--[if gte mso 9]><table width="22" cellpadding="0" cellspacing="0"><tr><td><![endif]-->\n' +
-            '<table cellpadding="0" cellspacing="0" border="0" class="img-wrap" style="max-width:100%;">\n' +
-            '<tr>\n' +
-            '<td valign="top" align="center"><a href="https://www.facebook.com/nuheatuk/" class="imglink" target="_blank">\n' +
-            '<img src="https://images.chamaileon.io/5b1fac592f38b800113c85ca/5ca8626420e2346b3ee9a013/1604502171665_white%20-%20facebook.png" width="22" height="22" alt="" border="0" style="display:block;font-size:14px;max-width:100%;height:auto;" class="width22" />\n' +
-            '</a>\n' +
-            '</td>\n' +
-            '</tr>\n' +
-            '</table>\n' +
-            '<!--[if gte mso 9]></td></tr></table><![endif]-->\n' +
-            '</td>\n' +
-            '</tr>\n' +
-            '</table>\n' +
-            '</td>\n' +
-            '<td valign="top" width="0.8333333333333334%">&nbsp;</td>\n' +
-            '<td valign="top" width="7%">\n' +
-            '<table cellpadding="0" cellspacing="0" border="0" width="100%">\n' +
-            '<tr>\n' +
-            '<td valign="top" align="center"><!--[if gte mso 9]><table width="22" cellpadding="0" cellspacing="0"><tr><td><![endif]-->\n' +
-            '<table cellpadding="0" cellspacing="0" border="0" class="img-wrap" style="max-width:100%;">\n' +
-            '<tr>\n' +
-            '<td valign="top" align="center"><a href="https://www.instagram.com/nuheatufh/" class="imglink" target="_blank">\n' +
-            '<img src="https://images.chamaileon.io/5b1fac592f38b800113c85ca/5ca8626420e2346b3ee9a013/1604502172039_white%20-%20instagram.png" width="22" height="22" alt="" border="0" style="display:block;font-size:14px;max-width:100%;height:auto;" class="width22" />\n' +
-            '</a>\n' +
-            '</td>\n' +
-            '</tr>\n' +
-            '</table>\n' +
-            '<!--[if gte mso 9]></td></tr></table><![endif]-->\n' +
-            '</td>\n' +
-            '</tr>\n' +
-            '</table>\n' +
-            '</td>\n' +
-            '<td valign="top" width="0.8333333333333334%">&nbsp;</td>\n' +
-            '<td valign="top" width="7%">\n' +
-            '<table cellpadding="0" cellspacing="0" border="0" width="100%">\n' +
-            '<tr>\n' +
-            '<td valign="top" align="center"><!--[if gte mso 9]><table width="22" cellpadding="0" cellspacing="0"><tr><td><![endif]-->\n' +
-            '<table cellpadding="0" cellspacing="0" border="0" class="img-wrap" style="max-width:100%;">\n' +
-            '<tr>\n' +
-            '<td valign="top" align="center"><a href="https://www.linkedin.com/company/nu-heat/" class="imglink" target="_blank">\n' +
-            '<img src="https://images.chamaileon.io/5b1fac592f38b800113c85ca/5ca8626420e2346b3ee9a013/1604502171857_white%20-%20linkedin.png" width="22" height="22" alt="" border="0" style="display:block;font-size:14px;max-width:100%;height:auto;" class="width22" />\n' +
-            '</a>\n' +
-            '</td>\n' +
-            '</tr>\n' +
-            '</table>\n' +
-            '<!--[if gte mso 9]></td></tr></table><![endif]-->\n' +
-            '</td>\n' +
-            '</tr>\n' +
-            '</table>\n' +
-            '</td>\n' +
-            '<td valign="top" width="0.8333333333333334%">&nbsp;</td>\n' +
-            '<td valign="top" width="7%">\n' +
-            '<table cellpadding="0" cellspacing="0" border="0" width="100%">\n' +
-            '<tr>\n' +
-            '<td valign="top" align="center"><!--[if gte mso 9]><table width="22" cellpadding="0" cellspacing="0"><tr><td><![endif]-->\n' +
-            '<table cellpadding="0" cellspacing="0" border="0" class="img-wrap" style="max-width:100%;">\n' +
-            '<tr>\n' +
-            '<td valign="top" align="center"><a href="https://twitter.com/nuheatuk" class="imglink" target="_blank">\n' +
-            '<img src="https://images.chamaileon.io/5b1fac592f38b800113c85ca/5ca8626420e2346b3ee9a013/1604502172417_white%20-%20twitter.png" width="22" height="22" alt="" border="0" style="display:block;font-size:14px;max-width:100%;height:auto;" class="width22" />\n' +
-            '</a>\n' +
-            '</td>\n' +
-            '</tr>\n' +
-            '</table>\n' +
-            '<!--[if gte mso 9]></td></tr></table><![endif]-->\n' +
-            '</td>\n' +
-            '</tr>\n' +
-            '</table>\n' +
-            '</td>\n' +
-            '<td valign="top" width="0.8333333333333334%">&nbsp;</td>\n' +
-            '<td valign="top" width="7%">\n' +
-            '<table cellpadding="0" cellspacing="0" border="0" width="100%">\n' +
-            '<tr>\n' +
-            '<td valign="top" align="center"><!--[if gte mso 9]><table width="22" cellpadding="0" cellspacing="0"><tr><td><![endif]-->\n' +
-            '<table cellpadding="0" cellspacing="0" border="0" class="img-wrap" style="max-width:100%;">\n' +
-            '<tr>\n' +
-            '<td valign="top" align="center"><a href="https://youtube.com/channel/UCsfB8s56fcERuaBFovwYnGQ" class="imglink" target="_blank">\n' +
-            '<img src="https://images.chamaileon.io/5b1fac592f38b800113c85ca/5ca8626420e2346b3ee9a013/1604502172308_white%20-%20youtube.png" width="22" height="22" alt="" border="0" style="display:block;font-size:14px;max-width:100%;height:auto;" class="width22" />\n' +
-            '</a>\n' +
-            '</td>\n' +
-            '</tr>\n' +
-            '</table>\n' +
-            '<!--[if gte mso 9]></td></tr></table><![endif]-->\n' +
-            '</td>\n' +
-            '</tr>\n' +
-            '</table>\n' +
-            '</td>\n' +
-            '<td valign="top" width="0.8333333333333334%">&nbsp;</td>\n' +
-            '<td valign="top" width="30%">\n' +
-            '<table cellpadding="0" cellspacing="0" border="0" width="100%">\n' +
-            '<tr>\n' +
-            '<td style="padding-right:10px;padding-left:10px;">\n' +
-            '<table cellpadding="0" cellspacing="0" border="0" width="100%" style="border-top:10px solid transparent;">\n' +
-            '<tr>\n' +
-            '<td style="font-size:0px;line-height:0;mso-line-height-rule:exactly;">&nbsp;\n' +
-            '</td>\n' +
-            '</tr>\n' +
-            '</table>\n' +
-            '</td>\n' +
-            '</tr>\n' +
-            '</table>\n' +
-            '</td>\n' +
-            '</tr>\n' +
-            '</table>\n' +
-            '</td>\n' +
-            '</tr>\n' +
-            '</table>\n' +
-            '</td></tr></table>\n' +
-            '</td>\n' +
-            '</tr>\n' +
-            '</table>\n' +
-            '</td></tr></table>\n' +
-            '</td>\n' +
-            '</tr>\n' +
-            '</table>\n' +
-            '<!--[if gte mso 9]></td></tr></table><![endif]-->\n' +
-            '</td>\n' +
-            '</tr>\n' +
-            '</table>\n' +
-            '</td>\n' +
-            '</tr>\n' +
-            '</table>\n' +
-            '</td>\n' +
-            '</tr>\n' +
+            '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="#ffffff" style="background-color:#ffffff;">\n' +
+            '<tr><td align="center" valign="top">\n' +
+            '<!--[if mso]><table role="presentation" width="600" align="center" cellpadding="0" cellspacing="0" border="0"><tr><td align="center" valign="top"><![endif]-->\n' +
+            '<table role="presentation" class="width600 main-container" width="600" align="center" cellpadding="0" cellspacing="0" border="0" style="width:100%;max-width:600px;">\n' +
+
+            // 1 — Logo
+            '<tr><td align="center" valign="top" style="padding:20px 10px;">\n' +
+            '<img src="' + EMAIL_IMG + '1698400306920_Nu-Heat%20Master%20logo%20green%20-%20transparent%20v3.png" width="170" height="73" alt="Nu-Heat Underfloor Heating &amp; Renewables" border="0" style="display:block;margin:0 auto;width:170px;height:auto;max-width:100%;">\n' +
+            '</td></tr>\n' +
+
+            // 2 — Purple header
+            '<tr><td align="center" valign="top" bgcolor="#59315f" style="background-color:#59315f;padding:28px 24px;">\n' +
+            '<p style="margin:0 0 10px 0;' + EMAIL_FONT + 'font-size:13px;line-height:16px;letter-spacing:2px;color:#ffffff;"><font face="' + EMAIL_FACE + '" color="#ffffff"><b>YOUR QUOTE IS READY</b></font></p>\n' +
+            '<h1 class="h1" style="margin:0 0 12px 0;' + EMAIL_FONT + 'font-size:38px;line-height:42px;font-weight:bold;color:#ffffff;"><font face="' + EMAIL_FACE + '" color="#ffffff">Thank you for requesting a quote</font></h1>\n' +
+            '<p style="margin:0;' + EMAIL_FONT + 'font-size:20px;line-height:25px;color:#ffffff;word-break:break-word;"><font face="' + EMAIL_FACE + '" color="#ffffff">Project: {{QUOTE_EMAIL_REF}} <span style="white-space:nowrap;">· {{TRAN_ID}}</span></font></p>\n' +
+            '</td></tr>\n' +
+
+            // 3 — Hero
+            '<tr><td align="center" valign="top">\n' +
+            '<img src="' + EMAIL_IMG + '1613738610524_Order%20conformation.jpg" width="600" height="337" alt="Thank you for choosing Nu-Heat" border="0" class="fluid" style="display:block;width:100%;max-width:600px;height:auto;">\n' +
+            '</td></tr>\n' +
+
+            // 4 — Your quote
+            '<tr><td align="center" valign="top" style="padding:28px 30px 28px 30px;">\n' +
+            '<h2 style="margin:0 0 12px 0;' + EMAIL_FONT + 'font-size:32px;line-height:35px;font-weight:bold;color:#59315f;"><font face="' + EMAIL_FACE + '" color="#59315f">Your quote</font></h2>\n' +
+            '<p style="margin:0 0 20px 0;' + EMAIL_FONT + 'font-size:18px;line-height:24px;color:#131313;"><font face="' + EMAIL_FACE + '" color="#131313">Open your quote online to see your system, prices and options. It\'s provided subject to our <a href="' + TERMS_URL + '" target="_blank" style="color:#59315f;text-decoration:underline;"><font color="#59315f">Terms and Conditions</font></a>.</font></p>\n' +
+            emailButton('{{PROPOSAL_URL}}', 'VIEW YOUR QUOTE') +
+            '</td></tr>\n' +
+
+            // 5 — Why choose Nu-Heat? (2 × 2; stacked on phones)
+            '<tr><td align="center" valign="top" bgcolor="#f2f2f2" style="background-color:#f2f2f2;padding:28px 10px 16px 10px;">\n' +
+            '<h2 style="margin:0 0 8px 0;' + EMAIL_FONT + 'font-size:32px;line-height:35px;font-weight:bold;color:#aa0061;"><font face="' + EMAIL_FACE + '" color="#aa0061">Why choose Nu-Heat?</font></h2>\n' +
+            '<table role="presentation" width="100%" align="center" cellpadding="0" cellspacing="0" border="0">\n' +
+            '<tr>\n' + tiles[0] + tiles[1] + '</tr>\n' +
+            '<tr>\n' + tiles[2] + tiles[3] + '</tr>\n' +
+            '</table>\n' +
+            '</td></tr>\n' +
+
+            // 6 — What's next? and the Account Manager card
+            '<tr><td align="center" valign="top" style="padding:28px 20px 32px 20px;">\n' +
+            '<h2 style="margin:0 0 12px 0;' + EMAIL_FONT + 'font-size:32px;line-height:35px;font-weight:bold;color:#59315f;"><font face="' + EMAIL_FACE + '" color="#59315f">What\'s next?</font></h2>\n' +
+            '<p style="margin:0 0 20px 0;' + EMAIL_FONT + 'font-size:18px;line-height:24px;color:#131313;"><font face="' + EMAIL_FACE + '" color="#131313">To discuss your quote or place your order, get in touch with your Account Manager.</font></p>\n' +
+            '<table role="presentation" class="main-card" width="440" align="center" cellpadding="0" cellspacing="0" border="0" bgcolor="#f6f2f7" style="width:100%;max-width:440px;background-color:#f6f2f7;border-radius:8px;">\n' +
+            (photoUrl
+                ? '<tr><td align="center" valign="top" style="padding:24px 20px 0 20px;"><img src="{{SALES_REP_PHOTO_URL}}" width="96" height="96" alt="{{SALES_REP_NAME}}" border="0" style="display:block;margin:0 auto;width:96px;height:96px;border-radius:48px;object-fit:cover;"></td></tr>\n'
+                : '') +
+            '<tr><td align="center" valign="top" style="padding:' + (photoUrl ? '14px' : '24px') + ' 20px 0 20px;">\n' +
+            '<p style="margin:0 0 4px 0;' + EMAIL_FONT + 'font-size:13px;line-height:16px;letter-spacing:2px;color:#59315f;"><font face="' + EMAIL_FACE + '" color="#59315f"><b>YOUR ACCOUNT MANAGER</b></font></p>\n' +
+            '<p style="margin:0 0 6px 0;' + EMAIL_FONT + 'font-size:24px;line-height:28px;font-weight:bold;color:#000000;"><font face="' + EMAIL_FACE + '" color="#000000"><b>{{SALES_REP_NAME}}</b></font></p>\n' +
+            '<p style="margin:0;' + EMAIL_FONT + 'font-size:17px;line-height:23px;color:#131313;"><font face="' + EMAIL_FACE + '" color="#131313"><span class="cl-line">{{SALES_REP_PHONE}}</span><span class="cl-sep"> · </span><span class="cl-line">{{SALES_REP_EMAIL}}</span></font></p>\n' +
+            '</td></tr>\n' +
+            '<tr><td align="center" valign="top" style="padding:16px 14px 20px 14px;">\n' +
+            '<table role="presentation" width="100%" align="center" cellpadding="0" cellspacing="0" border="0">\n' +
+            '<tr>\n' +
+            contactButtons.map(function (b) {
+                return '<td class="stack" width="' + (contactButtons.length === 2 ? '50%' : '100%') + '" align="center" valign="top" style="padding:6px;">\n' + b + '</td>\n';
+            }).join('') +
+            '</tr>\n' +
+            '</table>\n' +
+            '</td></tr>\n' +
+            '</table>\n' +
+            '</td></tr>\n' +
+
+            // 7 — Footer (logo and social links as before) and the reason line
+            '<tr><td align="center" valign="top" bgcolor="#00857d" style="background-color:#00857d;padding:10px 10px 24px 10px;">\n' +
+            '<img src="' + EMAIL_IMG + '1604422010305_Nu-Heat%20Master%20logo%20wht%20on%20green.png" width="167" height="94" alt="Nu-Heat Underfloor Heating &amp; Renewables" border="0" style="display:block;margin:0 auto 10px auto;width:167px;height:auto;">\n' +
+            '<table role="presentation" align="center" cellpadding="0" cellspacing="0" border="0">\n' +
+            '<tr>\n' + social + '</tr>\n' +
+            '</table>\n' +
+            '</td></tr>\n' +
+            '<tr><td align="center" valign="top" style="padding:16px 20px 24px 20px;">\n' +
+            '<p style="margin:0;' + EMAIL_FONT + 'font-size:13px;line-height:17px;color:#6b6b6b;"><font face="' + EMAIL_FACE + '" color="#6b6b6b">You\'re receiving this because you requested a quote from Nu-Heat.</font></p>\n' +
+            '</td></tr>\n' +
+
+            '</table>\n' +
+            '<!--[if mso]></td></tr></table><![endif]-->\n' +
+            '</td></tr>\n' +
             '</table>\n' +
-            '</div>\n' +
             '</body>\n' +
             '</html>\n';
 
-        // Replace merge tag placeholders with actual values
-        template = template.replace(/\{\{QUOTE_EMAIL_REF\}\}/g, quoteEmailRef);
-        template = template.replace(/\{\{TRAN_ID\}\}/g, tranId);
-        template = template.replace(/\{\{SALES_REP_NAME\}\}/g, salesRepName);
-        template = template.replace(/\{\{SALES_REP_EMAIL\}\}/g, salesRepEmail);
-        template = template.replace(/\{\{SALES_REP_PHONE\}\}/g, salesRepPhone);
-        template = template.replace(/\{\{PROPOSAL_URL\}\}/g, safeProposalUrl);
-
-        return template;
+        return template.replace(/\{\{([A-Z_]+)\}\}/g, function (tag, key) {
+            return Object.prototype.hasOwnProperty.call(values, key) ? values[key] : tag;
+        });
     }
 
     // ─── Quote Search ─────────────────────────────────────────────────────────────

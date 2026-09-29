@@ -292,7 +292,7 @@ that something has regressed at source. See §6.
 | Quote Viewer | v1.1.0 | `nuheat_quote_viewer_sl.js` | ✅ Live in Production |
 | Scheduled Script | v1.0.0 | `nuheat_quote_generator_ss.js` | ✅ Live in Production |
 | Master Proposal | v1.8.3 | `nuheat_master_proposal.js` | ✅ Live in Production |
-| Send Quote SL | 2.1.1 — pending Sandbox | `nuheat_send_quote_sl.js` | ⏳ Pending Sandbox testing (live: v1.7.0; 1.8.0 passed S1–S4, S6–S9; 2.0.0 Status reverted; 2.0.1 reorder fixed the revert; 2.0.2 Expected close passed R15; forecast flags ⚠️ open) |
+| Send Quote SL | 2.2.0 — pending Sandbox (email redesign, R18) | `nuheat_send_quote_sl.js` | ⏳ Pending Sandbox testing (live: v1.7.0; 1.8.0 passed S1–S4, S6–S9; 2.0.0 Status reverted; 2.0.1 reorder fixed the revert; 2.0.2 Expected close passed R15; forecast flags ⚠️ open) |
 | Send Quote CS | v1.4.0 — detached in SL 2.0.0 (pending Sandbox) | `nuheat_send_quote_cs.js` | ✅ Live in Production today; **not attached** once SL 2.0.0 deploys — kept for reference |
 | Update Opportunity SL | 1.0.0 — pending Sandbox | `nuheat_update_opp_sl.js` | ⏳ New — pending Sandbox U1–U10 |
 | Opportunity Update Library | 1.0.0 — pending Sandbox | `nuheat_opp_update_lib.js` | ⏳ New — pending Sandbox (upload first) |
@@ -1173,6 +1173,27 @@ To modify, edit `renderProductCard()` and update CSS in `generateCSS()`.
       `width: 100% !important` still win over the attribute.
     `test/send-quote-opp-update.js` M1–M4 check both, in a stripped and an Outlook view.
 
+    **From Send Quote SL 2.2.0 (redesign) the email must look centred and single-column with every
+    `style` attribute and every `<style>` block removed.** The rules `buildEmailBody()` follows, and
+    N1–N9 enforce:
+    1. Layout with tables and HTML attributes only: every structural `table` / `td` carries `align`,
+       `width`, `bgcolor`, `valign` attributes. CSS may add polish, never be the only thing holding
+       layout, width, alignment or background.
+    2. No floats and no percentage-width side-by-side "col" tables. Two-up content (the 2 × 2 grid, the
+       contact buttons) is one row of two `td width="50%"`; a media query stacks them on phones
+       (`display:block; width:100% !important`).
+    3. `align="center"` on every `td`; inner tables are centred by their parent `td` (and `align="center"`).
+    4. Fixed widths as attributes: the container is `width="600"` + `style="width:100%;max-width:600px"`;
+       images carry `width` / `height`.
+    5. Buttons are bulletproof tables with exactly one `[if !mso]` / `[if mso]` pair each; padding comes
+       from `cellpadding` in stripped views (CSS `padding:0` on the `td` overrides it when styles apply).
+       No `display:none` wrappers (the preheader span excepted).
+    6. Colours as attributes too: `bgcolor` on the header, panels and buttons; text colour via
+       `<font color>`, so stripped views keep contrast.
+    7. Every merge value HTML-escaped; URLs escaped for `href` / `src`; `tel:` digits only; tags
+       substituted in one pass. A user-supplied image URL (the rep photo) is used only if `https://`.
+    A stripped viewer also shows the preheader text at the top (its `display:none` is gone) — accepted.
+
 ### NetSuite Record Types Used
 
 | Record Type | Internal ID | Usage |
@@ -1220,6 +1241,7 @@ The scripts log heavily on purpose. These are the keys that answer most question
 | `SendQuoteSL.Forecast` | `nuheat_send_quote_sl.js` | each Estimate's Include in Forecast change (from → to), failures with messages, or why no forecast writes happened (field absent / not a checkbox) |
 | `SendQuoteSL.Selection` | `nuheat_send_quote_sl.js` | a POST or preview rejected because it named a quote not on the Opportunity (or was malformed) |
 | `SendQuoteSL.Redirect` | `nuheat_send_quote_sl.js` | the exact code parameters sent back to the Opportunity |
+| `SendQuoteSL.RepPhoto` | `nuheat_send_quote_sl.js` | *(2.2.0)* once per send: whether the account manager's photo was used in the email, or skipped and why |
 | `OpportunityUE.banner` | `nuheat_opportunity_ue.js` | which banner was shown — `send/ok`, `upd/warn` … (audit) — or why it was not (error) |
 | `UpdateOppSL.Call` | `nuheat_update_opp_sl.js` | the phone call created (ID, title) or the failure that stopped the save |
 | `UpdateOppSL.Objection` | `nuheat_update_opp_sl.js` | each Customer Objection created, or failed with its message |

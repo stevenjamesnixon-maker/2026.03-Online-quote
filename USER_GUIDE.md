@@ -171,6 +171,11 @@ clear it on the record.
   could not be updated, the banner says what to set by hand
 - If the email cannot be sent you stay on the page with everything you entered, and nothing on the
   opportunity is changed except the proposal link and last-sent date
+- The customer's email shows the account manager's name, phone, email and — from Send Quote 2.2.0 —
+  their **photo**, with **Call** and **Email** buttons using their first name. The account manager is
+  the opportunity's Sales Rep; the photo comes from the **photo link on their employee record**
+  (`custentity_employee_photo_link`, a full `https://` address). No photo there → the card simply
+  shows without one
 
 ### Step 6: Review
 
