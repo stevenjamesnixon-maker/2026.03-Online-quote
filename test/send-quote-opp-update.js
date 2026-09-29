@@ -14,6 +14,7 @@
  *            E — 2.0.3: quote card text (E1–E8)
  *            … F, G (2.0.4, 2.1.0), M — 2.1.1 email (M1–M4)
  *            N — 2.2.0: proposal email redesign (N1–N9)
+ *            S — 2.2.1 / 2.3.0: send speed and forecast tags (S1–S7)
  */
 'use strict';
 
@@ -1275,6 +1276,31 @@ if (process.env.WRITE_EMAIL_SAMPLE) {
     fs.writeFileSync(path.join(ROOT, 'docs', 'samples', 'send-quote-email-2.2.0-stripped.html'), fullyStripped(sample));
     console.log('  (wrote docs/samples/send-quote-email-2.2.0.html and -stripped.html)');
 }
+
+// ═══ S — 2.2.1 / 2.3.0: send speed, forecast tags ════════════════════════════════
+
+function timingLines() { return auditLogs('SendQuoteSL.Timing').map(function (l) { return l.details; }); }
+
+console.log('S6. SendQuoteSL.Timing — one line per GET and per POST, all phases and counts');
+resetState();
+runGet();
+var s6g = timingLines();
+ok(s6g.length === 1 && /^GET Opportunity 123 — ms: opportunity=\d+ quotes=\d+ render=\d+ total=\d+ \| quotes=3 \| rendered$/.test(s6g[0]),
+   'GET: opportunity, quotes, render, total; quotes=3 (' + s6g[0] + ')');
+resetState();
+runPost(basePost({ custpage_upd_entitystatus: '12' }));
+var s6p = timingLines();
+ok(s6p.length === 1 && /^POST Opportunity 123 — ms: rebuild=\d+ proposal=\d+ email=\d+ forecast=\d+ oppUpdate=\d+ total=\d+ \| quotes=3 selected=2 forecastWrites=2 \| sent$/.test(s6p[0]),
+   'POST: rebuild, proposal, email, forecast, oppUpdate, total; quotes, selected, forecast writes (' + s6p[0] + ')');
+resetState();
+state.emailThrows = 'SMTP down';
+runPost(basePost());
+var s6f = timingLines();
+ok(s6f.length === 1 && /^POST Opportunity 123 — ms: rebuild=\d+ proposal=\d+ email=\d+ rerender=\d+ total=\d+ \| quotes=3 selected=2 forecastWrites=0 \| failed: email$/.test(s6f[0]),
+   'POST, email fails: one line, phases up to the failure, then the re-render (' + s6f[0] + ')');
+resetState();
+runPost(basePost({ custpage_sel: JSON.stringify({ '901': 'main', '950': 'additional' }) }));
+ok(timingLines().length === 1 && / \| failed: rebuild$/.test(timingLines()[0]), 'POST, foreign quote: one line, failed: rebuild');
 
 console.log('\n' + passes + ' passed, ' + failures + ' failed');
 process.exit(failures ? 1 : 0);

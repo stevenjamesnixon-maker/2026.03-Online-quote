@@ -8,11 +8,15 @@
  *              Additional), recipients and four Opportunity fields, then generate and email the
  *              Master Proposal, update the Opportunity and the quotes' forecast flags, and return
  *              to the Opportunity. Supports preview (generates HTML without saving).
- * @version     2.2.0
+ * @version     2.2.1
  * @author      Nu-Heat Development
  *
  * Script ID:      customscript_nuheat_send_quote_sl
  * Deployment ID:  customdeploy_nuheat_send_quote_sl
+ *
+ * CHANGELOG v2.2.1 (Timing only — no behaviour change; pending Sandbox):
+ *   - ADDED: one audit line SendQuoteSL.Timing per page load (GET) and per send (POST), with the
+ *     elapsed ms per phase (Date.now() differences) and the quote counts. Baseline for 2.3.0.
  *
  * CHANGELOG v2.2.0 (Proposal email redesign — pending Sandbox):
  *   - REWRITTEN: buildEmailBody() — one centred 600px column (logo, purple header, hero, Your quote,
@@ -295,7 +299,7 @@ define([
 
     // ─── Constants ────────────────────────────────────────────────────────────────
 
-    var SCRIPT_VERSION = '2.2.0';
+    var SCRIPT_VERSION = '2.2.1';
 
     /**
      * Mapping from the NetSuite custbody_quote_type list values
@@ -467,6 +471,38 @@ define([
             log.error('SendQuoteSL.onRequest', 'Unhandled error: ' + e.message + '\n' + e.stack);
             showErrorPage(context, e.message);
         }
+    }
+
+    // ─── Timing (v2.2.1) ──────────────────────────────────────────────────────────
+
+    /**
+     * Per-request phase timer. mark(name) records the ms since the previous mark (or the start).
+     * Logged once per request as SendQuoteSL.Timing — measurement only, no behaviour depends on it.
+     */
+    function newTiming() {
+        var start = Date.now();
+        var last  = start;
+        return {
+            phases: [],
+            mark: function (name) {
+                var now = Date.now();
+                this.phases.push(name + '=' + (now - last));
+                last = now;
+            },
+            total: function () { return Date.now() - start; }
+        };
+    }
+
+    /**
+     * @param {string} kind - 'GET' | 'POST'
+     * @param {Object} counts - e.g. { quotes: 6, selected: 2, forecastWrites: 1 }
+     * @param {string} outcome - e.g. 'rendered', 'sent', 'failed: validation'
+     */
+    function logTiming(kind, opportunityId, timing, counts, outcome) {
+        var c = Object.keys(counts || {}).map(function (k) { return k + '=' + counts[k]; }).join(' ');
+        log.audit('SendQuoteSL.Timing', kind + ' Opportunity ' + opportunityId + ' — ms: ' +
+            timing.phases.concat(['total=' + timing.total()]).join(' ') +
+            (c ? ' | ' + c : '') + ' | ' + outcome);
     }
 
     // ─── Selection (v2.0.0) ───────────────────────────────────────────────────────
@@ -642,7 +678,10 @@ define([
             return;
         }
 
-        renderSendPage(context, opportunityId, null, '', null);
+        var timing = newTiming();
+        var page = renderSendPage(context, opportunityId, null, '', null, timing);
+        logTiming('GET', opportunityId, timing, { quotes: page.quotes ? page.quotes.length : 0 },
+            page.loadError ? 'load error' : 'rendered');
     }
 
     /**
@@ -655,12 +694,14 @@ define([
      * @param {Object|null} restore - posted state to restore after a failed send, or null
      * @param {string} errorMessage - shown in an error panel at the top, or ''
      * @param {Array|null} quotes - quotes already loaded for this request, or null to search
+     * @param {Object} [timing] - v2.2.1: phase timer (GET marks opportunity / quotes / render)
+     * @returns {Object} the page data (v2.2.1, for the timing line)
      */
-    function renderSendPage(context, opportunityId, restore, errorMessage, quotes) {
-        var page = loadSendPageData(opportunityId, quotes);
+    function renderSendPage(context, opportunityId, restore, errorMessage, quotes, timing) {
+        var page = loadSendPageData(opportunityId, quotes, timing);
         if (page.loadError) {
             showErrorPage(context, page.loadError);
-            return;
+            return page;
         }
 
         var form = serverWidget.createForm({ title: 'Send Quote' });
@@ -672,17 +713,21 @@ define([
         body.defaultValue = buildSendPageHTML(page, restore, errorMessage);
 
         context.response.writePage(form);
+        if (timing) timing.mark('render');
+        return page;
     }
 
     /**
      * Loads everything the Send proposal page shows.
      */
-    function loadSendPageData(opportunityId, quotes) {
+    function loadSendPageData(opportunityId, quotes, timing) {
         // v2.1.0: Opportunity, header fields, customer email and contacts from the library
         var page = lib.loadOppPageBase(opportunityId, { logPrefix: 'SendQuoteSL', customerEmail: true });
+        if (timing) timing.mark('opportunity');
         if (page.loadError) return page;
 
         page.quotes = quotes || searchRelatedQuotes(opportunityId);
+        if (timing) timing.mark('quotes');
         page.updateFields = page.quotes.length ? lib.prepareFields(page.oppRecord, opportunityId, SQ_RULES) : [];
 
         // Links, resolved server-side and handed to the page as data- attributes
@@ -748,17 +793,25 @@ define([
             ' | Selection: ' + JSON.stringify(selection.map) +
             ' | To: ' + emailTo + ' | CC: ' + emailCc + ' | BCC: ' + emailBcc);
 
+        var timing = newTiming();   // v2.2.1
+        var counts = { quotes: 0, selected: 0, forecastWrites: 0 };
+
         // v2.0.0: rebuild every quote from NetSuite — the page sends IDs and roles only
         var quotes = searchRelatedQuotes(opportunityId);
+        counts.quotes = quotes.length;
 
-        function fail(message) {
+        function fail(message, phase) {
+            timing.mark(phase);
             renderSendPage(context, opportunityId, restore, message, quotes);
+            timing.mark('rerender');
+            logTiming('POST', opportunityId, timing, counts, 'failed: ' + phase);
         }
 
         // ── Validation ───────────────────────────────────────────────────────────
         var resolved = resolveSelection(opportunityId, quotes, selection);
+        counts.selected = resolved.selected.length;
         if (resolved.error) {
-            fail(resolved.error);
+            fail(resolved.error, 'rebuild');
             return;
         }
 
@@ -766,22 +819,24 @@ define([
             ' | Main: ' + resolved.main.length + ' | Additional: ' + resolved.additional.length);
 
         if (resolved.selected.length === 0) {
-            fail('No quotes were selected. Choose at least one quote to include in the proposal.');
+            fail('No quotes were selected. Choose at least one quote to include in the proposal.', 'rebuild');
             return;
         }
         if (resolved.main.length === 0) {
-            fail('No Main quote selected. Set at least one quote to "Main".');
+            fail('No Main quote selected. Set at least one quote to "Main".', 'rebuild');
             return;
         }
         if (!parseEmails(emailTo).length) {
-            fail('No recipient email address provided. Add at least one "To" address.');
+            fail('No recipient email address provided. Add at least one "To" address.', 'rebuild');
             return;
         }
         var badEmails = invalidEmails(emailTo).concat(invalidEmails(emailCc), invalidEmails(emailBcc));
         if (badEmails.length) {
-            fail('These email addresses are not valid: ' + badEmails.join(', '));
+            fail('These email addresses are not valid: ' + badEmails.join(', '), 'rebuild');
             return;
         }
+
+        timing.mark('rebuild');
 
         // ── Generate Master Proposal ──────────────────────────────────────────────
         // (also writes custbody_master_proposal_url / custbody_last_proposal_sent_date — unchanged)
@@ -796,9 +851,10 @@ define([
         }
         if (!proposalResult.success) {
             fail('Proposal generation failed: ' + (proposalResult.error || 'Unknown error') +
-                '. Nothing was sent. Please try again or contact your administrator.');
+                '. Nothing was sent. Please try again or contact your administrator.', 'proposal');
             return;
         }
+        timing.mark('proposal');
 
         // ── Send Email ───────────────────────────────────────────────────────────
         try {
@@ -808,15 +864,18 @@ define([
             log.audit('SendQuoteSL.OppUpdate', 'Opportunity ' + opportunityId + ' — skipped, email was not sent');
             fail('The email could not be sent: ' + emailErr.message + '. The proposal was generated and its ' +
                 'link saved to the opportunity, but no opportunity fields or forecast flags were changed. ' +
-                'Check the addresses and send again.');
+                'Check the addresses and send again.', 'email');
             return;
         }
+        timing.mark('email');
 
         // ── Forecast flags, then the Opportunity (independent of each other) ──────
         // v2.0.1: Forecast first: an Estimate save can re-sync its Status onto the opportunity.
         // The opportunity update must be last.
-        var forecast  = updateForecastFlags(opportunityId, selection.map, quotes);
+        var forecast  = updateForecastFlags(opportunityId, selection.map, quotes, timing);
         var oppUpdate = updateOpportunityFields(opportunityId, request);
+        timing.mark('oppUpdate');
+        counts.forecastWrites = forecast.changed;
 
         // ── Back to the Opportunity (VIEW), same tab ──────────────────────────────
         var redirectParams = buildRedirectParams(oppUpdate, forecast);
@@ -828,6 +887,7 @@ define([
             isEditMode: false,
             parameters: redirectParams
         });
+        logTiming('POST', opportunityId, timing, counts, 'sent');
     }
 
     /**
@@ -887,10 +947,11 @@ define([
      *   - F6: the field is ASSUMED to be includeinforecast (checkbox). If the loaded Estimates
      *     report it absent or not a checkbox, nothing is written and it is audit-logged only.
      *
+     * @param {Object} [timing] - v2.2.1: marks 'forecast' on return (measurement only)
      * @returns {{included: number, excluded: number, failed: Array<string>, changed: number, skipped: boolean}}
      *          included/excluded are the target states of the quotes on the page.
      */
-    function updateForecastFlags(opportunityId, selectionMap, quotes) {
+    function updateForecastFlags(opportunityId, selectionMap, quotes, timing) {
         var result = { included: 0, excluded: 0, failed: [], changed: 0, skipped: false };
 
         try {
@@ -906,6 +967,7 @@ define([
                 log.audit('SendQuoteSL.Forecast', 'Opportunity ' + opportunityId + ' — ' + FORECAST_FIELD +
                     ' reported as "' + (fieldType || 'unknown: no Estimate could be loaded') +
                     '", expected "checkbox"; no forecast writes');
+                if (timing) timing.mark('forecast');
                 return result;
             }
 
@@ -950,6 +1012,7 @@ define([
             log.error('SendQuoteSL.Forecast', 'Opportunity ' + opportunityId + ' — unexpected error: ' + e.message);
         }
 
+        if (timing) timing.mark('forecast');
         return result;
     }
 
