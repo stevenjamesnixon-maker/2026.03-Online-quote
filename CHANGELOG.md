@@ -1,3 +1,40 @@
+## [Send Quote SL v2.3.0 (and v2.2.1)] — 29 September 2026
+**Status:** ⏳ Pending Sandbox testing (R19)
+**Components:** `nuheat_send_quote_sl.js`, `test/send-quote-opp-update.js`
+
+**Why:** sending was noticeably slower on opportunities with several quotes. Send re-ran
+`searchRelatedQuotes()`, which does a full `record.load` (pricing plus the BUS line loop) of **every**
+Estimate on the opportunity, including the ones left out. The forecast writes were already change-only.
+
+### Added — `SendQuoteSL.Timing` (2.2.1, its own commit, no behaviour change)
+- One audit line per page load: `GET Opportunity <id> — ms: opportunity= quotes= render= total= | quotes=N | rendered`.
+- One per send: `POST … — ms: rebuild= proposal= email= forecast= oppUpdate= total= | quotes= selected= forecastWrites= | sent`.
+  A failed send logs the phases it reached, then `rerender=`, and `failed: <phase>`.
+
+### Changed — Send loads only the selected quotes (2.3.0)
+- The search runs alone first (same filters and columns, no record loads). The posted selection is
+  validated against it — a quote not on the opportunity is rejected before anything is loaded.
+- Only the Main and Additional quotes are then fully loaded, by the same code as before. The quote
+  objects handed to the Master Proposal are identical to 2.2.0 (tested against a 2.2.0 capture).
+- Left-out quotes: their current Include in Forecast comes from one `search.lookupFields` each
+  (1 unit). Missing or empty → false; a failed lookup leaves it unknown, so it is not written.
+- Forecast targets, the write-only-on-difference rule and the order (Estimates, then the opportunity,
+  sub-status never) are unchanged. Page load, preview and the re-render after a failed send still
+  load every quote.
+- Governance for 6 quotes, 1 Main + 1 Additional: Estimate loads 6 → 2 (60 → 20 units), plus 4 lookups.
+
+### Added — "In forecast" tag on each quote card (2.3.0)
+- Under the price: **In forecast** or **Not in forecast** (muted), from the value the page already
+  loads. When the chosen role would change it: **"Not in forecast → will be included"** /
+  **"In forecast → will be excluded"** (Main → included, anything else → excluded), updated live.
+- No tag when the forecast field fails the F6 type check.
+
+### Tests
+- S1–S7 (394 assertions in total). G1's snapshot now removes exactly the tag additions before hashing,
+  so it still proves the rest of the page is byte-identical to 2.0.4.
+
+---
+
 ## [Send Quote SL v2.2.0] — 29 September 2026
 **Status:** ⏳ Pending Sandbox testing (R18, E1–E6)
 **Components:** `nuheat_send_quote_sl.js` (`buildEmailBody()` rewritten, `loadRepCardData()` new, one line in

@@ -14,6 +14,7 @@
  *            E — 2.0.3: quote card text (E1–E8)
  *            … F, G (2.0.4, 2.1.0), M — 2.1.1 email (M1–M4)
  *            N — 2.2.0: proposal email redesign (N1–N9)
+ *            S — 2.2.1 / 2.3.0: send speed and forecast tags (S1–S7)
  */
 'use strict';
 
@@ -105,7 +106,10 @@ function estimate(id) { return state.estimates.filter(function (e) { return e.id
 
 var logStub = {};
 ['debug', 'audit', 'error', 'emergency'].forEach(function (lvl) {
-    logStub[lvl] = function (title, details) { state.logs.push({ level: lvl, title: title, details: String(details) }); };
+    logStub[lvl] = function (title, details) {
+        state.logs.push({ level: lvl, title: title, details: String(details) });
+        if (title === 'SendQuoteSL.Selection') state.calls.push('log:SendQuoteSL.Selection');   // 2.3.0: S5 ordering
+    };
 });
 
 var formatStub = {
@@ -234,6 +238,13 @@ var searchStub = {
     lookupFields: function (o) {
         state.calls.push('search.lookupFields:' + o.type);
         if (o.type === 'customer') return { email: 'cust@example.com' };
+        if (o.type === 'estimate') {   // 2.3.0: current forecast flag of a left-out quote
+            var est = estimate(o.id);
+            if (est.lookupThrows) throw new Error(est.lookupThrows);
+            var v = {};
+            if (!('forecastLookup' in est && est.forecastLookup === undefined)) v.includeinforecast = 'forecastLookup' in est ? est.forecastLookup : est.forecast;
+            return v;
+        }
         if (o.type === 'employee') {
             state.employeeLookups = (state.employeeLookups || []).concat([o]);
             if (state.employeeThrows) throw new Error(state.employeeThrows);
@@ -999,11 +1010,29 @@ function formSnapshot(form) {
     if (!form) return 'NO FORM';
     return JSON.stringify({
         title: form.title,
-        fields: form.fields.map(function (f) { return [f.id, f.type, f.label, f.defaultValue === undefined ? null : f.defaultValue, f.displayType]; }),
+        fields: form.fields.map(function (f) { return [f.id, f.type, f.label, f.defaultValue === undefined ? null : without230(f.defaultValue), f.displayType]; }),   // changed in 2.3.0: without230()
         buttons: form.buttons, sublists: form.sublists.length, groups: form.groups, cs: form.clientScriptModulePath === undefined ? null : form.clientScriptModulePath
     });
 }
 function sha(s) { return crypto.createHash('sha256').update(s, 'utf8').digest('hex'); }
+/**
+ * 2.3.0: removes exactly the forecast-tag additions (style block, data-forecast, the tag span, the
+ * six PAGE_SCRIPT lines), so G1 still proves everything else is byte-identical to 2.0.4. S7
+ * asserts the additions themselves.
+ */
+var FC_SCRIPT_LINES = [
+    '        var fc = row.querySelector(".nsq-fc");',
+    '        if (fc) {',
+    '          var cur = row.getAttribute("data-forecast") === "1", will = r === "main";',
+    '          fc.textContent = (cur ? "In forecast" : "Not in forecast") + (will === cur ? "" : (will ? " → will be included" : " → will be excluded"));',
+    '          fc.className = "nsq-fc" + (will === cur ? "" : " nsq-fc-chg");',
+    '        }'
+].join('\n') + '\n';
+function without230(html) {
+    if (typeof html !== 'string') return html;
+    return html.replace(/<style>\.nsq-fc\{[^<]*<\/style>/, '').replace(/ data-forecast="[01]"/g, '')
+        .replace(/<span class="nsq-fc[^"]*">[^<]*<\/span>/g, '').split(FC_SCRIPT_LINES).join('');
+}
 var SNAPSHOT_CASES = [
     ['GET, three quotes', function () { return runGet(); }],
     ['GET, five fields incl. Expected close', function () { state.fieldTypes.expectedclosedate = 'date'; state.oppValues.expectedclosedate = new Date(2026, 11, 20); return runGet(); }],
@@ -1275,6 +1304,164 @@ if (process.env.WRITE_EMAIL_SAMPLE) {
     fs.writeFileSync(path.join(ROOT, 'docs', 'samples', 'send-quote-email-2.2.0-stripped.html'), fullyStripped(sample));
     console.log('  (wrote docs/samples/send-quote-email-2.2.0.html and -stripped.html)');
 }
+
+// ═══ S — 2.2.1 / 2.3.0: send speed, forecast tags ════════════════════════════════
+
+function timingLines() { return auditLogs('SendQuoteSL.Timing').map(function (l) { return l.details; }); }
+
+console.log('S6. SendQuoteSL.Timing — one line per GET and per POST, all phases and counts');
+resetState();
+runGet();
+var s6g = timingLines();
+ok(s6g.length === 1 && /^GET Opportunity 123 — ms: opportunity=\d+ quotes=\d+ render=\d+ total=\d+ \| quotes=3 \| rendered$/.test(s6g[0]),
+   'GET: opportunity, quotes, render, total; quotes=3 (' + s6g[0] + ')');
+resetState();
+runPost(basePost({ custpage_upd_entitystatus: '12' }));
+var s6p = timingLines();
+ok(s6p.length === 1 && /^POST Opportunity 123 — ms: rebuild=\d+ proposal=\d+ email=\d+ forecast=\d+ oppUpdate=\d+ total=\d+ \| quotes=3 selected=2 forecastWrites=2 \| sent$/.test(s6p[0]),
+   'POST: rebuild, proposal, email, forecast, oppUpdate, total; quotes, selected, forecast writes (' + s6p[0] + ')');
+resetState();
+state.emailThrows = 'SMTP down';
+runPost(basePost());
+var s6f = timingLines();
+ok(s6f.length === 1 && /^POST Opportunity 123 — ms: rebuild=\d+ proposal=\d+ email=\d+ rerender=\d+ total=\d+ \| quotes=3 selected=2 forecastWrites=0 \| failed: email$/.test(s6f[0]),
+   'POST, email fails: one line, phases up to the failure, then the re-render (' + s6f[0] + ')');
+resetState();
+runPost(basePost({ custpage_sel: JSON.stringify({ '901': 'main', '950': 'additional' }) }));
+ok(timingLines().length === 1 && / \| failed: rebuild$/.test(timingLines()[0]), 'POST, foreign quote: one line, failed: rebuild');
+
+/** Six quotes on opportunity 123: 901 Main, 902 Additional, 903–906 left out, mixed forecast flags. */
+function sixQuotes() {
+    resetState();
+    state.estimates = state.estimates.concat([
+        { id: '904', opp: '123', tranid: 'EST904', title: 'Solar 2', type: 'Solar', subtotal: 2000, discount: 0, tax: 0, total: 2000,
+          items: [], url: 'https://acct.example/q/904', desc: 'Second solar', forecast: true },
+        { id: '905', opp: '123', tranid: 'EST905', title: 'UFH loft', type: 'Heat Emitter', subtotal: 1500, discount: -100, tax: 280, total: 1680,
+          items: [], url: 'https://acct.example/q/905', desc: 'Loft', forecast: false },
+        { id: '906', opp: '123', tranid: 'EST906', title: 'GSHP', type: 'Heat Pump (GSHP)', subtotal: 16000, discount: 0, tax: 0, total: 16000,
+          items: ['Suppak N1(R)HP'], url: 'https://acct.example/q/906', desc: 'Ground source', forecast: true }
+    ]);
+    estimate('903').forecast = true;   // left out, currently in → switched off
+}
+function sixQuoteSend() { sixQuotes(); runPost(basePost()); }
+function estimateLoads() { return state.calls.filter(function (c) { return c === 'record.load:estimate'; }).length; }
+function estimateLookups() { return state.calls.filter(function (c) { return c === 'search.lookupFields:estimate'; }).length; }
+function forecastWrites() { return estimateWrites().map(function (w) { return w.id + ':' + w.values.includeinforecast; }); }
+
+// Captured by running Send Quote SL 2.2.0 (origin/main 11508d7) against this fixture — NOT hand-written.
+var SIX_QUOTE_PROPOSAL_2_2_0 = [{"quoteId":"902","tranId":"EST902","title":"UFH first floor","quoteType":"Underfloor Heating","amount":"£4,800.00","subtotal":"£4,000.00","discountTotal":"£0.00","taxTotal":"£800.00","busAmount":0,"busRate":"none","vatRate":0.2,"vatPercent":"20%","quoteUrl":"https://acct.example/q/902","category":"additional","description":"</script><script>alert(1)</script>"},{"quoteId":"901","tranId":"EST901","title":"<b>Ground</b> & \"x\"","quoteType":"Heat Pump","amount":"£9,500.00","subtotal":"£10,000.00","discountTotal":"£-500.00","taxTotal":"£0.00","busAmount":7500,"busRate":"standard","vatRate":0,"vatPercent":"0%","quoteUrl":"https://acct.example/q/901","category":"main","description":"Air source heat pump"}];
+var SIX_QUOTE_WRITES_2_2_0 = ["901:true","902:false","903:false","904:false","906:false"];
+var THREE_QUOTE_PROPOSAL_2_2_0 = [{"quoteId":"902","tranId":"EST902","title":"UFH first floor","quoteType":"Underfloor Heating","amount":"£4,800.00","subtotal":"£4,000.00","discountTotal":"£0.00","taxTotal":"£800.00","busAmount":0,"busRate":"none","vatRate":0.2,"vatPercent":"20%","quoteUrl":"https://acct.example/q/902","category":"additional","description":"</script><script>alert(1)</script>"},{"quoteId":"901","tranId":"EST901","title":"<b>Ground</b> & \"x\"","quoteType":"Heat Pump","amount":"£9,500.00","subtotal":"£10,000.00","discountTotal":"£-500.00","taxTotal":"£0.00","busAmount":7500,"busRate":"standard","vatRate":0,"vatPercent":"0%","quoteUrl":"https://acct.example/q/901","category":"main","description":"Air source heat pump"}];
+
+console.log('S1. Send with 6 quotes, 1 Main + 1 Additional: 2 Estimate loads, 4 lookups');
+sixQuoteSend();
+ok(state.emails.length === 1 && state.redirect, 'sent and redirected');
+ok(estimateLoads() === 2, 'record.load of Estimates on POST: 2 (was 6 in 2.2.0) (' + estimateLoads() + ')');
+ok(estimateLookups() === 4, 'lookupFields on includeinforecast: 4, one per left-out quote (' + estimateLookups() + ')');
+ok(state.calls.filter(function (c) { return c === 'search.create:estimate'; }).length === 1, 'one quote search');
+ok(/ \| quotes=6 selected=2 forecastWrites=5 \| sent$/.test(timingLines()[0] || ''), 'timing counts: quotes=6 selected=2 forecastWrites=5');
+
+console.log('S2. Proposal quote objects identical to 2.2.0');
+sixQuoteSend();
+ok(JSON.stringify(state.generated) === JSON.stringify(SIX_QUOTE_PROPOSAL_2_2_0), 'six quotes, 901 Main + 902 Additional: identical (keys, order, values, types)');
+resetState();
+runPost(basePost());
+ok(JSON.stringify(state.generated) === JSON.stringify(THREE_QUOTE_PROPOSAL_2_2_0), 'three quotes, 901 Main + 902 Additional: identical');
+ok(estimateLoads() === 2 && estimateLookups() === 1, 'three quotes: 2 loads, 1 lookup (' + estimateLoads() + ', ' + estimateLookups() + ')');
+
+console.log('S3. Forecast targets and writes identical to 2.2.0');
+sixQuoteSend();
+ok(JSON.stringify(forecastWrites()) === JSON.stringify(SIX_QUOTE_WRITES_2_2_0), 'writes: ' + forecastWrites().join(', '));
+ok(forecastWrites().indexOf('903:false') !== -1 && forecastWrites().indexOf('906:false') !== -1, 'left out and in the forecast → switched off (903, 906; 904 too)');
+ok(!estimateWrites().some(function (w) { return w.id === '905'; }), 'left out and already out → untouched (905)');
+sixQuotes();
+runPost(basePost({ custpage_upd_entitystatus: '12' }));
+var s3Order = state.calls.filter(function (c) { return /^(record\.submitFields|redirect)/.test(c); });
+ok(s3Order.join(' > ') === 'record.submitFields:estimate > record.submitFields:estimate > record.submitFields:estimate > record.submitFields:estimate > record.submitFields:estimate > record.submitFields:opportunity > redirect.toRecord',
+   'with a Status change: five Estimate writes, then the opportunity, then the redirect');
+ok(!oppWrites().some(function (w) { return 'custbody_opportunity_sub_status' in w.values; }), 'sub-status never written');
+ok(auditLogs('SendQuoteSL.Forecast').some(function (l) { return /targets: 1 included, 5 excluded; written: 5; failed: none/.test(l.details); }), 'forecast summary: 1 included, 5 excluded, 5 written');
+
+console.log('S4. lookupFields values normalised; no spurious writes');
+[[true, true], ['T', true], ['true', true], [false, false], ['F', false], ['false', false], ['', false], [undefined, false]].forEach(function (c) {
+    sixQuotes();
+    ['903', '904', '905', '906'].forEach(function (id) { estimate(id).forecastLookup = c[0]; });
+    runPost(basePost());
+    var leftOutWrites = estimateWrites().filter(function (w) { return ['903', '904', '905', '906'].indexOf(w.id) !== -1; });
+    ok(leftOutWrites.length === (c[1] ? 4 : 0) && leftOutWrites.every(function (w) { return w.values.includeinforecast === false; }),
+       JSON.stringify(c[0] === undefined ? 'missing' : c[0]) + ' → ' + c[1] + ': ' + leftOutWrites.length + ' left-out writes');
+});
+sixQuotes();
+estimate('904').lookupThrows = 'no permission';
+runPost(basePost());
+ok(!estimateWrites().some(function (w) { return w.id === '904'; }) && estimateWrites().some(function (w) { return w.id === '906'; }) &&
+   auditLogs('SendQuoteSL.Forecast').some(function (l) { return /Estimate 904 \(EST904\) lookupFields failed: no permission/.test(l.details); }) &&
+   auditLogs('SendQuoteSL.Forecast').some(function (l) { return /Estimate 904 \(EST904\) current value unknown; not written/.test(l.details); }),
+   'a failed lookup → value unknown, not written, logged; the others still written');
+sixQuotes();
+state.forecastFieldType = 'absent';
+runPost(basePost());
+ok(estimateLookups() === 0 && estimateWrites().length === 0, 'F6 fails on the loaded Main quote → no lookups, no writes');
+
+console.log('S5. A posted ID not on the opportunity: rejected via the light search');
+sixQuotes();
+var s5Page = pageHtml(runPost(basePost({ custpage_sel: JSON.stringify({ '901': 'main', '950': 'additional' }) })));
+ok(state.calls.indexOf('generateMasterProposal') === -1 && state.emails.length === 0 && state.submits.length === 0, 'nothing generated, sent or written');
+ok(auditLogs('SendQuoteSL.Selection').length === 1 && /not on this opportunity: 950/.test(auditLogs('SendQuoteSL.Selection')[0].details), 'rejected by the search rows');
+var s5Calls = state.calls.slice(0, state.calls.indexOf('log:SendQuoteSL.Selection'));
+ok(state.calls.indexOf('log:SendQuoteSL.Selection') > 0 && s5Calls.indexOf('record.load:estimate') === -1 && estimateLookups() === 0,
+   'no Estimate loaded before the rejection');
+ok(estimateLoads() === 6, 'after it, the error page re-render loads the six cards, as a page load does (' + estimateLoads() + ')');
+ok(/data-qid="906"/.test(s5Page) && !/data-qid="950"/.test(s5Page) && /Not sent\./.test(s5Page), 're-rendered with the error, all six cards, not the foreign quote');
+
+console.log('S7. "In forecast" tags on the cards');
+resetState();
+var s7 = pageHtml(runGet());
+function row7(h, id) { return (new RegExp('<div class="nsq-row[^"]*" data-qid="' + id + '"[^>]*>[\\s\\S]*?<a class="nsq-view"').exec(h) || [''])[0]; }
+ok(/ data-forecast="0"/.test(row7(s7, '901')) && /<span class="nsq-fc">Not in forecast<\/span>/.test(row7(s7, '901')), '901 (out, Leave out): "Not in forecast"');
+ok(/ data-forecast="1"/.test(row7(s7, '902')) && /<span class="nsq-fc nsq-fc-chg">In forecast → will be excluded<\/span>/.test(row7(s7, '902')),
+   '902 (in, Leave out): "In forecast → will be excluded"');
+ok(/<span class="nsq-fc[^"]*">[^<]*<\/span><\/div>/.test(row7(s7, '901')) && row7(s7, '901').indexOf('<div class="nsq-price">') < row7(s7, '901').indexOf('nsq-fc'), 'tag sits in the price block');
+ok(/<style>\.nsq-fc\{/.test(s7), 'tag style present');
+resetState();
+state.estimates = state.estimates.filter(function (e) { return e.id === '901'; });
+var s7b = pageHtml(runGet());
+ok(/<span class="nsq-fc nsq-fc-chg">Not in forecast → will be included<\/span>/.test(s7b), 'single quote starts at Main: "Not in forecast → will be included"');
+resetState();
+state.forecastFieldType = 'absent';
+var s7c = pageHtml(runGet());
+function markupOnly(h) { return h.replace(/<script\b[\s\S]*?<\/script>/g, '').replace(/<style>\.nsq-fc\{[^<]*<\/style>/, ''); }
+ok(!/nsq-fc|data-forecast/.test(markupOnly(s7c)) && /data-qid="901"/.test(s7c), 'F6 fails (field absent) → no tag and no data-forecast at all');
+resetState();
+state.forecastFieldType = 'text';
+ok(!/nsq-fc|data-forecast/.test(markupOnly(pageHtml(runGet()))), 'field not a checkbox → no tag');
+resetState();
+var s7d = pageHtml(runPost(basePost({ custpage_sel: JSON.stringify({ '901': 'main', '950': 'additional' }) })));
+ok(/<span class="nsq-fc nsq-fc-chg">Not in forecast → will be included<\/span>/.test(row7(s7d, '901')) &&
+   /<span class="nsq-fc nsq-fc-chg">In forecast → will be excluded<\/span>/.test(row7(s7d, '902')),
+   're-render after a rejected send: tags follow the restored roles (901 Main, 902 Leave out)');
+
+// The live change text: run the page's own script against a minimal DOM for the rows.
+var PAGE_SCRIPT_SRC = scriptBlocks(s7)[0];
+var fcLines = PAGE_SCRIPT_SRC.split('\n').filter(function (l) { return /\bfc\b|data-forecast/.test(l); });
+ok(fcLines.length >= 4 && PAGE_SCRIPT_SRC.indexOf('var fc = row.querySelector(".nsq-fc");') !== -1, 'script updates the tag inside update()');
+ok(!/escapeHtml|innerHTML/.test(fcLines.join('\n')) && /fc\.textContent =/.test(fcLines.join('\n')), 'textContent only, from data- attributes');
+function liveTag(forecast, role) {
+    if (PAGE_SCRIPT_SRC.indexOf('var fc = row.querySelector') === -1) return 'no tag script';
+    var span = { textContent: '', className: '' };
+    var row = { getAttribute: function (a) { return a === 'data-forecast' ? forecast : role; }, querySelector: function () { return span; } };
+    var body = PAGE_SCRIPT_SRC.slice(PAGE_SCRIPT_SRC.indexOf('var fc = row.querySelector'), PAGE_SCRIPT_SRC.indexOf('fc.className'));
+    body = body + 'fc.className = "nsq-fc" + (will === cur ? "" : " nsq-fc-chg");\n}';
+    vm.runInNewContext('var r = row.getAttribute("data-role");\n' + body, { row: row });
+    return span.textContent + ' |' + span.className;
+}
+[['0', 'main', 'Not in forecast → will be included |nsq-fc nsq-fc-chg'], ['0', 'additional', 'Not in forecast |nsq-fc'],
+ ['0', 'leave', 'Not in forecast |nsq-fc'], ['1', 'main', 'In forecast |nsq-fc'], ['1', 'additional', 'In forecast → will be excluded |nsq-fc nsq-fc-chg'],
+ ['1', 'leave', 'In forecast → will be excluded |nsq-fc nsq-fc-chg']
+].forEach(function (c) {
+    var got = liveTag(c[0], c[1]);
+    ok(got === c[2], 'live: forecast=' + c[0] + ', ' + c[1] + ' → "' + got + '"');
+});
 
 console.log('\n' + passes + ' passed, ' + failures + ' failed');
 process.exit(failures ? 1 : 0);

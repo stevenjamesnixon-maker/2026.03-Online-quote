@@ -8,11 +8,33 @@
  *              Additional), recipients and four Opportunity fields, then generate and email the
  *              Master Proposal, update the Opportunity and the quotes' forecast flags, and return
  *              to the Opportunity. Supports preview (generates HTML without saving).
- * @version     2.2.0
+ * @version     2.3.0
  * @author      Nu-Heat Development
  *
  * Script ID:      customscript_nuheat_send_quote_sl
  * Deployment ID:  customdeploy_nuheat_send_quote_sl
+ *
+ * CHANGELOG v2.3.0 (Faster send with many quotes; "In forecast" tags — pending Sandbox):
+ *   - WHY: Send re-ran searchRelatedQuotes(), a full record.load (pricing + BUS line loop) of EVERY
+ *     Estimate on the Opportunity, including the ones left out.
+ *   - CHANGED (POST only): runQuoteSearch() (the same search, no loads) → the selection is validated
+ *     against lightQuote() rows → buildQuote() (the old per-row load, unchanged) runs for the
+ *     selected quotes only. Left-out quotes get their current Include in Forecast from one
+ *     search.lookupFields each (1 unit) — lookupLeftOutForecast(); missing/'' → false, failure →
+ *     unknown (not written). The quote objects for the Master Proposal are identical to 2.2.0; the
+ *     forecast targets, change-only writes and order (Estimates, then the Opportunity) are unchanged.
+ *   - Unchanged: GET, preview and the re-render after a failed send still fully load every quote
+ *     (the cards show derived VAT/BUS figures). A failed send loads the quotes not loaded yet.
+ *   - ADDED: an "In forecast" / "Not in forecast" tag under each card's price, from the value the
+ *     page already loaded; when the chosen role changes it, "→ will be included / excluded" (Main →
+ *     included), updated live by PAGE_SCRIPT from data-forecast / data-role. No tag when the F6
+ *     type check fails or the value is unknown.
+ *   - Governance, 6 quotes with 1 Main + 1 Additional: Estimate loads 6 → 2 (60 → 20 units) plus
+ *     4 lookups (4 units).
+ *
+ * CHANGELOG v2.2.1 (Timing only — no behaviour change; pending Sandbox):
+ *   - ADDED: one audit line SendQuoteSL.Timing per page load (GET) and per send (POST), with the
+ *     elapsed ms per phase (Date.now() differences) and the quote counts. Baseline for 2.3.0.
  *
  * CHANGELOG v2.2.0 (Proposal email redesign — pending Sandbox):
  *   - REWRITTEN: buildEmailBody() — one centred 600px column (logo, purple header, hero, Your quote,
@@ -295,7 +317,7 @@ define([
 
     // ─── Constants ────────────────────────────────────────────────────────────────
 
-    var SCRIPT_VERSION = '2.2.0';
+    var SCRIPT_VERSION = '2.3.0';
 
     /**
      * Mapping from the NetSuite custbody_quote_type list values
@@ -467,6 +489,38 @@ define([
             log.error('SendQuoteSL.onRequest', 'Unhandled error: ' + e.message + '\n' + e.stack);
             showErrorPage(context, e.message);
         }
+    }
+
+    // ─── Timing (v2.2.1) ──────────────────────────────────────────────────────────
+
+    /**
+     * Per-request phase timer. mark(name) records the ms since the previous mark (or the start).
+     * Logged once per request as SendQuoteSL.Timing — measurement only, no behaviour depends on it.
+     */
+    function newTiming() {
+        var start = Date.now();
+        var last  = start;
+        return {
+            phases: [],
+            mark: function (name) {
+                var now = Date.now();
+                this.phases.push(name + '=' + (now - last));
+                last = now;
+            },
+            total: function () { return Date.now() - start; }
+        };
+    }
+
+    /**
+     * @param {string} kind - 'GET' | 'POST'
+     * @param {Object} counts - e.g. { quotes: 6, selected: 2, forecastWrites: 1 }
+     * @param {string} outcome - e.g. 'rendered', 'sent', 'failed: validation'
+     */
+    function logTiming(kind, opportunityId, timing, counts, outcome) {
+        var c = Object.keys(counts || {}).map(function (k) { return k + '=' + counts[k]; }).join(' ');
+        log.audit('SendQuoteSL.Timing', kind + ' Opportunity ' + opportunityId + ' — ms: ' +
+            timing.phases.concat(['total=' + timing.total()]).join(' ') +
+            (c ? ' | ' + c : '') + ' | ' + outcome);
     }
 
     // ─── Selection (v2.0.0) ───────────────────────────────────────────────────────
@@ -642,7 +696,10 @@ define([
             return;
         }
 
-        renderSendPage(context, opportunityId, null, '', null);
+        var timing = newTiming();
+        var page = renderSendPage(context, opportunityId, null, '', null, timing);
+        logTiming('GET', opportunityId, timing, { quotes: page.quotes ? page.quotes.length : 0 },
+            page.loadError ? 'load error' : 'rendered');
     }
 
     /**
@@ -655,12 +712,14 @@ define([
      * @param {Object|null} restore - posted state to restore after a failed send, or null
      * @param {string} errorMessage - shown in an error panel at the top, or ''
      * @param {Array|null} quotes - quotes already loaded for this request, or null to search
+     * @param {Object} [timing] - v2.2.1: phase timer (GET marks opportunity / quotes / render)
+     * @returns {Object} the page data (v2.2.1, for the timing line)
      */
-    function renderSendPage(context, opportunityId, restore, errorMessage, quotes) {
-        var page = loadSendPageData(opportunityId, quotes);
+    function renderSendPage(context, opportunityId, restore, errorMessage, quotes, timing) {
+        var page = loadSendPageData(opportunityId, quotes, timing);
         if (page.loadError) {
             showErrorPage(context, page.loadError);
-            return;
+            return page;
         }
 
         var form = serverWidget.createForm({ title: 'Send Quote' });
@@ -672,17 +731,21 @@ define([
         body.defaultValue = buildSendPageHTML(page, restore, errorMessage);
 
         context.response.writePage(form);
+        if (timing) timing.mark('render');
+        return page;
     }
 
     /**
      * Loads everything the Send proposal page shows.
      */
-    function loadSendPageData(opportunityId, quotes) {
+    function loadSendPageData(opportunityId, quotes, timing) {
         // v2.1.0: Opportunity, header fields, customer email and contacts from the library
         var page = lib.loadOppPageBase(opportunityId, { logPrefix: 'SendQuoteSL', customerEmail: true });
+        if (timing) timing.mark('opportunity');
         if (page.loadError) return page;
 
         page.quotes = quotes || searchRelatedQuotes(opportunityId);
+        if (timing) timing.mark('quotes');
         page.updateFields = page.quotes.length ? lib.prepareFields(page.oppRecord, opportunityId, SQ_RULES) : [];
 
         // Links, resolved server-side and handed to the page as data- attributes
@@ -748,17 +811,36 @@ define([
             ' | Selection: ' + JSON.stringify(selection.map) +
             ' | To: ' + emailTo + ' | CC: ' + emailCc + ' | BCC: ' + emailBcc);
 
-        // v2.0.0: rebuild every quote from NetSuite — the page sends IDs and roles only
-        var quotes = searchRelatedQuotes(opportunityId);
+        var timing = newTiming();   // v2.2.1
+        var counts = { quotes: 0, selected: 0, forecastWrites: 0 };
 
-        function fail(message) {
-            renderSendPage(context, opportunityId, restore, message, quotes);
+        // v2.0.0: rebuild every quote from NetSuite — the page sends IDs and roles only.
+        // v2.3.0: the search alone first (no record loads); the selection is validated against it,
+        // and only the selected quotes are then fully loaded (buildQuote, unchanged).
+        var rows   = runQuoteSearch(opportunityId);
+        var light  = rows.map(lightQuote);
+        var loaded = [];      // row index → full quote; undefined = not loaded, null = load failed
+        var quotes = light;
+        counts.quotes = light.length;
+
+        function fail(message, phase) {
+            timing.mark(phase);
+            // The re-rendered page prices every card: load the quotes not loaded yet.
+            var full = [];
+            rows.forEach(function (row, i) {
+                var q = loaded[i] !== undefined ? loaded[i] : buildQuote(row, i, rows.length);
+                if (q) full.push(q);
+            });
+            renderSendPage(context, opportunityId, restore, message, full);
+            timing.mark('rerender');
+            logTiming('POST', opportunityId, timing, counts, 'failed: ' + phase);
         }
 
-        // ── Validation ───────────────────────────────────────────────────────────
-        var resolved = resolveSelection(opportunityId, quotes, selection);
+        // ── Validation (against the search rows — nothing loaded yet) ────────────
+        var resolved = resolveSelection(opportunityId, light, selection);
+        counts.selected = resolved.selected.length;
         if (resolved.error) {
-            fail(resolved.error);
+            fail(resolved.error, 'rebuild');
             return;
         }
 
@@ -766,22 +848,41 @@ define([
             ' | Main: ' + resolved.main.length + ' | Additional: ' + resolved.additional.length);
 
         if (resolved.selected.length === 0) {
-            fail('No quotes were selected. Choose at least one quote to include in the proposal.');
+            fail('No quotes were selected. Choose at least one quote to include in the proposal.', 'rebuild');
             return;
         }
         if (resolved.main.length === 0) {
-            fail('No Main quote selected. Set at least one quote to "Main".');
+            fail('No Main quote selected. Set at least one quote to "Main".', 'rebuild');
             return;
         }
         if (!parseEmails(emailTo).length) {
-            fail('No recipient email address provided. Add at least one "To" address.');
+            fail('No recipient email address provided. Add at least one "To" address.', 'rebuild');
             return;
         }
         var badEmails = invalidEmails(emailTo).concat(invalidEmails(emailCc), invalidEmails(emailBcc));
         if (badEmails.length) {
-            fail('These email addresses are not valid: ' + badEmails.join(', '));
+            fail('These email addresses are not valid: ' + badEmails.join(', '), 'rebuild');
             return;
         }
+
+        // ── Full load of the selected quotes only (v2.3.0) ────────────────────────
+        // Same search order, so resolveSelection() orders them exactly as before. A selected quote
+        // whose row cannot be built drops out and the selection is rejected, as before.
+        quotes = [];
+        rows.forEach(function (row, i) {
+            if (!selection.map[String(light[i].id)]) {
+                if (light[i].id) quotes.push(light[i]);   // an unreadable row stays out, as before
+                return;
+            }
+            loaded[i] = buildQuote(row, i, rows.length);
+            if (loaded[i]) quotes.push(loaded[i]);
+        });
+        resolved = resolveSelection(opportunityId, quotes, selection);
+        if (resolved.error) {
+            fail(resolved.error, 'rebuild');
+            return;
+        }
+        timing.mark('rebuild');
 
         // ── Generate Master Proposal ──────────────────────────────────────────────
         // (also writes custbody_master_proposal_url / custbody_last_proposal_sent_date — unchanged)
@@ -796,9 +897,10 @@ define([
         }
         if (!proposalResult.success) {
             fail('Proposal generation failed: ' + (proposalResult.error || 'Unknown error') +
-                '. Nothing was sent. Please try again or contact your administrator.');
+                '. Nothing was sent. Please try again or contact your administrator.', 'proposal');
             return;
         }
+        timing.mark('proposal');
 
         // ── Send Email ───────────────────────────────────────────────────────────
         try {
@@ -808,15 +910,21 @@ define([
             log.audit('SendQuoteSL.OppUpdate', 'Opportunity ' + opportunityId + ' — skipped, email was not sent');
             fail('The email could not be sent: ' + emailErr.message + '. The proposal was generated and its ' +
                 'link saved to the opportunity, but no opportunity fields or forecast flags were changed. ' +
-                'Check the addresses and send again.');
+                'Check the addresses and send again.', 'email');
             return;
         }
+        timing.mark('email');
+
+        // v2.3.0: the left-out quotes were not loaded — read their current flag (lookupFields)
+        lookupLeftOutForecast(opportunityId, quotes);
 
         // ── Forecast flags, then the Opportunity (independent of each other) ──────
         // v2.0.1: Forecast first: an Estimate save can re-sync its Status onto the opportunity.
         // The opportunity update must be last.
-        var forecast  = updateForecastFlags(opportunityId, selection.map, quotes);
+        var forecast  = updateForecastFlags(opportunityId, selection.map, quotes, timing);
         var oppUpdate = updateOpportunityFields(opportunityId, request);
+        timing.mark('oppUpdate');
+        counts.forecastWrites = forecast.changed;
 
         // ── Back to the Opportunity (VIEW), same tab ──────────────────────────────
         var redirectParams = buildRedirectParams(oppUpdate, forecast);
@@ -828,6 +936,7 @@ define([
             isEditMode: false,
             parameters: redirectParams
         });
+        logTiming('POST', opportunityId, timing, counts, 'sent');
     }
 
     /**
@@ -876,6 +985,41 @@ define([
     }
 
     /**
+     * F6: the forecast field type reported by the first quote whose Estimate was loaded, or null.
+     * (v2.3.0: extracted from updateForecastFlags, unchanged. On Send the Main quote is always
+     * loaded, so a loaded record is always available for the check.)
+     */
+    function forecastFieldTypeOf(quotes) {
+        for (var i = 0; i < quotes.length; i++) {
+            if (quotes[i].forecastFieldType !== undefined && quotes[i].forecastFieldType !== null) {
+                return quotes[i].forecastFieldType;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * v2.3.0: current Include in Forecast of the quotes the send did not load (the left-out
+     * ones) — one search.lookupFields each (1 unit) instead of a record.load. A missing or empty
+     * value counts as false; a failed lookup leaves the value unknown, so it is not written
+     * (as for an Estimate that could not be loaded). Skipped when F6 fails: nothing is written then.
+     */
+    function lookupLeftOutForecast(opportunityId, quotes) {
+        if (forecastFieldTypeOf(quotes) !== 'checkbox') return;
+        quotes.forEach(function (q) {
+            if (!q.lightOnly) return;
+            try {
+                var v = (search.lookupFields({ type: search.Type.ESTIMATE, id: q.id, columns: [FORECAST_FIELD] }) || {})[FORECAST_FIELD];
+                q.includeInForecast = normaliseCheckbox(v === undefined || v === null ? false : v);
+            } catch (e) {
+                q.includeInForecast = null;
+                log.audit('SendQuoteSL.Forecast', 'Opportunity ' + opportunityId + ' — Estimate ' + q.id +
+                    ' (' + q.tranId + ') lookupFields failed: ' + e.message);
+            }
+        });
+    }
+
+    /**
      * Sets Include in Forecast on the Opportunity's quotes to match the send: true for Main,
      * false for Additional and Leave out.
      *
@@ -887,25 +1031,21 @@ define([
      *   - F6: the field is ASSUMED to be includeinforecast (checkbox). If the loaded Estimates
      *     report it absent or not a checkbox, nothing is written and it is audit-logged only.
      *
+     * @param {Object} [timing] - v2.2.1: marks 'forecast' on return (measurement only)
      * @returns {{included: number, excluded: number, failed: Array<string>, changed: number, skipped: boolean}}
      *          included/excluded are the target states of the quotes on the page.
      */
-    function updateForecastFlags(opportunityId, selectionMap, quotes) {
+    function updateForecastFlags(opportunityId, selectionMap, quotes, timing) {
         var result = { included: 0, excluded: 0, failed: [], changed: 0, skipped: false };
 
         try {
-            var fieldType = null;
-            for (var i = 0; i < quotes.length; i++) {
-                if (quotes[i].forecastFieldType !== undefined && quotes[i].forecastFieldType !== null) {
-                    fieldType = quotes[i].forecastFieldType;
-                    break;
-                }
-            }
+            var fieldType = forecastFieldTypeOf(quotes);
             if (fieldType !== 'checkbox') {
                 result.skipped = true;
                 log.audit('SendQuoteSL.Forecast', 'Opportunity ' + opportunityId + ' — ' + FORECAST_FIELD +
                     ' reported as "' + (fieldType || 'unknown: no Estimate could be loaded') +
                     '", expected "checkbox"; no forecast writes');
+                if (timing) timing.mark('forecast');
                 return result;
             }
 
@@ -950,6 +1090,7 @@ define([
             log.error('SendQuoteSL.Forecast', 'Opportunity ' + opportunityId + ' — unexpected error: ' + e.message);
         }
 
+        if (timing) timing.mark('forecast');
         return result;
     }
 
@@ -1307,9 +1448,33 @@ define([
 
     /**
      * Searches for all Estimates linked to the given Opportunity that have
-     * a generated online quote URL (custbody_test_new_quote is not empty).
+     * a generated online quote URL (custbody_test_new_quote is not empty), and fully loads each
+     * one (pricing, BUS lines, forecast flag). Used by the page load (GET), the preview and the
+     * re-render after a failed send.
+     *
+     * v2.3.0: split into runQuoteSearch() (the search, unchanged) and buildQuote() (the per-row
+     * load, unchanged). The Send POST runs the search, validates against lightQuote() rows and
+     * fully loads only the selected quotes.
      */
     function searchRelatedQuotes(opportunityId) {
+        var rows = runQuoteSearch(opportunityId);
+        var quotes = [];
+        for (var i = 0; i < rows.length; i++) {
+            var q = buildQuote(rows[i], i, rows.length);
+            if (q) quotes.push(q);
+        }
+        if (rows.length) {
+            log.audit('SendQuoteSL.searchRelatedQuotes', 'v1.4.5 — Successfully processed ' + quotes.length +
+                ' of ' + rows.length + ' quotes for Opportunity ' + opportunityId);
+        }
+        return quotes;
+    }
+
+    /**
+     * v2.3.0: the quote search alone — same filters and columns as before, no record loads.
+     * @returns {Array} search results (empty on any error or no match)
+     */
+    function runQuoteSearch(opportunityId) {
         var quotes = [];
 
         log.audit('SendQuoteSL.searchRelatedQuotes', 'v1.4.5 — Starting quote search for Opportunity: ' + opportunityId);
@@ -1369,167 +1534,196 @@ define([
             return quotes;
         }
 
-        // ── Step 3: Process each result and load pricing from record ─────────────
-        for (var i = 0; i < results.length; i++) {
-            try {
-                var result = results[i];
-                var estimateId = result.getValue({ name: 'internalid' }) || '';
+        return results;
+    }
 
-                var rawQuoteType = '';
-                try {
-                    rawQuoteType = result.getText({ name: 'custbody_quote_type' }) || '';
-                } catch (qtErr) {
-                    log.debug('SendQuoteSL.searchRelatedQuotes', 'Could not read custbody_quote_type text for result ' + i + ': ' + qtErr.message);
-                }
-                var quoteTypeDisplay = getQuoteTypeDisplayName(rawQuoteType);
-
-                // v1.4.9 CRITICAL FIX: Use record.load() instead of search.lookupFields().
-                // lookupFields does NOT support calculated/summary fields (subtotal, discounttotal,
-                // taxtotal) on Estimate records — it silently fails or throws errors.
-                // record.load().getValue() reliably returns these standard pricing fields.
-                var subtotalVal = '';
-                var discountTotalVal = '';
-                var taxTotalVal = '';
-                var totalVal = '';
-                // v1.6.0: BUS grant resolved from this Estimate's Suppak line item. The Master
-                // Proposal never loads an Estimate, so the resolution has to happen here.
-                var busAmountVal = 0;
-                var busRateVal = 'none';
-                // v2.0.0: forecast flag, read off the record this loop already loads — NOT a search
-                // column: one invalid column aborts the whole search (see v1.4.5 above). undefined
-                // type = record not loaded, so the field could not be checked.
-                var includeInForecastVal = null;
-                var forecastFieldType;
-                if (estimateId) {
-                    try {
-                        var estimateRec = record.load({
-                            type: record.Type.ESTIMATE,
-                            id: estimateId,
-                            isDynamic: false
-                        });
-                        subtotalVal      = estimateRec.getValue({ fieldId: 'subtotal' }) || '';
-                        discountTotalVal = estimateRec.getValue({ fieldId: 'discounttotal' }) || '';
-                        taxTotalVal      = estimateRec.getValue({ fieldId: 'taxtotal' }) || '';
-                        totalVal         = estimateRec.getValue({ fieldId: 'total' }) || '';
-
-                        log.debug('SendQuoteSL.searchRelatedQuotes', 'Pricing loaded via record.load for Estimate ' + estimateId +
-                            ': subtotal=' + subtotalVal + ', discount=' + discountTotalVal +
-                            ', tax=' + taxTotalVal + ', total=' + totalVal);
-
-                        // v1.6.0: Read the item sublist and resolve the BUS rate. itemName uses
-                        // getSublistText (the SKU/display name), matching how the Quote Suitelet
-                        // builds line items — the BUS module normalises either form.
-                        var busLineItems = [];
-                        var estLineCount = estimateRec.getLineCount({ sublistId: 'item' });
-                        for (var li = 0; li < estLineCount; li++) {
-                            busLineItems.push({
-                                itemName: estimateRec.getSublistText({ sublistId: 'item', fieldId: 'item', line: li }) || ''
-                            });
-                        }
-                        var busResult = busGrant.resolveBusGrant(busLineItems);
-                        busAmountVal = busResult.amount;
-                        busRateVal   = busResult.rate;
-
-                        log.audit('SendQuoteSL.BUS', 'Estimate ' + estimateId + ' — lines=' + estLineCount +
-                            ', rate=' + busRateVal + ', amount=' + busAmountVal +
-                            ', matched=' + (busResult.matchedItem || 'none'));
-
-                        try {
-                            var forecastField = estimateRec.getField({ fieldId: FORECAST_FIELD });
-                            forecastFieldType = forecastField ? String(forecastField.type || '').toLowerCase() : 'absent';
-                            if (forecastField) {
-                                includeInForecastVal = normaliseCheckbox(estimateRec.getValue({ fieldId: FORECAST_FIELD }));
-                            }
-                        } catch (forecastErr) {
-                            forecastFieldType = 'error: ' + forecastErr.message;
-                        }
-                    } catch (pricingErr) {
-                        log.debug('SendQuoteSL.searchRelatedQuotes', 'Could not load Estimate record ' + estimateId +
-                            ' for pricing: ' + pricingErr.message + ' — will use search total as fallback');
-                        // Fallback: use total from search for amount, zeros for discount/tax
-                        totalVal = result.getValue({ name: 'total' }) || '';
-                    }
-                }
-
-                // ── v1.7.0: VAT derived from the quote's technology ──────────────────────
-                // ⚠️ quoteTypeDisplay, NOT rawQuoteType. VAT_RATES is keyed on display names
-                // ('Heat Pump'), while rawQuoteType holds the list value ('Heat Pump (ASHP)',
-                // 'Heat Emitter'). Passing the raw value would fail to match and fall through
-                // to the 20% default — charging an ASHP/GSHP/EAHP heat pump quote 20% VAT,
-                // which is the exact bug this change exists to fix. (nuheat_vat_rates also
-                // normalises raw values defensively, so both forms resolve correctly.)
-                var vatInfo = vatRates.resolveVatRate(quoteTypeDisplay);
-
-                // Only derive when record.load() actually returned pricing. On the fallback
-                // path (load failed) subtotalVal is empty and the search 'total' is all we
-                // have — deriving there would silently zero the quote's amount.
-                var hasPricing = (subtotalVal !== '' && subtotalVal !== null && subtotalVal !== undefined);
-                var netAmount  = hasPricing
-                    ? (parseFloat(subtotalVal) || 0) - Math.abs(parseFloat(discountTotalVal) || 0)
-                    : 0;
-                var derivedVat = hasPricing ? vatRates.calculateVat(netAmount, vatInfo.rate) : 0;
-
-                if (hasPricing) {
-                    vatRates.logVatMismatch('SendQuoteSL', estimateId, derivedVat, taxTotalVal, quoteTypeDisplay);
-                } else {
-                    log.audit('SendQuoteSL.VAT', 'Estimate ' + estimateId +
-                        ' — no pricing from record.load(); using NetSuite fallback figures, VAT not derived.');
-                }
-
-                log.audit('SendQuoteSL.VAT', 'Estimate ' + estimateId + ' — type="' + quoteTypeDisplay +
-                    '", rate=' + vatInfo.percent + ', net=' + netAmount.toFixed(2) +
-                    ', derivedVat=' + derivedVat.toFixed(2) + ', nsTaxTotal=' + (taxTotalVal || '0'));
-
-                var amountValue = hasPricing ? (netAmount + derivedVat)
-                                             : (parseFloat(totalVal || result.getValue({ name: 'total' })) || 0);
-                // Live total on the page mirrors the proposal's "Total inc. VAT": inc-VAT amount
-                // less the BUS grant where one applies (master proposal calculateTotals()).
-                var grantDeduction = (busRateVal !== 'none' && busAmountVal > 0) ? busAmountVal : 0;
-
-                quotes.push({
-                    id:               estimateId,
-                    dateCreated:      formatDate(result.getValue({ name: 'datecreated' })),
-                    dateCreatedRaw:   result.getValue({ name: 'datecreated' }) || '',   // v2.0.3: user-format text, for the card
-                    titleRaw:         result.getValue({ name: 'title' }) || '',         // v2.0.3: card fallback (no '(Untitled)')
-                    tranId:           result.getValue({ name: 'tranid' }) || '',
-                    title:            result.getValue({ name: 'title' })  || '(Untitled)',
-                    quoteTypeRaw:     rawQuoteType,
-                    quoteTypeDisplay: quoteTypeDisplay,
-                    subtotal:         formatCurrency(subtotalVal),
-                    discountTotal:    formatCurrency(discountTotalVal),
-                    // ⚠️ v1.7.0: taxTotal and amount are DERIVED, not NetSuite values — see the
-                    // v1.7.0 changelog at the top of this file before "fixing" this back.
-                    taxTotal:         hasPricing ? formatCurrency(derivedVat) : formatCurrency(taxTotalVal),
-                    amount:           hasPricing ? formatCurrency(netAmount + derivedVat)
-                                                 : formatCurrency(totalVal || result.getValue({ name: 'total' })),
-                    busAmount:        busAmountVal,   // v1.6.0: 0 | 7500 | 9000
-                    busRate:          busRateVal,     // v1.6.0: 'none' | 'standard' | 'enhanced'
-                    vatRate:          vatInfo.rate,     // v1.7.0: 0 | 0.20
-                    vatPercent:       vatInfo.percent,  // v1.7.0: '0%' | '20%'
-                    quoteUrl:         result.getValue({ name: 'custbody_test_new_quote' }) || '',
-                    description:      result.getValue({ name: 'custbody_quote_description' }) || '',
-                    // v2.0.0: page-only values — never passed to the Master Proposal
-                    netValue:          hasPricing ? netAmount : null,        // ex VAT, after discount
-                    totalValue:        Math.round((amountValue - grantDeduction) * 100) / 100,
-                    includeInForecast: includeInForecastVal,                  // true | false | null
-                    forecastFieldType: forecastFieldType                      // 'checkbox' expected
-                });
-
-                log.debug('SendQuoteSL.searchRelatedQuotes', 'Processed quote ' + (i + 1) + '/' + results.length +
-                    ': ID=' + estimateId + ', tranId=' + (result.getValue({ name: 'tranid' }) || '') +
-                    ', type=' + rawQuoteType + ' → ' + quoteTypeDisplay);
-
-            } catch (rowErr) {
-                log.error('SendQuoteSL.searchRelatedQuotes', 'Error processing result row ' + i + ': ' +
-                    rowErr.message + '\nStack: ' + (rowErr.stack || 'N/A'));
-                // Continue processing remaining results — don't let one bad row break everything
-            }
+    /** custbody_quote_type text for a search row ('' when unreadable). */
+    function rowQuoteType(result, i) {
+        try {
+            return result.getText({ name: 'custbody_quote_type' }) || '';
+        } catch (qtErr) {
+            log.debug('SendQuoteSL.searchRelatedQuotes', 'Could not read custbody_quote_type text for result ' + i + ': ' + qtErr.message);
+            return '';
         }
+    }
 
-        log.audit('SendQuoteSL.searchRelatedQuotes', 'v1.4.5 — Successfully processed ' + quotes.length +
-            ' of ' + results.length + ' quotes for Opportunity ' + opportunityId);
+    /**
+     * v2.3.0: a quote from its search row only — no record load. Enough to validate a posted
+     * selection (id), order it (quoteTypeDisplay) and address the forecast write (id, tranId).
+     * Never shown and never passed to the Master Proposal. includeInForecast is filled later by
+     * lookupLeftOutForecast(); forecastFieldType stays undefined (not loaded).
+     */
+    function lightQuote(result, i) {
+        try {
+            return {
+                id:               result.getValue({ name: 'internalid' }) || '',
+                tranId:           result.getValue({ name: 'tranid' }) || '',
+                quoteTypeDisplay: getQuoteTypeDisplayName(rowQuoteType(result, i)),
+                lightOnly:        true
+            };
+        } catch (rowErr) {
+            // As buildQuote(): a row that cannot be read is skipped (an ID of '' matches no selection)
+            log.error('SendQuoteSL.searchRelatedQuotes', 'Error reading result row ' + i + ': ' + rowErr.message);
+            return { id: '', tranId: '', quoteTypeDisplay: 'Other', lightOnly: true };
+        }
+    }
 
-        return quotes;
+    /**
+     * Step 3 of the old searchRelatedQuotes(), unchanged: builds one quote from its search row,
+     * loading the Estimate for pricing, BUS and the forecast flag.
+     * @returns {Object|null} null when the row could not be processed (logged)
+     */
+    function buildQuote(result, i, rowCount) {
+        try {
+            var estimateId = result.getValue({ name: 'internalid' }) || '';
+
+            var rawQuoteType = rowQuoteType(result, i);
+            var quoteTypeDisplay = getQuoteTypeDisplayName(rawQuoteType);
+
+            // v1.4.9 CRITICAL FIX: Use record.load() instead of search.lookupFields().
+            // lookupFields does NOT support calculated/summary fields (subtotal, discounttotal,
+            // taxtotal) on Estimate records — it silently fails or throws errors.
+            // record.load().getValue() reliably returns these standard pricing fields.
+            var subtotalVal = '';
+            var discountTotalVal = '';
+            var taxTotalVal = '';
+            var totalVal = '';
+            // v1.6.0: BUS grant resolved from this Estimate's Suppak line item. The Master
+            // Proposal never loads an Estimate, so the resolution has to happen here.
+            var busAmountVal = 0;
+            var busRateVal = 'none';
+            // v2.0.0: forecast flag, read off the record this loop already loads — NOT a search
+            // column: one invalid column aborts the whole search (see v1.4.5 above). undefined
+            // type = record not loaded, so the field could not be checked.
+            var includeInForecastVal = null;
+            var forecastFieldType;
+            if (estimateId) {
+                try {
+                    var estimateRec = record.load({
+                        type: record.Type.ESTIMATE,
+                        id: estimateId,
+                        isDynamic: false
+                    });
+                    subtotalVal      = estimateRec.getValue({ fieldId: 'subtotal' }) || '';
+                    discountTotalVal = estimateRec.getValue({ fieldId: 'discounttotal' }) || '';
+                    taxTotalVal      = estimateRec.getValue({ fieldId: 'taxtotal' }) || '';
+                    totalVal         = estimateRec.getValue({ fieldId: 'total' }) || '';
+
+                    log.debug('SendQuoteSL.searchRelatedQuotes', 'Pricing loaded via record.load for Estimate ' + estimateId +
+                        ': subtotal=' + subtotalVal + ', discount=' + discountTotalVal +
+                        ', tax=' + taxTotalVal + ', total=' + totalVal);
+
+                    // v1.6.0: Read the item sublist and resolve the BUS rate. itemName uses
+                    // getSublistText (the SKU/display name), matching how the Quote Suitelet
+                    // builds line items — the BUS module normalises either form.
+                    var busLineItems = [];
+                    var estLineCount = estimateRec.getLineCount({ sublistId: 'item' });
+                    for (var li = 0; li < estLineCount; li++) {
+                        busLineItems.push({
+                            itemName: estimateRec.getSublistText({ sublistId: 'item', fieldId: 'item', line: li }) || ''
+                        });
+                    }
+                    var busResult = busGrant.resolveBusGrant(busLineItems);
+                    busAmountVal = busResult.amount;
+                    busRateVal   = busResult.rate;
+
+                    log.audit('SendQuoteSL.BUS', 'Estimate ' + estimateId + ' — lines=' + estLineCount +
+                        ', rate=' + busRateVal + ', amount=' + busAmountVal +
+                        ', matched=' + (busResult.matchedItem || 'none'));
+
+                    try {
+                        var forecastField = estimateRec.getField({ fieldId: FORECAST_FIELD });
+                        forecastFieldType = forecastField ? String(forecastField.type || '').toLowerCase() : 'absent';
+                        if (forecastField) {
+                            includeInForecastVal = normaliseCheckbox(estimateRec.getValue({ fieldId: FORECAST_FIELD }));
+                        }
+                    } catch (forecastErr) {
+                        forecastFieldType = 'error: ' + forecastErr.message;
+                    }
+                } catch (pricingErr) {
+                    log.debug('SendQuoteSL.searchRelatedQuotes', 'Could not load Estimate record ' + estimateId +
+                        ' for pricing: ' + pricingErr.message + ' — will use search total as fallback');
+                    // Fallback: use total from search for amount, zeros for discount/tax
+                    totalVal = result.getValue({ name: 'total' }) || '';
+                }
+            }
+
+            // ── v1.7.0: VAT derived from the quote's technology ──────────────────────
+            // ⚠️ quoteTypeDisplay, NOT rawQuoteType. VAT_RATES is keyed on display names
+            // ('Heat Pump'), while rawQuoteType holds the list value ('Heat Pump (ASHP)',
+            // 'Heat Emitter'). Passing the raw value would fail to match and fall through
+            // to the 20% default — charging an ASHP/GSHP/EAHP heat pump quote 20% VAT,
+            // which is the exact bug this change exists to fix. (nuheat_vat_rates also
+            // normalises raw values defensively, so both forms resolve correctly.)
+            var vatInfo = vatRates.resolveVatRate(quoteTypeDisplay);
+
+            // Only derive when record.load() actually returned pricing. On the fallback
+            // path (load failed) subtotalVal is empty and the search 'total' is all we
+            // have — deriving there would silently zero the quote's amount.
+            var hasPricing = (subtotalVal !== '' && subtotalVal !== null && subtotalVal !== undefined);
+            var netAmount  = hasPricing
+                ? (parseFloat(subtotalVal) || 0) - Math.abs(parseFloat(discountTotalVal) || 0)
+                : 0;
+            var derivedVat = hasPricing ? vatRates.calculateVat(netAmount, vatInfo.rate) : 0;
+
+            if (hasPricing) {
+                vatRates.logVatMismatch('SendQuoteSL', estimateId, derivedVat, taxTotalVal, quoteTypeDisplay);
+            } else {
+                log.audit('SendQuoteSL.VAT', 'Estimate ' + estimateId +
+                    ' — no pricing from record.load(); using NetSuite fallback figures, VAT not derived.');
+            }
+
+            log.audit('SendQuoteSL.VAT', 'Estimate ' + estimateId + ' — type="' + quoteTypeDisplay +
+                '", rate=' + vatInfo.percent + ', net=' + netAmount.toFixed(2) +
+                ', derivedVat=' + derivedVat.toFixed(2) + ', nsTaxTotal=' + (taxTotalVal || '0'));
+
+            var amountValue = hasPricing ? (netAmount + derivedVat)
+                                         : (parseFloat(totalVal || result.getValue({ name: 'total' })) || 0);
+            // Live total on the page mirrors the proposal's "Total inc. VAT": inc-VAT amount
+            // less the BUS grant where one applies (master proposal calculateTotals()).
+            var grantDeduction = (busRateVal !== 'none' && busAmountVal > 0) ? busAmountVal : 0;
+
+            var quote = {
+                id:               estimateId,
+                dateCreated:      formatDate(result.getValue({ name: 'datecreated' })),
+                dateCreatedRaw:   result.getValue({ name: 'datecreated' }) || '',   // v2.0.3: user-format text, for the card
+                titleRaw:         result.getValue({ name: 'title' }) || '',         // v2.0.3: card fallback (no '(Untitled)')
+                tranId:           result.getValue({ name: 'tranid' }) || '',
+                title:            result.getValue({ name: 'title' })  || '(Untitled)',
+                quoteTypeRaw:     rawQuoteType,
+                quoteTypeDisplay: quoteTypeDisplay,
+                subtotal:         formatCurrency(subtotalVal),
+                discountTotal:    formatCurrency(discountTotalVal),
+                // ⚠️ v1.7.0: taxTotal and amount are DERIVED, not NetSuite values — see the
+                // v1.7.0 changelog at the top of this file before "fixing" this back.
+                taxTotal:         hasPricing ? formatCurrency(derivedVat) : formatCurrency(taxTotalVal),
+                amount:           hasPricing ? formatCurrency(netAmount + derivedVat)
+                                             : formatCurrency(totalVal || result.getValue({ name: 'total' })),
+                busAmount:        busAmountVal,   // v1.6.0: 0 | 7500 | 9000
+                busRate:          busRateVal,     // v1.6.0: 'none' | 'standard' | 'enhanced'
+                vatRate:          vatInfo.rate,     // v1.7.0: 0 | 0.20
+                vatPercent:       vatInfo.percent,  // v1.7.0: '0%' | '20%'
+                quoteUrl:         result.getValue({ name: 'custbody_test_new_quote' }) || '',
+                description:      result.getValue({ name: 'custbody_quote_description' }) || '',
+                // v2.0.0: page-only values — never passed to the Master Proposal
+                netValue:          hasPricing ? netAmount : null,        // ex VAT, after discount
+                totalValue:        Math.round((amountValue - grantDeduction) * 100) / 100,
+                includeInForecast: includeInForecastVal,                  // true | false | null
+                forecastFieldType: forecastFieldType                      // 'checkbox' expected
+            };
+
+            log.debug('SendQuoteSL.searchRelatedQuotes', 'Processed quote ' + (i + 1) + '/' + rowCount +
+                ': ID=' + estimateId + ', tranId=' + (result.getValue({ name: 'tranid' }) || '') +
+                ', type=' + rawQuoteType + ' → ' + quoteTypeDisplay);
+
+            return quote;
+
+        } catch (rowErr) {
+            log.error('SendQuoteSL.searchRelatedQuotes', 'Error processing result row ' + i + ': ' +
+                rowErr.message + '\nStack: ' + (rowErr.stack || 'N/A'));
+            // Continue processing remaining results — don't let one bad row break everything
+            return null;
+        }
     }
 
     // ─── Page HTML (v2.0.0) ───────────────────────────────────────────────────────
@@ -1559,6 +1753,9 @@ define([
         var hasQuotes = page.quotes.length > 0;
 
         h.push(lib.baseCss());
+        var fcColors = lib.PAGE_COLORS;   // v2.3.0: the forecast tag (the library CSS is not changed)
+        h.push('<style>.nsq-fc{display:block;margin-top:4px;font-size:12px;color:' + fcColors.muted + ';}' +
+            '.nsq-fc-chg{color:' + fcColors.accent + ';font-weight:600;}</style>');
         h.push('<div id="nsq-root" class="nsq" data-preview-url="' + escapeHtml(page.previewUrl) + '" data-opp-url="' +
             escapeHtml(page.oppUrl) + '">');
         h.push('<div class="nsq-wrap">');
@@ -1585,6 +1782,8 @@ define([
         // ── 1 Choose quotes ──
         h.push('<section class="nsq-card"><h2 class="nsq-h2"><span class="nsq-num">1</span>Choose quotes</h2>');
         var single = page.quotes.length === 1;
+        // v2.3.0: "In forecast" tags only when the F6 type check passes (as for the writes)
+        var showForecast = forecastFieldTypeOf(page.quotes) === 'checkbox';
         QUOTE_TYPE_ORDER.forEach(function (type) {
             var group = page.quotes.filter(function (q) {
                 var qType = QUOTE_TYPE_ORDER.indexOf(q.quoteTypeDisplay) === -1 ? 'Other' : q.quoteTypeDisplay;
@@ -1599,7 +1798,7 @@ define([
                 } else {
                     role = single ? ROLE_MAIN : 'leave';
                 }
-                h.push(buildQuoteRowHTML(q, role));
+                h.push(buildQuoteRowHTML(q, role, showForecast));
             });
         });
         h.push('</section>');
@@ -1655,7 +1854,7 @@ define([
      * One quote row. Prices live in data- attributes for the live total; nothing here is
      * posted except the role, which the script collects into custpage_sel.
      */
-    function buildQuoteRowHTML(q, role) {
+    function buildQuoteRowHTML(q, role, showForecast) {
         // v2.0.3: line 1 = tranid · description (falls back to the title, then tranid alone);
         // line 2 = facts. Every text: decode → strip → collapse → escape once.
         var desc  = cleanCardText(q.description);
@@ -1678,17 +1877,33 @@ define([
         var exVat = (q.netValue === null || q.netValue === undefined) ? '' :
             '<span class="nsq-exvat">' + escapeHtml(money(q.netValue)) + ' ex VAT</span>';
 
+        // v2.3.0: current forecast state, and what the chosen role will make it (Main → included).
+        // PAGE_SCRIPT rewrites the text from data-forecast and data-role on every role change.
+        var fcAttr = '', fcTag = '';
+        if (showForecast && (q.includeInForecast === true || q.includeInForecast === false)) {
+            var fcWill = role === ROLE_MAIN;
+            fcAttr = ' data-forecast="' + (q.includeInForecast ? '1' : '0') + '"';
+            fcTag = '<span class="nsq-fc' + (fcWill === q.includeInForecast ? '' : ' nsq-fc-chg') + '">' +
+                forecastTagText(q.includeInForecast, fcWill) + '</span>';
+        }
+
         return '<div class="nsq-row' + (role === ROLE_MAIN ? ' nsq-row-main' : '') + '" data-qid="' + escapeHtml(String(q.id)) +
-            '" data-role="' + role + '" data-total="' + escapeHtml(String(q.totalValue || 0)) + '">' +
+            '" data-role="' + role + '" data-total="' + escapeHtml(String(q.totalValue || 0)) + '"' + fcAttr + '>' +
             '<div class="nsq-seg" role="group" aria-label="Include as">' + seg + '</div>' +
             '<div class="nsq-q"><div class="nsq-q-title" title="' + escapeHtml(line1) + '">' + escapeHtml(line1) + '</div>' +
             (line2 ? '<div class="nsq-q-desc" title="' + escapeHtml(line2) + '">' + escapeHtml(line2) + '</div>' : '') +
             '</div>' +
-            '<div class="nsq-price"><strong>' + escapeHtml(q.amount) + '</strong>' + exVat + '</div>' +
+            '<div class="nsq-price"><strong>' + escapeHtml(q.amount) + '</strong>' + exVat + fcTag + '</div>' +
             (q.quoteUrl ? '<a class="nsq-view" href="' + escapeHtml(q.quoteUrl) + '" target="_blank" rel="noopener">View</a>' : '<span class="nsq-view"></span>') +
             '</div>';
     }
 
+
+    /** v2.3.0: the forecast tag text — the same rule as PAGE_SCRIPT's copy. */
+    function forecastTagText(current, will) {
+        return (current ? 'In forecast' : 'Not in forecast') +
+            (will === current ? '' : (will ? ' → will be included' : ' → will be excluded'));
+    }
 
     /**
      * The page's behaviour. STATIC — nothing is interpolated into it (see the rules above).
@@ -1774,6 +1989,12 @@ define([
         '        var r = row.getAttribute("data-role");',
         '        each(row.querySelectorAll("[data-set-role]"), function (b) { b.setAttribute("aria-pressed", b.getAttribute("data-set-role") === r ? "true" : "false"); });',
         '        row.className = "nsq-row" + (r === "main" ? " nsq-row-main" : "");',
+        '        var fc = row.querySelector(".nsq-fc");',
+        '        if (fc) {',
+        '          var cur = row.getAttribute("data-forecast") === "1", will = r === "main";',
+        '          fc.textContent = (cur ? "In forecast" : "Not in forecast") + (will === cur ? "" : (will ? " → will be included" : " → will be excluded"));',
+        '          fc.className = "nsq-fc" + (will === cur ? "" : " nsq-fc-chg");',
+        '        }',
         '        if (r === "main") { main++; total += parseFloat(row.getAttribute("data-total")) || 0; }',
         '        else if (r === "additional") { add++; }',
         '      });',

@@ -292,7 +292,7 @@ that something has regressed at source. See §6.
 | Quote Viewer | v1.1.0 | `nuheat_quote_viewer_sl.js` | ✅ Live in Production |
 | Scheduled Script | v1.0.0 | `nuheat_quote_generator_ss.js` | ✅ Live in Production |
 | Master Proposal | v1.8.3 | `nuheat_master_proposal.js` | ✅ Live in Production |
-| Send Quote SL | 2.2.0 — pending Sandbox (email redesign, R18) | `nuheat_send_quote_sl.js` | ⏳ Pending Sandbox testing (live: v1.7.0; 1.8.0 passed S1–S4, S6–S9; 2.0.0 Status reverted; 2.0.1 reorder fixed the revert; 2.0.2 Expected close passed R15; forecast flags ⚠️ open) |
+| Send Quote SL | 2.3.0 — pending Sandbox (faster send, forecast tags, R19; 2.2.0 email redesign R18) | `nuheat_send_quote_sl.js` | ⏳ Pending Sandbox testing (live: v1.7.0; 1.8.0 passed S1–S4, S6–S9; 2.0.0 Status reverted; 2.0.1 reorder fixed the revert; 2.0.2 Expected close passed R15; forecast flags ⚠️ open) |
 | Send Quote CS | v1.4.0 — detached in SL 2.0.0 (pending Sandbox) | `nuheat_send_quote_cs.js` | ✅ Live in Production today; **not attached** once SL 2.0.0 deploys — kept for reference |
 | Update Opportunity SL | 1.0.0 — pending Sandbox | `nuheat_update_opp_sl.js` | ⏳ New — pending Sandbox U1–U10 |
 | Opportunity Update Library | 1.0.0 — pending Sandbox | `nuheat_opp_update_lib.js` | ⏳ New — pending Sandbox (upload first) |
@@ -1209,6 +1209,17 @@ To modify, edit `renderProductCard()` and update CSS in `generateCSS()`.
 
 ## 10. How to Continue Development
 
+### Send Quote: light search on Send, full loads for the selected quotes (SL 2.3.0)
+
+`searchRelatedQuotes()` = `runQuoteSearch()` (the search, no loads) + `buildQuote()` per row (the full
+`record.load`: pricing, BUS line loop, forecast flag). GET, preview and the re-render after a failed send
+use it for **every** quote — the cards show derived VAT/BUS. The **Send POST** validates the selection
+against `lightQuote()` rows (id, tranId, quote type — no load), then calls `buildQuote()` for the
+**selected** quotes only; left-out quotes get their current forecast flag from
+`lookupLeftOutForecast()` (one `search.lookupFields` each). The F6 type check reads the first loaded
+quote, and the Main quote is always loaded. Anything new the Master Proposal needs must still come from
+`buildQuote()` (the proposal never loads an Estimate). Timings: audit key `SendQuoteSL.Timing`.
+
 ### Deployment sequence
 
 Order matters. Follow it exactly:
@@ -1241,6 +1252,7 @@ The scripts log heavily on purpose. These are the keys that answer most question
 | `SendQuoteSL.Forecast` | `nuheat_send_quote_sl.js` | each Estimate's Include in Forecast change (from → to), failures with messages, or why no forecast writes happened (field absent / not a checkbox) |
 | `SendQuoteSL.Selection` | `nuheat_send_quote_sl.js` | a POST or preview rejected because it named a quote not on the Opportunity (or was malformed) |
 | `SendQuoteSL.Redirect` | `nuheat_send_quote_sl.js` | the exact code parameters sent back to the Opportunity |
+| `SendQuoteSL.Timing` | `nuheat_send_quote_sl.js` | *(2.2.1)* one line per page load and per send: ms per phase (opportunity / quotes / render; rebuild / proposal / email / forecast / oppUpdate) and the quote counts — compare before and after a change |
 | `SendQuoteSL.RepPhoto` | `nuheat_send_quote_sl.js` | *(2.2.0)* once per send: whether the account manager's photo was used in the email, or skipped and why |
 | `OpportunityUE.banner` | `nuheat_opportunity_ue.js` | which banner was shown — `send/ok`, `upd/warn` … (audit) — or why it was not (error) |
 | `UpdateOppSL.Call` | `nuheat_update_opp_sl.js` | the phone call created (ID, title) or the failure that stopped the save |
