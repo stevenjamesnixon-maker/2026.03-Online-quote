@@ -237,7 +237,8 @@ var modules = {
     'N/redirect': redirectStub,
     'N/runtime': { getCurrentUser: function () { return { id: '7' }; }, getCurrentScript: function () { return { id: 'x', deploymentId: 'y' }; } },
     'N/format': formatStub,
-    'N/ui/message': { Type: { CONFIRMATION: 'confirmation', WARNING: 'warning' } }
+    'N/ui/message': { Type: { CONFIRMATION: 'confirmation', WARNING: 'warning' } },
+    'N/email': { send: function () { throw new Error('email.send not expected in 1.0 scenarios'); } }   // lib 1.1.0 dependency
 };
 modules['./nuheat_opp_update_lib'] = loadModule('nuheat_opp_update_lib.js', modules);
 var sl = loadModule('nuheat_update_opp_sl.js', modules);

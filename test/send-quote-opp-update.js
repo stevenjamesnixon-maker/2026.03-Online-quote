@@ -15,6 +15,7 @@
  *            … F, G (2.0.4, 2.1.0), M — 2.1.1 email (M1–M4)
  *            N — 2.2.0: proposal email redesign (N1–N9)
  *            S — 2.2.1 / 2.3.0: send speed and forecast tags (S1–S7)
+ *            H — 2.3.1: email shell in the library, byte-identical email (H1)
  */
 'use strict';
 
@@ -1293,6 +1294,38 @@ console.log('N9. No display:none wrapper (preheader excepted), every variant');
     ok(w.length === 1 && /^<span style="display:none;font-size:0px/.test(w[0]) && !/mso-hide/i.test(h),
        'variant ' + (i + 1) + ': only the preheader span (' + w.length + ')');
 });
+
+// ═══ H — 2.3.1: email shell extracted to the library — byte-identical email ═════
+
+// SHA-256 of the email body, captured from Send Quote SL 2.3.0 (commit 9742aed) BEFORE the shell
+// moved to nuheat_opp_update_lib 1.1.0. The 'sample' fixture is the one that wrote
+// docs/samples/send-quote-email-2.2.0.html, so the committed sample is checked too.
+var EMAIL_2_3_0_HASHES = {
+    'photo + first name': '8d59140daecf3628c632e0dd8d00b684da37d3346083d1753eb60273b6e78835',
+    'no photo':           'cd02ddba8614dbd6b228a2225b0aa919ff5b0216f3048230615c085930141362',
+    'generic rep':        'b7cc129aa8e630914727191b8aef2cfbd5b7efd70e06bbda08b9a4b27c89554b',
+    'no phone digits':    'b0820b7574e38925ecc9d4cc0dadc28a876b7395fbe3c97725e6316f635e4097',
+    'sample':             '552c0e55bb3af985b773c8d44f26c454c53d811f6c8bbc5559ce56ed4f322b3a'
+};
+var EMAIL_FIXTURES = {
+    'photo + first name': function () { return sendWith({ employee: { firstname: 'Steve', custentity_employee_photo_link: PHOTO } }); },
+    'no photo':           function () { return sendWith({ employee: { firstname: 'Steve' } }); },
+    'generic rep':        function () { return sendWith({ oppData: oppDataWith({ id: '', name: 'Your Account Manager', email: 'info@nu-heat.co.uk', phone: '01404 540604' }) }); },
+    'no phone digits':    function () { return sendWith({ oppData: oppDataWith({ phone: 'ask for Sam' }) }); },
+    'sample':             function () {
+        return sendWith({ employee: { firstname: 'Sam', custentity_employee_photo_link: PHOTO },
+            oppData: oppDataWith({ name: 'Sam Taylor', email: 'sam.taylor@nu-heat.co.uk', phone: '01404 549 770' },
+                                 { quoteEmailRef: 'Barn conversion, Upper Hollow Farm', tranId: 'OPP41872' }) });
+    }
+};
+
+console.log('H1. Proposal email byte-identical to 2.3.0 after the extraction');
+Object.keys(EMAIL_FIXTURES).forEach(function (k) {
+    var got = sha(EMAIL_FIXTURES[k]());
+    ok(got === EMAIL_2_3_0_HASHES[k], k + ': identical to 2.3.0' + (got === EMAIL_2_3_0_HASHES[k] ? '' : ' (got ' + got.substring(0, 16) + ')'));
+});
+ok(sha(fs.readFileSync(path.join(ROOT, 'docs', 'samples', 'send-quote-email-2.2.0.html'), 'utf8')) === EMAIL_2_3_0_HASHES.sample,
+   'docs/samples/send-quote-email-2.2.0.html matches the sample fixture');
 
 if (process.env.WRITE_EMAIL_SAMPLE) {
     var sample = sendWith({

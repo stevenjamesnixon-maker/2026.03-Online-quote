@@ -7,12 +7,20 @@
  *              and Update Opportunity (nuheat_update_opp_sl.js): field rules, preparing and writing
  *              the Opportunity fields, the required-field gate, redirect codes, text cleaning, and
  *              the page building blocks (CSS, header, update section, error page, page-script core).
- * @version     1.0.0
+ * @version     1.1.0
  * @author      Nu-Heat Development
  *
  * ⚠️ DEPLOYMENT: a shared AMD module — no script record, no deployment. Upload it to
  *    SuiteScripts/NuHeat/2026 Quote/ BEFORE either Suitelet is redeployed; both define() it as
  *    './nuheat_opp_update_lib' and fail at load time without it.
+ *
+ * CHANGELOG v1.1.0 (pending test):
+ *   - ADDED (moved from Send Quote SL 2.3.0, unchanged bytes): the email shell emailShell(slots),
+ *     the contact card emailRepCard(rep, label), emailButton, lookupText / resolveFirstName /
+ *     checkPhotoUrl, GENERIC_REP_NAME, EMAIL_IMG / EMAIL_FONT / EMAIL_FACE / SOCIAL_LINKS, EMAIL_RE,
+ *     parseEmails (comma-only, as Send Quote) and invalidEmails. No merge-tag substitution here.
+ *   - ADDED: sendEmail(o) — email.send with relatedRecords { entityId, transactionId }; never throws.
+ *   - define() gains N/email and N/runtime (NOT N/render).
  *
  * RULES (carried from Send Quote 1.8.0–2.0.4 — see AI_AGENT_CONTEXT):
  *   - Write only changed, non-blank values; blank never clears. One submitFields on the Opportunity,
@@ -41,12 +49,12 @@
  *    Quote to CORE is a separate change with its own browser test — do not fold it into another PR.
  */
 
-define(['N/ui/serverWidget', 'N/search', 'N/record', 'N/log', 'N/url', 'N/format'],
-function (serverWidget, search, record, log, url, format) {
+define(['N/ui/serverWidget', 'N/search', 'N/record', 'N/log', 'N/url', 'N/format', 'N/email', 'N/runtime'],
+function (serverWidget, search, record, log, url, format, email, runtime) {
 
     'use strict';
 
-    var LIB_VERSION = '1.0.0';
+    var LIB_VERSION = '1.1.0';
 
     // ─── Field rules ──────────────────────────────────────────────────────────────
 
@@ -786,6 +794,268 @@ function (serverWidget, search, record, log, url, format) {
         context.response.writePage(form);
     }
 
+    // ─── Email (v1.1.0: moved from Send Quote SL 2.3.0, unchanged bytes) ──────────
+    //
+    // The branded email column (Send Quote 2.2.0 design) as a shell with slots, so Send Quote's
+    // proposal email and Update Opportunity's bespoke email share one layout. Pitfall 25: Outlook
+    // fallbacks are [if mso] pairs, never display:none wrappers (the preheader span excepted); the
+    // container carries width="600" as an attribute.
+    //
+    // ⚠️ NO MERGE-TAG SUBSTITUTION HAPPENS HERE. Every slot is HTML the caller has already escaped.
+    //    Send Quote runs its own one-pass {{KEY}} substitution over the template it assembles (which
+    //    contains no user-typed text); Update Opportunity never runs a substitution pass at all, so
+    //    user text cannot be re-read as a tag (pitfall 28).
+
+    /** Same check as Send Quote 2.0.0+: one plain address, no spaces, separators or quotes. */
+    var EMAIL_RE = /^[^\s@,;<>"']+@[^\s@,;<>"']+\.[^\s@,;<>"']+$/;
+
+    /**
+     * Send Quote's address list: comma-separated only (unchanged). [] for empty/null.
+     * The recipients component (Update Opportunity) splits on , and ; itself.
+     */
+    function parseEmails(emailStr) {
+        if (!emailStr || !emailStr.trim()) return [];
+        return emailStr.split(',').map(function (e) { return e.trim(); }).filter(function (e) { return e.length > 0; });
+    }
+
+    /** The addresses in a comma list that fail EMAIL_RE. */
+    function invalidEmails(str) {
+        return parseEmails(str).filter(function (e) { return !EMAIL_RE.test(e); });
+    }
+
+    /** loadSalesRepData()'s placeholder name when the Opportunity has no usable sales rep. */
+    var GENERIC_REP_NAME = 'Your Account Manager';
+
+    var EMAIL_IMG = 'https://images.chamaileon.io/5b1fac592f38b800113c85ca/5ca8626420e2346b3ee9a013/';
+    var EMAIL_FONT = 'font-family:Calibri, Arial, sans-serif;';
+    var EMAIL_FACE = 'Calibri, Arial, sans-serif';
+    var SOCIAL_LINKS = [
+        ['https://www.facebook.com/nuheatuk/',                   '1604502171665_white%20-%20facebook.png'],
+        ['https://www.instagram.com/nuheatufh/',                 '1604502172039_white%20-%20instagram.png'],
+        ['https://www.linkedin.com/company/nu-heat/',            '1604502171857_white%20-%20linkedin.png'],
+        ['https://twitter.com/nuheatuk',                         '1604502172417_white%20-%20twitter.png'],
+        ['https://youtube.com/channel/UCsfB8s56fcERuaBFovwYnGQ', '1604502172308_white%20-%20youtube.png']
+    ];
+
+    /** A lookupFields value as text: plain values as-is, select/document values as their first entry. */
+    function lookupText(v) {
+        if (Array.isArray(v)) return v.length ? String(v[0].text || v[0].value || '') : '';
+        return v == null ? '' : String(v);
+    }
+
+    /** The first name for the contact buttons: firstname, else the first word of the name, else ''. */
+    function resolveFirstName(firstname, fullName) {
+        var first = lookupText(firstname).trim();
+        if (first) return first;
+        var name = String(fullName || '').trim();
+        if (!name || name === GENERIC_REP_NAME) return '';
+        return name.split(/\s+/)[0];
+    }
+
+    /** The photo URL if it is usable in an email (absolute https, no spaces/quotes/angle brackets). */
+    function checkPhotoUrl(value) {
+        var s = lookupText(value).trim();
+        if (!s) return { url: '', reason: 'custentity_employee_photo_link is empty' };
+        if (!/^https:\/\//i.test(s)) return { url: '', reason: 'not an https:// URL' };
+        if (/[\s"'<>]/.test(s)) return { url: '', reason: 'URL contains spaces, quotes or angle brackets' };
+        return { url: s, reason: '' };
+    }
+
+    /**
+     * A bulletproof button: one [if !mso] / [if mso] pair, never a display:none wrapper. Colour is
+     * carried by bgcolor and <font color>, padding by cellpadding, so it survives stripped styles.
+     * href and label must already be escaped.
+     */
+    function emailButton(href, label) {
+        var bg = '#ffb500', fg = '#3e3b39';
+        var text = EMAIL_FONT + 'font-size:18px;line-height:22px;font-weight:bold;color:' + fg + ';text-decoration:none;';
+        return '' +
+            '<!--[if !mso]><!-- -->\n' +
+            '<table role="presentation" class="btn-full" align="center" cellpadding="14" cellspacing="0" border="0" bgcolor="' + bg + '" style="background-color:' + bg + ';border-radius:5px;border-collapse:separate;">\n' +
+            '<tr><td align="center" valign="middle" bgcolor="' + bg + '" style="padding:0;border-radius:5px;"><a href="' + href + '" target="_blank" style="display:block;padding:15px 28px;' + text + '"><font face="' + EMAIL_FACE + '" color="' + fg + '"><b>' + label + '</b></font></a></td></tr>\n' +
+            '</table>\n' +
+            '<!--<![endif]-->\n' +
+            '<!--[if mso]>\n' +
+            '<table role="presentation" align="center" cellpadding="0" cellspacing="0" border="0" bgcolor="' + bg + '">\n' +
+            '<tr><td align="center" valign="middle" bgcolor="' + bg + '" style="padding:15px 28px;"><a href="' + href + '" target="_blank" style="' + text + '"><font face="Arial, sans-serif" color="' + fg + '"><b>' + label + '</b></font></a></td></tr>\n' +
+            '</table>\n' +
+            '<![endif]-->\n';
+    }
+
+    /**
+     * The contact card (Send Quote 2.2.0's Account Manager card) with a label slot.
+     *
+     * Every rep value is HTML the caller has ALREADY escaped (Send Quote passes its {{…}} tags):
+     *   name, phone, email — card text;  photo — img src ('' = no photo row);
+     *   tel — digits for the tel: button ('' = no CALL button);  mailto — address for the EMAIL
+     *   button ('' = none);  firstUpper — upper-cased first name ('' = CLICK TO CALL / SEND AN EMAIL).
+     * label — the card's small heading, escaped.
+     */
+    function emailRepCard(rep, label) {
+        var callLabel  = rep.firstUpper ? 'CALL ' + rep.firstUpper : 'CLICK TO CALL';
+        var emailLabel = rep.firstUpper ? 'EMAIL ' + rep.firstUpper : 'SEND AN EMAIL';
+        var contactButtons = [];
+        if (rep.tel) contactButtons.push(emailButton('tel:' + rep.tel, callLabel));
+        if (rep.mailto) contactButtons.push(emailButton('mailto:' + rep.mailto, emailLabel));
+        return '' +
+            '<table role="presentation" class="main-card" width="440" align="center" cellpadding="0" cellspacing="0" border="0" bgcolor="#f6f2f7" style="width:100%;max-width:440px;background-color:#f6f2f7;border-radius:8px;">\n' +
+            (rep.photo
+                ? '<tr><td align="center" valign="top" style="padding:24px 20px 0 20px;"><img src="' + rep.photo + '" width="96" height="96" alt="' + rep.name + '" border="0" style="display:block;margin:0 auto;width:96px;height:96px;border-radius:48px;object-fit:cover;"></td></tr>\n'
+                : '') +
+            '<tr><td align="center" valign="top" style="padding:' + (rep.photo ? '14px' : '24px') + ' 20px 0 20px;">\n' +
+            '<p style="margin:0 0 4px 0;' + EMAIL_FONT + 'font-size:13px;line-height:16px;letter-spacing:2px;color:#59315f;"><font face="' + EMAIL_FACE + '" color="#59315f"><b>' + label + '</b></font></p>\n' +
+            '<p style="margin:0 0 6px 0;' + EMAIL_FONT + 'font-size:24px;line-height:28px;font-weight:bold;color:#000000;"><font face="' + EMAIL_FACE + '" color="#000000"><b>' + rep.name + '</b></font></p>\n' +
+            '<p style="margin:0;' + EMAIL_FONT + 'font-size:17px;line-height:23px;color:#131313;"><font face="' + EMAIL_FACE + '" color="#131313"><span class="cl-line">' + rep.phone + '</span><span class="cl-sep"> · </span><span class="cl-line">' + rep.email + '</span></font></p>\n' +
+            '</td></tr>\n' +
+            '<tr><td align="center" valign="top" style="padding:16px 14px 20px 14px;">\n' +
+            '<table role="presentation" width="100%" align="center" cellpadding="0" cellspacing="0" border="0">\n' +
+            '<tr>\n' +
+            contactButtons.map(function (b) {
+                return '<td class="stack" width="' + (contactButtons.length === 2 ? '50%' : '100%') + '" align="center" valign="top" style="padding:6px;">\n' + b + '</td>\n';
+            }).join('') +
+            '</tr>\n' +
+            '</table>\n' +
+            '</td></tr>\n' +
+            '</table>\n';
+    }
+
+    /**
+     * The branded email column (Send Quote 2.2.0 design) with slots. Every slot is HTML the caller
+     * has already escaped; nothing is substituted here.
+     *
+     * @param {Object} s
+     * @param {string} s.title        - <title> text
+     * @param {string} s.preheader    - hidden preview text (the one allowed display:none span)
+     * @param {string} s.headerLabel  - small capitals line in the purple header
+     * @param {string} s.headerH1     - the headline
+     * @param {string} [s.headerSub]  - optional line under the headline ('' / absent = none)
+     * @param {string} s.rows         - body rows (<tr>…</tr>) between the header and the card
+     * @param {Object} [s.card]       - { intro: HTML above the card, html: emailRepCard() } or null
+     * @param {string} s.footerLine   - the small line under the green footer
+     * @returns {string} the complete HTML document
+     */
+    function emailShell(s) {
+        var social = SOCIAL_LINKS.map(function (sl) {
+            return '<td align="center" valign="middle" width="42" style="padding:0 10px;"><a href="' + sl[0] + '" target="_blank"><img src="' + EMAIL_IMG + sl[1] + '" width="22" height="22" alt="" border="0" style="display:block;width:22px;height:22px;"></a></td>\n';
+        }).join('');
+
+        return '' +
+            '<!DOCTYPE html>\n' +
+            '<html lang="en" xmlns="http://www.w3.org/1999/xhtml" xmlns:v="urn:schemas-microsoft-com:vml" xmlns:o="urn:schemas-microsoft-com:office:office">\n' +
+            '<head>\n' +
+            '<meta http-equiv="Content-Type" content="text/html; charset=utf-8">\n' +
+            '<meta name="viewport" content="width=device-width, initial-scale=1.0">\n' +
+            '<meta http-equiv="X-UA-Compatible" content="IE=edge">\n' +
+            '<meta name="x-apple-disable-message-reformatting">\n' +
+            '<meta name="format-detection" content="telephone=no">\n' +
+            '<title>' + s.title + '</title>\n' +
+            '<link href="https://www.nu-heat.co.uk/wp-content/themes/nu-heat/assets/fonts/calibri/calibri-font.css" rel="stylesheet" type="text/css">\n' +
+            '<!--[if gte mso 16]>\n' +
+            '<xml><o:OfficeDocumentSettings><o:AllowPNG/><o:PixelsPerInch>96</o:PixelsPerInch></o:OfficeDocumentSettings></xml>\n' +
+            '<![endif]-->\n' +
+            '<style>\n' +
+            'body { margin:0; padding:0; -ms-text-size-adjust:100%; -webkit-text-size-adjust:100%; }\n' +
+            'table { border-spacing:0; mso-table-lspace:0pt; mso-table-rspace:0pt; }\n' +
+            'td { border-collapse:collapse; }\n' +
+            'img { -ms-interpolation-mode:bicubic; border:0; outline:none; text-decoration:none; }\n' +
+            'a[x-apple-data-detectors=true] { color:inherit !important; text-decoration:inherit !important; }\n' +
+            '@media all and (max-width: 599px) {\n' +
+            '.main-container { width:100% !important; }\n' +
+            '.fluid { width:100% !important; height:auto !important; }\n' +
+            '.stack { display:block !important; width:100% !important; box-sizing:border-box; }\n' +
+            '.btn-full { width:100% !important; }\n' +
+            '.cl-sep { display:none !important; }\n' +
+            '.cl-line { display:block !important; }\n' +
+            '.h1 { font-size:30px !important; line-height:34px !important; }\n' +
+            '}\n' +
+            '</style>\n' +
+            '<!--[if mso]>\n' +
+            '<style>h1, h2, p, td, a, span, font { font-family:Arial, sans-serif !important; }</style>\n' +
+            '<![endif]-->\n' +
+            '</head>\n' +
+            '<body id="body" bgcolor="#ffffff" style="margin:0;padding:0;background-color:#ffffff;">\n' +
+            '<span style="display:none;font-size:0px;line-height:0px;max-height:0px;max-width:0px;opacity:0;overflow:hidden;">' + s.preheader + '</span>\n' +
+            '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="#ffffff" style="background-color:#ffffff;">\n' +
+            '<tr><td align="center" valign="top">\n' +
+            '<!--[if mso]><table role="presentation" width="600" align="center" cellpadding="0" cellspacing="0" border="0"><tr><td align="center" valign="top"><![endif]-->\n' +
+            '<table role="presentation" class="width600 main-container" width="600" align="center" cellpadding="0" cellspacing="0" border="0" style="width:100%;max-width:600px;">\n' +
+
+            // Logo
+            '<tr><td align="center" valign="top" style="padding:20px 10px;">\n' +
+            '<img src="' + EMAIL_IMG + '1698400306920_Nu-Heat%20Master%20logo%20green%20-%20transparent%20v3.png" width="170" height="73" alt="Nu-Heat Underfloor Heating &amp; Renewables" border="0" style="display:block;margin:0 auto;width:170px;height:auto;max-width:100%;">\n' +
+            '</td></tr>\n' +
+
+            // Purple header
+            '<tr><td align="center" valign="top" bgcolor="#59315f" style="background-color:#59315f;padding:28px 24px;">\n' +
+            '<p style="margin:0 0 10px 0;' + EMAIL_FONT + 'font-size:13px;line-height:16px;letter-spacing:2px;color:#ffffff;"><font face="' + EMAIL_FACE + '" color="#ffffff"><b>' + s.headerLabel + '</b></font></p>\n' +
+            '<h1 class="h1" style="margin:0 0 12px 0;' + EMAIL_FONT + 'font-size:38px;line-height:42px;font-weight:bold;color:#ffffff;"><font face="' + EMAIL_FACE + '" color="#ffffff">' + s.headerH1 + '</font></h1>\n' +
+            (s.headerSub
+                ? '<p style="margin:0;' + EMAIL_FONT + 'font-size:20px;line-height:25px;color:#ffffff;word-break:break-word;"><font face="' + EMAIL_FACE + '" color="#ffffff">' + s.headerSub + '</font></p>\n'
+                : '') +
+            '</td></tr>\n' +
+
+            // Body rows (the caller's)
+            s.rows +
+
+            // Contact card
+            (s.card
+                ? '<tr><td align="center" valign="top" style="padding:28px 20px 32px 20px;">\n' + (s.card.intro || '') + s.card.html + '</td></tr>\n'
+                : '') +
+
+            // Footer (logo and social links) and the reason line
+            '<tr><td align="center" valign="top" bgcolor="#00857d" style="background-color:#00857d;padding:10px 10px 24px 10px;">\n' +
+            '<img src="' + EMAIL_IMG + '1604422010305_Nu-Heat%20Master%20logo%20wht%20on%20green.png" width="167" height="94" alt="Nu-Heat Underfloor Heating &amp; Renewables" border="0" style="display:block;margin:0 auto 10px auto;width:167px;height:auto;">\n' +
+            '<table role="presentation" align="center" cellpadding="0" cellspacing="0" border="0">\n' +
+            '<tr>\n' + social + '</tr>\n' +
+            '</table>\n' +
+            '</td></tr>\n' +
+            '<tr><td align="center" valign="top" style="padding:16px 20px 24px 20px;">\n' +
+            '<p style="margin:0;' + EMAIL_FONT + 'font-size:13px;line-height:17px;color:#6b6b6b;"><font face="' + EMAIL_FACE + '" color="#6b6b6b">' + s.footerLine + '</font></p>\n' +
+            '</td></tr>\n' +
+
+            '</table>\n' +
+            '<!--[if mso]></td></tr></table><![endif]-->\n' +
+            '</td></tr>\n' +
+            '</table>\n' +
+            '</body>\n' +
+            '</html>\n';
+    }
+
+    /**
+     * Sends one email and logs it against the customer and the Opportunity (Communication ›
+     * Messages). Never throws.
+     *
+     * @param {Object} o - { author, to: [], cc: [], bcc: [], subject, body, customerId, oppId, logKey }
+     * @returns {{ ok: boolean, count: number, error: string }} count = To + CC + BCC addresses
+     */
+    function sendEmail(o) {
+        var to = o.to || [], cc = o.cc || [], bcc = o.bcc || [];
+        var count = to.length + cc.length + bcc.length;
+        var logKey = o.logKey || 'OppUpdateLib.Email';
+        try {
+            if (!to.length) throw new Error('No To address.');
+            var params = {
+                author:     o.author,
+                recipients: to,
+                subject:    o.subject,
+                body:       o.body,
+                relatedRecords: {
+                    entityId:      o.customerId || undefined,
+                    transactionId: o.oppId
+                }
+            };
+            if (cc.length) params.cc = cc;
+            if (bcc.length) params.bcc = bcc;
+            email.send(params);
+            log.audit(logKey, 'Opportunity ' + o.oppId + ' — email sent OK to ' + count + ' address' + (count === 1 ? '' : 'es'));
+            return { ok: true, count: count, error: '' };
+        } catch (e) {
+            var msg = (e && e.message) || String(e);
+            log.error(logKey, 'Opportunity ' + o.oppId + ' — email FAILED (' + count + ' address' + (count === 1 ? '' : 'es') + '): ' + msg);
+            return { ok: false, count: count, error: msg };
+        }
+    }
+
     return {
         LIB_VERSION:            LIB_VERSION,
         FIELDS:                 OPP_UPDATE_FIELDS,
@@ -819,7 +1089,23 @@ function (serverWidget, search, record, log, url, format) {
         buildUpdateFieldHTML:   buildUpdateFieldHTML,
         buildUpdateSectionHTML: buildUpdateSectionHTML,
         pageScript:             pageScript,
-        showErrorPage:          showErrorPage
+        showErrorPage:          showErrorPage,
+        // v1.1.0: email
+        EMAIL_RE:               EMAIL_RE,
+        parseEmails:            parseEmails,
+        invalidEmails:          invalidEmails,
+        GENERIC_REP_NAME:       GENERIC_REP_NAME,
+        EMAIL_IMG:              EMAIL_IMG,
+        EMAIL_FONT:             EMAIL_FONT,
+        EMAIL_FACE:             EMAIL_FACE,
+        SOCIAL_LINKS:           SOCIAL_LINKS,
+        lookupText:             lookupText,
+        resolveFirstName:       resolveFirstName,
+        checkPhotoUrl:          checkPhotoUrl,
+        emailButton:            emailButton,
+        emailRepCard:           emailRepCard,
+        emailShell:             emailShell,
+        sendEmail:              sendEmail
     };
 
 });
