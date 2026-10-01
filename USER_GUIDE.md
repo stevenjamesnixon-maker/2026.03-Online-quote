@@ -189,24 +189,44 @@ The generated Master Proposal includes:
 
 ---
 
-## Updating an Opportunity (log a call and objections)
+## Updating an Opportunity (log a call, send an email, objections)
 
-Use **Update opportunity** after a call with the customer — it logs the call, moves the opportunity on
-and records any objections in one save.
+Use **Update opportunity** after you've been in touch with the customer — it logs the call, sends a short
+email from you, moves the opportunity on and records any objections in one save. You don't have to do all
+of them: a call, an email, an objection or a changed field is enough.
 
 1. Open the Opportunity (view mode) and click **Update opportunity**. The page opens in the same tab.
-2. **Log the call** — pick a **Standard title** (it fills the Title box; you can type over it), check the
+2. **Log the call** — on by default. If there was no call, untick **Log a phone call** and the section
+   folds away. Otherwise pick a **Standard title** (it fills the Title box; you can type over it), check the
    **Call date** (today by default; it can't be in the future), choose a **Contact** if you spoke to one,
    and write **What was discussed**.
-3. **Update the opportunity** — the same fields as Send Quote. **Next contact is required**: if the
-   opportunity has none, you must set one before you can save.
-4. **Log any objections** (optional) — tick every objection the customer raised. Each ticked objection
-   gets an optional one-line note, and you can say which quote they were about. Each objection also keeps
-   a copy of the call notes.
-5. Click **Save**. You go back to the opportunity with a banner: the call logged, how many objections
-   were saved and what changed. If something could not be saved, the banner says what to set by hand.
-   If the call itself can't be saved, nothing is saved and you stay on the page with everything you
-   entered.
+3. **Send an email** — off by default; tick **Send an email** to open it.
+   - **From** — **Me** by default. You can also send it as the opportunity's **Sales rep** or **Project
+     engineer** (each is listed only if set on the opportunity and they have an email address). The email
+     then comes from them, with their photo, phone and sign-off, and replies go to them. As the project
+     engineer, the card shows design@nu-heat.co.uk as the email address. They don't get a copy — tick
+     **CC me** if *you* want one.
+   - **Subject and headline** starts as "An update on" plus the opportunity number. Change it if you like —
+     it's both the email's subject and the big heading inside it.
+   - Write your **Message** as plain text. Leave a blank line for a new paragraph.
+   - Choose who it goes to: tick the opportunity's contacts (only those with an email address are listed),
+     **Customer**, and/or type **Other addresses** (separate them with commas). Up to 10 addresses.
+     Tick **CC me** for a copy.
+   - With **From: Me**, the email comes **from you**, with your photo, phone number and email from your
+     employee record, so replies come straight back to you. It's saved on the opportunity under Communication › Messages.
+     There are no attachments.
+4. **Update the opportunity** — the same fields as Send Quote. **Next contact is required**: if the
+   opportunity has none, you must set one before you can save, even when you're only sending an email.
+5. **Log any objections** (optional) — tick every objection the customer raised. Each ticked objection
+   gets an optional one-line note, and you can say which quote they were about. The objection also
+   records where it came from: the call notes, the email's subject, or "Logged via Update opportunity".
+6. Click **Save**. You go back to the opportunity with a banner: the call logged, the email sent, how many
+   objections were saved and what changed.
+   - If the **call** can't be saved, nothing is saved or sent and you stay on the page with everything you
+     entered.
+   - If the **email** can't be sent, everything else is still saved and the banner says "The email was not
+     sent." Check the addresses and send it again from a new update.
+   - If you press Back and Save again, nothing is repeated — the banner says **Already saved**.
 
 ## 7. Understanding Quote URLs
 

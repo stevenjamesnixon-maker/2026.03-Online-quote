@@ -8,11 +8,24 @@
  *              Additional), recipients and four Opportunity fields, then generate and email the
  *              Master Proposal, update the Opportunity and the quotes' forecast flags, and return
  *              to the Opportunity. Supports preview (generates HTML without saving).
- * @version     2.3.0
+ * @version     2.3.1
  * @author      Nu-Heat Development
  *
  * Script ID:      customscript_nuheat_send_quote_sl
  * Deployment ID:  customdeploy_nuheat_send_quote_sl
+ *
+ * CHANGELOG v2.3.1 (Extraction — no behaviour change; pending test):
+ *   - MOVED to ./nuheat_opp_update_lib (1.1.0), unchanged bytes: the email layout (emailShell — head,
+ *     Outlook blocks, preheader, logo, purple header, footer), the contact card (emailRepCard),
+ *     emailButton, lookupText / resolveFirstName / checkPhotoUrl, GENERIC_REP_NAME, the email image,
+ *     font and social-link constants, EMAIL_RE, parseEmails (comma-only) and invalidEmails.
+ *   - buildEmailBody() now supplies its copy and merge tags to the shell; its one-pass {{KEY}}
+ *     substitution runs over this page's own template only. The email HTML is byte-identical to
+ *     2.3.0 (four SHA-256 fixtures in the test suite, plus docs/samples/send-quote-email-2.2.0.html).
+ *   - Unchanged: author (the Opportunity's sales rep), subject, recipients, relatedRecords, the phone
+ *     sourcing (custbody_sales_rep_phone first), loadRepCardData(), TERMS_URL / WHY_TILES, the page
+ *     and its inline script (pitfall 23), email.send() and its logging.
+ *   - ⚠️ DEPLOYMENT: upload nuheat_opp_update_lib.js 1.1.0 BEFORE this script.
  *
  * CHANGELOG v2.3.0 (Faster send with many quotes; "In forecast" tags — pending Sandbox):
  *   - WHY: Send re-ran searchRelatedQuotes(), a full record.load (pricing + BUS line loop) of EVERY
@@ -317,7 +330,7 @@ define([
 
     // ─── Constants ────────────────────────────────────────────────────────────────
 
-    var SCRIPT_VERSION = '2.3.0';
+    var SCRIPT_VERSION = '2.3.1';
 
     /**
      * Mapping from the NetSuite custbody_quote_type list values
@@ -456,14 +469,8 @@ define([
         return (num < 0 ? '-' : '') + formatCurrency(Math.abs(num));
     }
 
-    /**
-     * Parses a comma-separated email string into an array of trimmed addresses.
-     * Returns empty array if input is empty/null.
-     */
-    function parseEmails(emailStr) {
-        if (!emailStr || !emailStr.trim()) return [];
-        return emailStr.split(',').map(function (e) { return e.trim(); }).filter(function (e) { return e.length > 0; });
-    }
+    /** v2.3.1: moved to the library, unchanged (comma-separated only). */
+    var parseEmails = lib.parseEmails;
 
     // ─── Suitelet Entry Point ─────────────────────────────────────────────────────
 
@@ -630,11 +637,8 @@ define([
         return out;
     }
 
-    var EMAIL_RE = /^[^\s@,;<>"']+@[^\s@,;<>"']+\.[^\s@,;<>"']+$/;
-
-    function invalidEmails(str) {
-        return parseEmails(str).filter(function (e) { return !EMAIL_RE.test(e); });
-    }
+    var EMAIL_RE      = lib.EMAIL_RE;        // v2.3.1: moved to the library, unchanged
+    var invalidEmails = lib.invalidEmails;
 
     // ─── Preview Handler ──────────────────────────────────────────────────────────
 
@@ -1163,50 +1167,23 @@ define([
 
     // ─── Proposal email (v2.2.0) ──────────────────────────────────────────────────
 
-    /** loadSalesRepData()'s placeholder name when the Opportunity has no usable sales rep. */
-    var GENERIC_REP_NAME = 'Your Account Manager';
+    // v2.3.1: the email building blocks live in the library (moved, unchanged bytes) — Send Quote
+    // keeps its proposal copy (TERMS_URL, WHY_TILES), subject, author and rep data sourcing.
+    var GENERIC_REP_NAME = lib.GENERIC_REP_NAME;
+    var EMAIL_IMG        = lib.EMAIL_IMG;
+    var EMAIL_FONT       = lib.EMAIL_FONT;
+    var EMAIL_FACE       = lib.EMAIL_FACE;
+    var resolveFirstName = lib.resolveFirstName;
+    var checkPhotoUrl    = lib.checkPhotoUrl;
+    var emailButton      = lib.emailButton;
 
-    var EMAIL_IMG = 'https://images.chamaileon.io/5b1fac592f38b800113c85ca/5ca8626420e2346b3ee9a013/';
-    var EMAIL_FONT = 'font-family:Calibri, Arial, sans-serif;';
-    var EMAIL_FACE = 'Calibri, Arial, sans-serif';
     var TERMS_URL = 'https://www.nu-heat.co.uk/wp-content/uploads/2021/04/Nu-Heat-TCs-Consumer-and-Trade.pdf';
-    var SOCIAL_LINKS = [
-        ['https://www.facebook.com/nuheatuk/',                   '1604502171665_white%20-%20facebook.png'],
-        ['https://www.instagram.com/nuheatufh/',                 '1604502172039_white%20-%20instagram.png'],
-        ['https://www.linkedin.com/company/nu-heat/',            '1604502171857_white%20-%20linkedin.png'],
-        ['https://twitter.com/nuheatuk',                         '1604502172417_white%20-%20twitter.png'],
-        ['https://youtube.com/channel/UCsfB8s56fcERuaBFovwYnGQ', '1604502172308_white%20-%20youtube.png']
-    ];
     var WHY_TILES = [
         ['1698665508018_Design.png',                          'Bespoke heating design', 'Bespoke heating design', 'We tailor each system to the property for maximum performance'],
         ['1698665474858_Installer%20skills%202.png',          'Heating experts',        'The heating experts',    'Our systems heat more than 80,000 homes across the country!'],
         ['1698665569030_Lifetime%20tech%20support.png',       'Lifetime support',       'Lifetime support',       'We support our systems for life, so you can always call on us if needed'],
         ['1698665474762_Award%20winning%20customer%20service.png', 'Award-winning service', 'Award-winning service', 'Proud to hold a Distinction from the Institute of Customer Service']
     ];
-
-    /** A lookupFields value as text: plain values as-is, select/document values as their first entry. */
-    function lookupText(v) {
-        if (Array.isArray(v)) return v.length ? String(v[0].text || v[0].value || '') : '';
-        return v == null ? '' : String(v);
-    }
-
-    /** The first name for the contact buttons: firstname, else the first word of the name, else ''. */
-    function resolveFirstName(firstname, fullName) {
-        var first = lookupText(firstname).trim();
-        if (first) return first;
-        var name = String(fullName || '').trim();
-        if (!name || name === GENERIC_REP_NAME) return '';
-        return name.split(/\s+/)[0];
-    }
-
-    /** The photo URL if it is usable in an email (absolute https, no spaces/quotes/angle brackets). */
-    function checkPhotoUrl(value) {
-        var s = lookupText(value).trim();
-        if (!s) return { url: '', reason: 'custentity_employee_photo_link is empty' };
-        if (!/^https:\/\//i.test(s)) return { url: '', reason: 'not an https:// URL' };
-        if (/[\s"'<>]/.test(s)) return { url: '', reason: 'URL contains spaces, quotes or angle brackets' };
-        return { url: s, reason: '' };
-    }
 
     /**
      * v2.2.0: the account manager's first name and photo for the email card. Same employee as the
@@ -1238,27 +1215,6 @@ define([
     }
 
     /**
-     * A bulletproof button: one [if !mso] / [if mso] pair, never a display:none wrapper. Colour is
-     * carried by bgcolor and <font color>, padding by cellpadding, so it survives stripped styles.
-     * href and label must already be escaped.
-     */
-    function emailButton(href, label) {
-        var bg = '#ffb500', fg = '#3e3b39';
-        var text = EMAIL_FONT + 'font-size:18px;line-height:22px;font-weight:bold;color:' + fg + ';text-decoration:none;';
-        return '' +
-            '<!--[if !mso]><!-- -->\n' +
-            '<table role="presentation" class="btn-full" align="center" cellpadding="14" cellspacing="0" border="0" bgcolor="' + bg + '" style="background-color:' + bg + ';border-radius:5px;border-collapse:separate;">\n' +
-            '<tr><td align="center" valign="middle" bgcolor="' + bg + '" style="padding:0;border-radius:5px;"><a href="' + href + '" target="_blank" style="display:block;padding:15px 28px;' + text + '"><font face="' + EMAIL_FACE + '" color="' + fg + '"><b>' + label + '</b></font></a></td></tr>\n' +
-            '</table>\n' +
-            '<!--<![endif]-->\n' +
-            '<!--[if mso]>\n' +
-            '<table role="presentation" align="center" cellpadding="0" cellspacing="0" border="0" bgcolor="' + bg + '">\n' +
-            '<tr><td align="center" valign="middle" bgcolor="' + bg + '" style="padding:15px 28px;"><a href="' + href + '" target="_blank" style="' + text + '"><font face="Arial, sans-serif" color="' + fg + '"><b>' + label + '</b></font></a></td></tr>\n' +
-            '</table>\n' +
-            '<![endif]-->\n';
-    }
-
-    /**
      * Builds the HTML email body (v2.2.0 redesign: "Send Quote redesign" artboards 5 and 6).
      *
      * One centred 600px column: logo · purple header · hero · Your quote · Why choose Nu-Heat? (2 × 2)
@@ -1281,6 +1237,9 @@ define([
      *
      * @param {Object} oppData - Opportunity data from loadOpportunityData()
      * @param {string} proposalUrl - Public URL to the generated master proposal
+     * v2.3.1: the layout (shell, card, buttons) comes from the library; this function supplies the
+     * proposal copy, the body rows and the merge tags. Output byte-identical to 2.3.0.
+     *
      * @param {Object} [repCard] - { firstName, photoUrl } from loadRepCardData()
      * @returns {string} Complete HTML email body
      */
@@ -1304,12 +1263,6 @@ define([
             PROPOSAL_URL:         escapeHtml(proposalUrl || '')
         };
 
-        var callLabel  = firstName ? 'CALL {{SALES_REP_FIRST_NAME}}' : 'CLICK TO CALL';
-        var emailLabel = firstName ? 'EMAIL {{SALES_REP_FIRST_NAME}}' : 'SEND AN EMAIL';
-        var contactButtons = [];
-        if (telDigits) contactButtons.push(emailButton('tel:' + escapeHtml(telDigits), callLabel));
-        if (repEmail) contactButtons.push(emailButton('mailto:{{SALES_REP_EMAIL}}', emailLabel));
-
         var tiles = WHY_TILES.map(function (t) {
             return '<td class="stack" width="50%" align="center" valign="top" style="padding:12px 10px;">\n' +
                 '<img src="' + EMAIL_IMG + t[0] + '" width="100" height="100" alt="' + t[1] + '" border="0" style="display:block;margin:0 auto;width:100px;height:100px;">\n' +
@@ -1318,63 +1271,8 @@ define([
                 '</td>\n';
         });
 
-        var social = SOCIAL_LINKS.map(function (s) {
-            return '<td align="center" valign="middle" width="42" style="padding:0 10px;"><a href="' + s[0] + '" target="_blank"><img src="' + EMAIL_IMG + s[1] + '" width="22" height="22" alt="" border="0" style="display:block;width:22px;height:22px;"></a></td>\n';
-        }).join('');
-
-        var template = '' +
-            '<!DOCTYPE html>\n' +
-            '<html lang="en" xmlns="http://www.w3.org/1999/xhtml" xmlns:v="urn:schemas-microsoft-com:vml" xmlns:o="urn:schemas-microsoft-com:office:office">\n' +
-            '<head>\n' +
-            '<meta http-equiv="Content-Type" content="text/html; charset=utf-8">\n' +
-            '<meta name="viewport" content="width=device-width, initial-scale=1.0">\n' +
-            '<meta http-equiv="X-UA-Compatible" content="IE=edge">\n' +
-            '<meta name="x-apple-disable-message-reformatting">\n' +
-            '<meta name="format-detection" content="telephone=no">\n' +
-            '<title>Your quote for {{QUOTE_EMAIL_REF}} ({{TRAN_ID}})</title>\n' +
-            '<link href="https://www.nu-heat.co.uk/wp-content/themes/nu-heat/assets/fonts/calibri/calibri-font.css" rel="stylesheet" type="text/css">\n' +
-            '<!--[if gte mso 16]>\n' +
-            '<xml><o:OfficeDocumentSettings><o:AllowPNG/><o:PixelsPerInch>96</o:PixelsPerInch></o:OfficeDocumentSettings></xml>\n' +
-            '<![endif]-->\n' +
-            '<style>\n' +
-            'body { margin:0; padding:0; -ms-text-size-adjust:100%; -webkit-text-size-adjust:100%; }\n' +
-            'table { border-spacing:0; mso-table-lspace:0pt; mso-table-rspace:0pt; }\n' +
-            'td { border-collapse:collapse; }\n' +
-            'img { -ms-interpolation-mode:bicubic; border:0; outline:none; text-decoration:none; }\n' +
-            'a[x-apple-data-detectors=true] { color:inherit !important; text-decoration:inherit !important; }\n' +
-            '@media all and (max-width: 599px) {\n' +
-            '.main-container { width:100% !important; }\n' +
-            '.fluid { width:100% !important; height:auto !important; }\n' +
-            '.stack { display:block !important; width:100% !important; box-sizing:border-box; }\n' +
-            '.btn-full { width:100% !important; }\n' +
-            '.cl-sep { display:none !important; }\n' +
-            '.cl-line { display:block !important; }\n' +
-            '.h1 { font-size:30px !important; line-height:34px !important; }\n' +
-            '}\n' +
-            '</style>\n' +
-            '<!--[if mso]>\n' +
-            '<style>h1, h2, p, td, a, span, font { font-family:Arial, sans-serif !important; }</style>\n' +
-            '<![endif]-->\n' +
-            '</head>\n' +
-            '<body id="body" bgcolor="#ffffff" style="margin:0;padding:0;background-color:#ffffff;">\n' +
-            '<span style="display:none;font-size:0px;line-height:0px;max-height:0px;max-width:0px;opacity:0;overflow:hidden;">Here\'s your Nu-Heat quote.</span>\n' +
-            '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="#ffffff" style="background-color:#ffffff;">\n' +
-            '<tr><td align="center" valign="top">\n' +
-            '<!--[if mso]><table role="presentation" width="600" align="center" cellpadding="0" cellspacing="0" border="0"><tr><td align="center" valign="top"><![endif]-->\n' +
-            '<table role="presentation" class="width600 main-container" width="600" align="center" cellpadding="0" cellspacing="0" border="0" style="width:100%;max-width:600px;">\n' +
-
-            // 1 — Logo
-            '<tr><td align="center" valign="top" style="padding:20px 10px;">\n' +
-            '<img src="' + EMAIL_IMG + '1698400306920_Nu-Heat%20Master%20logo%20green%20-%20transparent%20v3.png" width="170" height="73" alt="Nu-Heat Underfloor Heating &amp; Renewables" border="0" style="display:block;margin:0 auto;width:170px;height:auto;max-width:100%;">\n' +
-            '</td></tr>\n' +
-
-            // 2 — Purple header
-            '<tr><td align="center" valign="top" bgcolor="#59315f" style="background-color:#59315f;padding:28px 24px;">\n' +
-            '<p style="margin:0 0 10px 0;' + EMAIL_FONT + 'font-size:13px;line-height:16px;letter-spacing:2px;color:#ffffff;"><font face="' + EMAIL_FACE + '" color="#ffffff"><b>YOUR QUOTE IS READY</b></font></p>\n' +
-            '<h1 class="h1" style="margin:0 0 12px 0;' + EMAIL_FONT + 'font-size:38px;line-height:42px;font-weight:bold;color:#ffffff;"><font face="' + EMAIL_FACE + '" color="#ffffff">Thank you for requesting a quote</font></h1>\n' +
-            '<p style="margin:0;' + EMAIL_FONT + 'font-size:20px;line-height:25px;color:#ffffff;word-break:break-word;"><font face="' + EMAIL_FACE + '" color="#ffffff">Project: {{QUOTE_EMAIL_REF}} <span style="white-space:nowrap;">· {{TRAN_ID}}</span></font></p>\n' +
-            '</td></tr>\n' +
-
+        // v2.3.1: the layout is the library's shell; this page supplies its copy and merge tags.
+        var rows = '' +
             // 3 — Hero
             '<tr><td align="center" valign="top">\n' +
             '<img src="' + EMAIL_IMG + '1613738610524_Order%20conformation.jpg" width="600" height="337" alt="Thank you for choosing Nu-Heat" border="0" class="fluid" style="display:block;width:100%;max-width:600px;height:auto;">\n' +
@@ -1394,51 +1292,34 @@ define([
             '<tr>\n' + tiles[0] + tiles[1] + '</tr>\n' +
             '<tr>\n' + tiles[2] + tiles[3] + '</tr>\n' +
             '</table>\n' +
-            '</td></tr>\n' +
+            '</td></tr>\n';
 
-            // 6 — What's next? and the Account Manager card
-            '<tr><td align="center" valign="top" style="padding:28px 20px 32px 20px;">\n' +
+        // 6 — What's next? and the Account Manager card
+        var cardIntro = '' +
             '<h2 style="margin:0 0 12px 0;' + EMAIL_FONT + 'font-size:32px;line-height:35px;font-weight:bold;color:#59315f;"><font face="' + EMAIL_FACE + '" color="#59315f">What\'s next?</font></h2>\n' +
-            '<p style="margin:0 0 20px 0;' + EMAIL_FONT + 'font-size:18px;line-height:24px;color:#131313;"><font face="' + EMAIL_FACE + '" color="#131313">To discuss your quote or place your order, get in touch with your Account Manager.</font></p>\n' +
-            '<table role="presentation" class="main-card" width="440" align="center" cellpadding="0" cellspacing="0" border="0" bgcolor="#f6f2f7" style="width:100%;max-width:440px;background-color:#f6f2f7;border-radius:8px;">\n' +
-            (photoUrl
-                ? '<tr><td align="center" valign="top" style="padding:24px 20px 0 20px;"><img src="{{SALES_REP_PHOTO_URL}}" width="96" height="96" alt="{{SALES_REP_NAME}}" border="0" style="display:block;margin:0 auto;width:96px;height:96px;border-radius:48px;object-fit:cover;"></td></tr>\n'
-                : '') +
-            '<tr><td align="center" valign="top" style="padding:' + (photoUrl ? '14px' : '24px') + ' 20px 0 20px;">\n' +
-            '<p style="margin:0 0 4px 0;' + EMAIL_FONT + 'font-size:13px;line-height:16px;letter-spacing:2px;color:#59315f;"><font face="' + EMAIL_FACE + '" color="#59315f"><b>YOUR ACCOUNT MANAGER</b></font></p>\n' +
-            '<p style="margin:0 0 6px 0;' + EMAIL_FONT + 'font-size:24px;line-height:28px;font-weight:bold;color:#000000;"><font face="' + EMAIL_FACE + '" color="#000000"><b>{{SALES_REP_NAME}}</b></font></p>\n' +
-            '<p style="margin:0;' + EMAIL_FONT + 'font-size:17px;line-height:23px;color:#131313;"><font face="' + EMAIL_FACE + '" color="#131313"><span class="cl-line">{{SALES_REP_PHONE}}</span><span class="cl-sep"> · </span><span class="cl-line">{{SALES_REP_EMAIL}}</span></font></p>\n' +
-            '</td></tr>\n' +
-            '<tr><td align="center" valign="top" style="padding:16px 14px 20px 14px;">\n' +
-            '<table role="presentation" width="100%" align="center" cellpadding="0" cellspacing="0" border="0">\n' +
-            '<tr>\n' +
-            contactButtons.map(function (b) {
-                return '<td class="stack" width="' + (contactButtons.length === 2 ? '50%' : '100%') + '" align="center" valign="top" style="padding:6px;">\n' + b + '</td>\n';
-            }).join('') +
-            '</tr>\n' +
-            '</table>\n' +
-            '</td></tr>\n' +
-            '</table>\n' +
-            '</td></tr>\n' +
+            '<p style="margin:0 0 20px 0;' + EMAIL_FONT + 'font-size:18px;line-height:24px;color:#131313;"><font face="' + EMAIL_FACE + '" color="#131313">To discuss your quote or place your order, get in touch with your Account Manager.</font></p>\n';
+        var card = lib.emailRepCard({
+            name:       '{{SALES_REP_NAME}}',
+            phone:      '{{SALES_REP_PHONE}}',
+            email:      '{{SALES_REP_EMAIL}}',
+            photo:      photoUrl ? '{{SALES_REP_PHOTO_URL}}' : '',
+            tel:        telDigits ? escapeHtml(telDigits) : '',
+            mailto:     repEmail ? '{{SALES_REP_EMAIL}}' : '',
+            firstUpper: firstName ? '{{SALES_REP_FIRST_NAME}}' : ''
+        }, 'YOUR ACCOUNT MANAGER');
 
-            // 7 — Footer (logo and social links as before) and the reason line
-            '<tr><td align="center" valign="top" bgcolor="#00857d" style="background-color:#00857d;padding:10px 10px 24px 10px;">\n' +
-            '<img src="' + EMAIL_IMG + '1604422010305_Nu-Heat%20Master%20logo%20wht%20on%20green.png" width="167" height="94" alt="Nu-Heat Underfloor Heating &amp; Renewables" border="0" style="display:block;margin:0 auto 10px auto;width:167px;height:auto;">\n' +
-            '<table role="presentation" align="center" cellpadding="0" cellspacing="0" border="0">\n' +
-            '<tr>\n' + social + '</tr>\n' +
-            '</table>\n' +
-            '</td></tr>\n' +
-            '<tr><td align="center" valign="top" style="padding:16px 20px 24px 20px;">\n' +
-            '<p style="margin:0;' + EMAIL_FONT + 'font-size:13px;line-height:17px;color:#6b6b6b;"><font face="' + EMAIL_FACE + '" color="#6b6b6b">You\'re receiving this because you requested a quote from Nu-Heat.</font></p>\n' +
-            '</td></tr>\n' +
+        var template = lib.emailShell({
+            title:       'Your quote for {{QUOTE_EMAIL_REF}} ({{TRAN_ID}})',
+            preheader:   'Here\'s your Nu-Heat quote.',
+            headerLabel: 'YOUR QUOTE IS READY',
+            headerH1:    'Thank you for requesting a quote',
+            headerSub:   'Project: {{QUOTE_EMAIL_REF}} <span style="white-space:nowrap;">· {{TRAN_ID}}</span>',
+            rows:        rows,
+            card:        { intro: cardIntro, html: card },
+            footerLine:  'You\'re receiving this because you requested a quote from Nu-Heat.'
+        });
 
-            '</table>\n' +
-            '<!--[if mso]></td></tr></table><![endif]-->\n' +
-            '</td></tr>\n' +
-            '</table>\n' +
-            '</body>\n' +
-            '</html>\n';
-
+        // One pass over this page's own template only — it contains no user-typed text.
         return template.replace(/\{\{([A-Z_]+)\}\}/g, function (tag, key) {
             return Object.prototype.hasOwnProperty.call(values, key) ? values[key] : tag;
         });
