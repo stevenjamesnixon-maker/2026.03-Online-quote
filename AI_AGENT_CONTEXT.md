@@ -2,7 +2,7 @@
 
 **Purpose:** Comprehensive context for AI agents (Claude, etc.) to efficiently continue development on this project without extensive re-reading of source files. Load this document at the start of every new AI session.
 
-**Last Updated:** 20 August 2026
+**Last Updated:** 1 October 2026 (Update Opportunity 1.1 in Production)
 
 ---
 
@@ -292,12 +292,12 @@ that something has regressed at source. See §6.
 | Quote Viewer | v1.1.0 | `nuheat_quote_viewer_sl.js` | ✅ Live in Production |
 | Scheduled Script | v1.0.0 | `nuheat_quote_generator_ss.js` | ✅ Live in Production |
 | Master Proposal | v1.8.3 | `nuheat_master_proposal.js` | ✅ Live in Production |
-| Send Quote SL | 2.3.0 | `nuheat_send_quote_sl.js` | ✅ Live in Production (29 Sep 2026; R13–R19 passed in Sandbox) — forecast flags ⚠️ R4 open |
-| Send Quote CS | v1.4.0 — detached | `nuheat_send_quote_cs.js` | Not attached (the Send Quote SL has its own inline script) — kept for reference |
-| Update Opportunity SL | 1.0.0 | `nuheat_update_opp_sl.js` | ✅ Live in Production (29 Sep 2026; U1–U10 passed in Sandbox) |
-| Opportunity Update Library | 1.0.0 | `nuheat_opp_update_lib.js` | ✅ Live in Production (29 Sep 2026; upload first) |
-| Opportunity UE | 1.3.0 | `nuheat_opportunity_ue.js` | ✅ Live in Production (29 Sep 2026) |
-| Opportunity CS | 1.2.0 | `nuheat_opportunity_cs.js` | ✅ Live in Production (29 Sep 2026) |
+| Send Quote SL | 2.3.1 | `nuheat_send_quote_sl.js` | ✅ In Production (1 Oct 2026); email byte-identical to 2.3.0 |
+| Send Quote CS | v1.4.0 — detached | `nuheat_send_quote_cs.js` | Detached, kept for reference (the Send Quote SL has its own inline script) |
+| Update Opportunity SL | 1.1.0 | `nuheat_update_opp_sl.js` | ✅ In Production (1 Oct 2026); U11–U23 passed, including amendments 1–3 |
+| Opportunity Update Library | 1.1.0 | `nuheat_opp_update_lib.js` | ✅ In Production (1 Oct 2026; upload first) |
+| Opportunity UE | 1.4.0 | `nuheat_opportunity_ue.js` | ✅ In Production (1 Oct 2026) |
+| Opportunity CS | 1.2.0 | `nuheat_opportunity_cs.js` | ✅ In Production (29 Sep 2026) |
 | Analytics Suitelet | v1.0.1 | `nuheat_analytics_sl.js` | ✅ Live in Production |
 | **BUS Grant Module** | **v1.0.0** | **`nuheat_bus_grant.js`** | ✅ Live in Production |
 | **VAT Rates Module** | **v1.0.0** | **`nuheat_vat_rates.js`** | ✅ Live in Production |
@@ -462,7 +462,7 @@ Decisions — **do not reverse without asking Steve**:
 - **Options come from the record**, not list IDs: the Opportunity is loaded `isDynamic: true` and
   `getField().getSelectOptions()` supplies both lists. All status options the record offers are
   shown, closed ones included — the deployment runs as the **current role**.
-- **Forecast flags** (`includeinforecast`, ⚠️ assumed ID): true for Main, false for Additional and
+- **Forecast flags** (`includeinforecast`, ✅ confirmed — R4 closed 29 Sep 2026 in Production): true for Main, false for Additional and
   Leave out, **only on quotes the page showed**, only where the value differs, one `submitFields`
   per Estimate. The current value and the field's type are read off the Estimate record
   `searchRelatedQuotes()` already loads — **not** a search column, because one invalid column aborts
@@ -482,32 +482,49 @@ Decisions — **do not reverse without asking Steve**:
 - **Field types are partly assumed** (dates and Build stage). The GET hides a field whose reported
   type disagrees; the reported types are audit-logged as `SendQuoteSL.OppUpdate … reported field types`.
 
-### Update Opportunity flow (Update Opportunity SL 1.0.0, library 1.0.0, UE 1.3.0)
+### Update Opportunity flow (Update Opportunity SL 1.1.0, library 1.1.0, UE 1.4.0)
 
 A second VIEW-only button, **Update opportunity**, opens `nuheat_update_opp_sl.js` in the same tab: one
-inline-HTML page in the Send Quote style with **1 Log the call → 2 Update the opportunity → 3 Log any
-objections (optional)** and a sticky footer with Cancel and **Save**.
+inline-HTML page in the Send Quote style with **1 Log the call (switch, on) → 2 Send an email (switch,
+off) → 3 Update the opportunity → 4 Log any objections (optional)** and a sticky footer with Cancel and
+**Save**. (1.0.0 had three sections: call, update, objections.)
 
 - **1 Log the call:** a "Standard title" select (`customlist_nh_call_title`, read at runtime) copied into
   an editable **Title** (only when Title is empty or still equals the previous standard title — typing
   is never overwritten; max `CALL_TITLE_MAX` = 99 — a deliberate cap, our choice, not a proven NetSuite limit); **Call date** (native picker, today by
   default, not in the future); optional **Contact** (the opportunity's contacts); **What was discussed**
   (required, max 3,900).
-- **2 Update the opportunity:** the shared fields from `nuheat_opp_update_lib.js`, with rules
+- **2 Send an email (1.1.0):** "Subject and headline" (pre-filled `An update on <tranid>`, max 120), a
+  plain-text **Message** (max 10,000), recipients (ticks for the opportunity's contacts that have an
+  email, a Customer tick if the customer has one, Other addresses, CC me) and the note "Sent from you,
+  with your contact details. Replies come to you." The email is sent **from the user** — or, from amendment
+  2 (D18a), from the opportunity's sales rep or project engineer chosen in "From" — inside the library's
+  email shell (the Send Quote 2.2.0 design) with that sender's own employee card.
+- **3 Update the opportunity:** the shared fields from `nuheat_opp_update_lib.js`, with rules
   `{ required: ['next_contact'] }`.
-- **3 Log any objections:** one chip per Objection Type (`customrecord_nh_objection_type`), grouped by
+- **4 Log any objections:** one chip per Objection Type (`customrecord_nh_objection_type`), grouped by
   group; each ticked chip shows an optional one-line note (max 300); one optional **About quote** (every
   Estimate on the opportunity).
 
-**Save:** validate everything → **phone call** → **one Customer Objection per tick** → **Opportunity fields
-last** (`lib.updateFields`) → `redirect.toRecord` with codes `nsqs=upd, nsq, nsqt, nsqf/nsqff, nsqc, nsqo,
-nsqof`. UE 1.3.0 builds the banner from the records.
+A switched-off section is collapsed and its inputs are **disabled**, so nothing in it is posted or
+validated; the switch states travel in `custpage_call_on` / `custpage_email_on`.
+
+**Confirmed in Production (1 Oct 2026, U11–U23):** emails sent as Me, the sales rep and the project
+engineer arrive from that person and replies go to them; the PE card shows design@nu-heat.co.uk; messages
+are logged under the opportunity's Communication › Messages; the "Already saved" guard works; the subject
+pre-fill reads "An update on QR…". The objection configuration was built directly in Production — Sandbox
+needs a refresh before any Sandbox testing.
+
+**Save:** validate everything → claim the **save token** → **phone call** (if on) → **email** (if on) → **one
+Customer Objection per tick** → **Opportunity fields last** (`lib.updateFields`) → `redirect.toRecord` with
+codes `nsqs=upd, nsq, nsqt, nsqf/nsqff, nsqc (only if a call was created), nsqo, nsqof, nsqe, nsqen`.
+UE 1.4.0 builds the banner from the records and fixed words.
 
 Decisions — **settled, do not re-open without Steve** (brief of 29 Sep 2026):
 
 | # | Decision |
 |---|---|
-| D1 | Update Opportunity does **not** touch forecast flags (R4 still open) |
+| D1 | Update Opportunity does **not** touch forecast flags (Send Quote owns them; R4 closed 29 Sep 2026) |
 | D2 | "About quote" = every Estimate on the opportunity (search columns only; no record loads) |
 | D3 | **Next contact required** = the opportunity must end up with one. Blank submitted **and** the record empty → blocked, on the client and on the server **against the record** (`lib.validateRequired`, `lookupFields`) — never against posted originals. Send Quote stays optional |
 | D4 | No numeric internal IDs in code; lists and records by script ID at runtime |
@@ -515,12 +532,30 @@ Decisions — **settled, do not re-open without Steve** (brief of 29 Sep 2026):
 | D6 | The Send Quote suite changes only where agreed (library loader line; B3 retargeted; A13/B14/B17 for the second button) |
 | D7 | Banner source `nsqs` = `send` \| `upd`; missing / unknown = `send`; `upd` never shows "View proposal" |
 | D8 | Validate everything before any write. **Phone call fails → stop**, nothing else written, page re-rendered "Nothing was saved". Objection and field failures do not stop later steps; amber banner |
-| D9 | Save order: phone call → objections → opportunity fields **last** (the 2.0.1 rule) |
+| D9 | **Amended in 1.1.0.** Save order: validate everything → phone call → **email** → objections → opportunity fields **last** (the 2.0.1 rule) |
 | D10 | `custrecord_nhobj_raised_on` = the call date |
 | D11 | Objection notes: `<per-objection note>` + blank line + `Call notes (<call date>): <call notes>`; without a note, just the call-notes line |
 | D12 | Contact on the call: optional select from the opportunity's contacts |
 | D13 | The call date may not be in the future — the browser's today; the server allows its own today + 1 (NetSuite's server clock runs behind the UK in the morning) |
 | D14 | Call Titles and Objection Types display in internal-ID order (types grouped by group internal ID) |
+
+**1.1.0 decisions** (brief of 1 Oct 2026; D1–D14 stand except D9, amended above):
+
+| # | Decision |
+|---|---|
+| D15 | **"Log a phone call" switch, on by default.** Off → section 1 collapses, inputs disabled (not validated, not posted), no phone call, no `nsqc`. `custpage_call_on`: `T` on, `F` off, **missing = on** (an in-flight 1.0 page behaves as 1.0) |
+| D16 | **"Send an email" switch, off by default** (`custpage_email_on`, missing = off). 1.1 is **bespoke only**; template quick send comes in 1.2, after `render.mergeEmail` is proven in the account (no `N/render` yet) |
+| D17 | **Subject = headline**, one field, pre-filled `An update on <opportunity tranid>`, overtypeable, required, max 120 |
+| D18 | **The sender is the current user**: `author` = `runtime.getCurrentUser().id`; the card = the user's **employee record only** (`firstname`, `lastname`, `entityid` as a name fallback, `email`, `phone` — the field Send Quote's card reads via `loadSalesRepData`, `custentity_employee_photo_link` https only). No opportunity override fields. Replies go to the sender. No employee email → blocked: "Your employee record has no email address, so the email can't be sent from you." |
+| D18a | **Amendment 2 — supersedes D18's "sender is the current user".** A **From** select, first in "Send an email": `me` → `Me (<name>)` (current user); `rep` → `Sales rep (<name>)` (`salesrep`); `pe` → `Project engineer (<name>)` (`custbody_pe`, Employee). Rep / PE only when set **and** that employee has an email; never a repeat of an earlier option (e.g. I am the rep → only Me); default `me`. Names from the Opportunity's field text, escaped. Posts **only the code** (`custpage_email_from`, missing = `me`); the server whitelists it ("Choose who the email is from."), reads `salesrep` / `custbody_pe` in the same `lookupFields` as `entity`, loads the employee with `lib.loadSender(logKey, empId)`, and blocks if the role is now empty or has no email ("<Sales rep / Project engineer> has no email address on their employee record, so the email can't be sent from them."). `author`, card, sign-off and footer first name = the chosen employee; replies go to them. As `pe`, the card's email line and EMAIL button show `EMAIL_COPY.peCardEmail` = `design@nu-heat.co.uk` (Send Design's `senderEmailForBody` rule) and no PE phone → no CALL button. No automatic copy to the chosen sender; **CC me is always the current user**. `UpdateOppSL.Email` logs `from <code> (employee <id>)`. Banner unchanged. The rest of D18 (employee record only, https photo) stands. **Amendment 3:** card phone = **the employee `phone` field for every sender, the same field Send Quote reads for the rep** (Steve, 1 Oct; no fallback, no switchboard); **the opportunity override (`custbody_sales_rep_phone`) is not read**; **an inactive rep / PE is not offered and is blocked on save** ("<Sales rep / Project engineer> is no longer active, so the email can't be sent from them."; `isinactive` true / `'T'` / `'true'`; never blocks `me`). ⚠️ Send Design reads `officephone` for the PE — a known difference, left as is |
+| D19 | **Card copy** (constants in `EMAIL_COPY`, Update Opportunity SL): header `A MESSAGE FROM NU-HEAT`; headline = subject; body = the message (plain text: escaped, `{{` neutralised, blank line → new paragraph, newline → `<br>`, max 10,000); sign-off `Best wishes,` + full name; card label `YOUR NU-HEAT CONTACT` with photo, name, phone, email and CALL / EMAIL {first} buttons (CLICK TO CALL / SEND AN EMAIL without a first name); footer `Any questions at all, just reply to this email – it comes straight to me. {first}` (no name → without it); preheader = the first 90 characters of the message |
+| D20 | **Recipients** — a library component used only by Update Opportunity: contact ticks (value = contact ID), Customer (only if the customer has an email), Other addresses (`,` / `;`), CC me. Ticks and extras go in **To**; CC me puts the sender in **CC** (dropped if the sender is already in To). 1–10 To addresses, client and server. The server rebuilds every address (contact IDs checked against the opportunity's contacts search, the customer email from a lookup, extras by `EMAIL_RE`), de-duplicated case-insensitively |
+| D21 | **Objection notes always optional**; the server always appends a context line (the record field is mandatory): call on → `Call notes (<call date>): <notes>` (D11); call off and the email **actually sent** → `Email sent (<today>): <subject>`; otherwise `Logged via Update opportunity (<today>)`. A note comes first, then a blank line. Never "Email sent" for a failed email |
+| D22 | **Raised on with the call off** = today (UK): the browser posts `custpage_today` (local date parts); the server accepts it only within [server today, server today + 1], else uses server today. The same date goes in the D21 line. Call on → the call date (D10) |
+| D23 | **Something to save:** a call, an email, a ticked objection or a changed field — `Log a call, send an email, tick an objection or change a field.` Client `problem()`; server before `validateRequired`, via the pure `lib.pendingChanges(params)` (split out of `updateFields`, which uses it). **D3 still applies to every save** |
+| D24 | Call fails → stop, nothing sent or saved (D8). **Email fails → continue** with objections and fields; `nsqe=fail`, `nsq=warn`, `UpdateOppSL.Email` at error level. The server never retries an email |
+| D25 | **Save guard:** GET puts a one-time token in `custpage_save_token`; the POST, after validation and before the first write, checks `N/cache` (PRIVATE, cache `nh_update_opp_save_guard`, TTL 1 hour). Already there → nothing written, redirect `nsqs=upd&nsq=dup`. Else put, then save. The **call** fails → token removed (retry allowed). Validation failures never consume it; the re-rendered page keeps it. Missing token (a 1.0 page) → allowed, audit-logged. See §9 pitfall 27 for the limits |
+| D26 | **Banner** (D5 and D7 hold): `nsqe` = `sent` \| `fail` (anything else ignored), `nsqen` = To + CC excluding CC me; `nsq=dup` → `Already saved` / `This update had already been saved, so nothing was repeated.` Lines: `Email sent to N recipient(s)`, `The email was not sent.` Titles when the email was the only action: `Email sent` / `Email not sent`; otherwise as 1.0. Send Quote banners ignore all three |
 
 Also: `custrecord_nhobj_group` and `custrecord_nhobj_customer` are sourced by NetSuite and **never set**;
 the Phone Call field IDs (`title`, `message`, `startdate`, `status` = `COMPLETE`, `company`, `transaction`,
@@ -1151,6 +1186,10 @@ To modify, edit `renderProductCard()` and update CSS in `generateCSS()`.
     PAGE_SCRIPT_CORE is the canonical version. Migrating Send Quote to CORE is a separate change with its
     own browser test — do not fold it into another PR.** (Kept so the 2.1.0 extraction could be proven
     byte-identical, script included.)
+    From library 1.1.0 a page may also prepend the library's constant `RECIPIENTS_SCRIPT` (the recipients
+    component: `recipients()`, `recipientsProblem()`, `recipientsInit()`, `recipientsBeforeSubmit()`):
+    `lib.pageScript(lib.RECIPIENTS_SCRIPT + PAGE_PART)`. Still all constants — the addresses it counts sit
+    in `data-email` attributes, never in the script.
 
 24. **A "required" gate must read the record, not the page.** Hidden `custpage_orig_*` values are posted
     by the browser and can be forged. They are fine for change detection (writing an unchanged value is
@@ -1194,7 +1233,39 @@ To modify, edit `renderProductCard()` and update CSS in `generateCSS()`.
        substituted in one pass. A user-supplied image URL (the rep photo) is used only if `https://`.
     A stripped viewer also shows the preheader text at the top (its `display:none` is gone) — accepted.
 
-26. **A missing role permission shows up as an empty dropdown or list, not as an error on screen.**
+    **From library 1.1.0 / Send Quote SL 2.3.1 the layout lives in `nuheat_opp_update_lib.js`:**
+    `lib.emailShell(slots)` (head, Outlook blocks, preheader, logo, purple header, body rows, card row,
+    footer), `lib.emailRepCard(rep, label)` and `lib.emailButton()`. Send Quote's proposal email and
+    Update Opportunity's bespoke email both use it, so a rule above changes in one place. Send Quote's
+    output is pinned byte-for-byte by test H1 (four SHA-256 fixtures + the committed 2.2.0 sample).
+
+26. **Server today is not the user's today.** NetSuite's server clock runs on US Pacific time, so in a
+    UK morning `new Date()` on the server is still *yesterday*. Any "today" a user would recognise
+    comes from the **browser**: build `yyyy-mm-dd` from local date parts (`getFullYear()`,
+    `getMonth() + 1`, `getDate()`), **never `toISOString()`** (that is UTC and can be a day out the other
+    way), post it, and on the server accept it only within **[server today, server today + 1]**,
+    falling back to server today. Used by the call-date cap (D13) and, from Update Opportunity 1.1.0,
+    `custpage_today` for an objection's raised-on date when the call is off (D22, `requestToday()`).
+
+27. **The save guard is a resubmit guard, not a ledger (`N/cache`).** Update Opportunity 1.1.0 puts a
+    one-time token on the page and claims it in `N/cache` (PRIVATE scope, cache
+    `nh_update_opp_save_guard`, TTL 1 hour) before the first write; a second POST with the same token
+    writes nothing and shows "Already saved". Limits, accepted: NetSuite may **evict** cache entries
+    before the TTL (memory pressure, or a cache flush), after which a resubmit would save again; the
+    TTL means a page left open for over an hour and resubmitted is not caught; if `N/cache` throws, the
+    save goes ahead without the guard (logged, `UpdateOppSL.Guard`, error level). The token is only
+    claimed after validation, and freed again when the phone call fails (nothing saved), so the rep
+    can correct and retry. Do not use `N/cache` for anything that must be durable — use a record.
+
+28. **User text must never pass through a merge-tag substitution.** Send Quote's proposal email fills
+    `{{KEY}}` tags with one regex pass over its **own** template (values escaped first, so a value can't
+    inject a tag). Any text a user typed — Update Opportunity's subject and message — must never be in
+    the string such a pass runs over, or `{{PROPOSAL_URL}}` typed by a rep would be replaced. The
+    library's `emailShell()` does **no** substitution; Update Opportunity runs no pass at all, and as a
+    second guard its `emailText()` escapes and turns `{{` into `&#123;&#123;` (displays as `{{`). T28 checks
+    `{{KEY}}` and `<script>` arrive literally.
+
+29. **A missing role permission shows up as an empty dropdown or list, not as an error on screen.**
     Learned in Production (29 Sep 2026) on Update Opportunity: without Lists › Custom Lists: View the
     Call Title dropdown is empty (`customlist_nh_call_title` search → Permission Violation); a role not on
     the Objection Type record's "Use Permission List" gets an empty objection picker; without
@@ -1202,7 +1273,7 @@ To modify, edit `renderProductCard()` and update CSS in `generateCSS()`.
     **Testing** runs only for its owner ("That Suitelet is invalid, disabled, or no longer exists" for
     everyone else). **When a page looks empty for one role, check the Execution Log for Permission
     Violation first.** The full list is in DEPLOYMENT_CHECKLIST › Roles and permissions; test as a
-    non-admin sales role (TESTING_GUIDE U11).
+    non-admin sales role (TESTING_GUIDE U24).
 
 ### NetSuite Record Types Used
 
@@ -1235,7 +1306,8 @@ quote, and the Main quote is always loaded. Anything new the Master Proposal nee
 Order matters. Follow it exactly:
 
 1. **Upload `nuheat_bus_grant.js`, `nuheat_vat_rates.js` and `nuheat_opp_update_lib.js` first.** Their consumers fail at load
-   time if either is missing (§9, pitfall 13).
+   time if either is missing (§9, pitfall 13). Library 1.1.0 must be in place before Send Quote SL 2.3.1
+   or Update Opportunity SL 1.1.0 (both call its email functions); then the two Suitelets, then the UE.
 2. **Upload the remaining changed scripts** to `SuiteScripts/NuHeat/2026 Quote`.
 3. **Verify the folder IDs match the target environment** before uploading — Production `26895192`,
    Sandbox `21719365`, in all three files (§9, pitfall 12). Upload the **repository** versions to
@@ -1269,7 +1341,9 @@ The scripts log heavily on purpose. These are the keys that answer most question
 | `UpdateOppSL.Objection` | `nuheat_update_opp_sl.js` | each Customer Objection created, or failed with its message |
 | `UpdateOppSL.OppUpdate` | `nuheat_update_opp_sl.js` / library | the field rules at page load, the required check, and the fields written (old → new) |
 | `UpdateOppSL.Validation` | `nuheat_update_opp_sl.js` | a save rejected before any write, and why |
-| `UpdateOppSL.Summary` | `nuheat_update_opp_sl.js` | one line per save: call ID, objections created / failed, fields changed / failed |
+| `UpdateOppSL.Summary` | `nuheat_update_opp_sl.js` | one line per save: call ID or `off`, objections created / failed, fields changed / failed, `email sent \| fail \| off` (with the recipient count) |
+| `UpdateOppSL.Email` | `nuheat_update_opp_sl.js` / library | *(1.1.0)* who it is from — `from me \| rep \| pe (employee <id>)` (amendment 2) — the sender lookup (email/phone present, photo used or skipped), the send OK with the address count, or the failure message (error level). **Never** an address or the body |
+| `UpdateOppSL.Guard` | `nuheat_update_opp_sl.js` | *(1.1.0)* a duplicate save stopped, a missing token (a 1.0 page), a token released after a call failure, or the cache being unavailable (error level) |
 | `UpdateOppSL.Redirect` | `nuheat_update_opp_sl.js` | the exact code parameters sent back to the Opportunity |
 | `SendQuoteSL.OppUpdate` | `nuheat_send_quote_sl.js` | GET: reported field types and any update field not shown (and why). POST: fields changed old → new, "no changes", skipped because the email failed, or the failed write (error level) |
 

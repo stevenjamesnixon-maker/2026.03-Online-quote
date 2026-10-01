@@ -1,4 +1,111 @@
-## Docs: Production deploy recorded (29 Sep 2026)
+## Docs: Production deploys recorded (29 Sep and 1 Oct 2026)
+**Status:** ✅ Docs only
+
+- **In Production (1 Oct 2026)**, uploaded library first: `nuheat_opp_update_lib.js` 1.1.0, then
+  `nuheat_send_quote_sl.js` 2.3.1 (email byte-identical to 2.3.0), `nuheat_update_opp_sl.js` 1.1.0 and
+  `nuheat_opportunity_ue.js` 1.4.0. `nuheat_opportunity_cs.js` 1.2.0 unchanged since 29 Sep.
+- **Production results (1 Oct):** Update Opportunity U11–U23 passed, including amendments 1–3. Email
+  sending confirmed: sent as Me, the sales rep and the project engineer, each arrives from that person and
+  replies go to them; the PE card shows design@nu-heat.co.uk; messages are logged under the opportunity's
+  Communication › Messages; the "Already saved" guard works. The subject pre-fill reads "An update on QR…".
+- Status markers and version tables now read "in Production"; the stale "live: v1.x" parentheses are gone
+  (this file and VERSION_HISTORY keep the history). The only `.js` changes are status words in header
+  comments — no logic, no version constants.
+- #33's 29 Sep additions are renumbered to follow #34: the permissions pitfall is §9 **29** (26–28 are
+  1.1.0's) and the non-admin test is **U24** (U11–U23 are 1.1.0's).
+
+## [Update Opportunity SL v1.1.0, library v1.1.0, Send Quote SL v2.3.1, Opportunity UE v1.4.0] — 1 October 2026
+**Status:** ✅ In Production (1 Oct 2026) — U11–U23 passed, including amendments 1–3
+**Components:** `nuheat_opp_update_lib.js`, `nuheat_send_quote_sl.js` (extraction only),
+`nuheat_update_opp_sl.js`, `nuheat_opportunity_ue.js`, `test/update-opp.js`, `test/send-quote-opp-update.js`
+
+**Why:** a rep often updates an opportunity without a phone call (an email, or just a date), and wants to
+send a short personal email from the same page. 1.0.0 forced a call on every save.
+
+### Changed — the email layout moves to the library (Send Quote 2.3.1, no behaviour change)
+- `lib.emailShell(slots)`, `lib.emailRepCard(rep, label)`, `lib.emailButton()`, the photo / first-name
+  helpers, the email constants, `EMAIL_RE`, `parseEmails` (comma-only) and `invalidEmails` move unchanged
+  from Send Quote to the library. Send Quote keeps its copy, subject, author (the opportunity's sales
+  rep), phone sourcing (`custbody_sales_rep_phone` first), rep lookup, page and page script.
+- The proposal email is **byte-identical** to 2.3.0: test H1 compares four SHA-256 fixtures captured at
+  `9742aed` before the move, and the committed `docs/samples/send-quote-email-2.2.0.html`.
+- The library gains `N/email` and `N/runtime` (not `N/render`), `sendEmail()` (never throws) and
+  `pendingChanges()` — the pure half of `updateFields()`, which now uses it.
+
+### Added — Update Opportunity 1.1.0
+- **"Log a phone call" switch** (on). Off: no phone call, the call fields are disabled, not posted and not
+  validated, and the banner has no call line.
+- **"Send an email" section** (switch, off): subject = headline (`An update on <tranid>`, max 120), a
+  plain-text message (max 10,000), recipients (contact ticks, Customer, other addresses, CC me; 1–10 To
+  addresses, rebuilt on the server). Sent **from you**, logged on the customer and the opportunity
+  (Communication › Messages), in the branded layout with your own contact card: photo, name, phone,
+  email, CALL / EMAIL buttons, the sign-off "Best wishes," and the footer "Any questions at all, just
+  reply to this email – it comes straight to me." No attachments; no templates yet (1.2).
+- Save order: call → **email** → objections → opportunity fields last. A failed call still stops
+  everything; a failed email does not (amber banner "The email was not sent.").
+- **Objection notes** are always optional; the saved note always ends with a context line —
+  `Call notes (…): …`, `Email sent (<today>): <subject>`, or `Logged via Update opportunity (<today>)`.
+  With the call off, "raised on" is today in the UK (the browser's date, checked by the server).
+- **Something to save:** Save stays disabled until there is a call, an email, an objection or a changed
+  field. Next contact is still required on every save.
+- **Save guard:** pressing Save again on a resubmitted page (browser Back, refresh) saves nothing and
+  shows **Already saved**.
+- Section numbers: 1 Log the call · 2 Send an email · 3 Update the opportunity · 4 Log any objections.
+  The objections help text is now "Optional. Add a note to any objection if it helps."
+
+### Added — Opportunity UE 1.4.0 banner
+- "Email sent to N recipient(s)" / "The email was not sent."; titles **Email sent** / **Email not sent**
+  when the email was the only thing done; **Already saved** for a duplicate save. Fixed words only — never
+  the subject or an address. Send Quote banners are unchanged.
+
+### Tests
+- `test/send-quote-opp-update.js`: H1 (6 assertions) — 400 in total, every earlier assertion unchanged.
+- `test/update-opp.js`: `N/email` and `N/cache` stubs, `post()` defaults for the new fields; T1 and T3
+  adjusted for the new section numbers; T18–T51 added — 293 in total.
+
+### Fixed — amendment 1 (review of 1 Oct; still 1.1.0)
+- **A1:** a section that was switched off when the page was posted (its inputs disabled, so not posted)
+  now re-renders after a validation failure exactly as a fresh page: the call date is filled with today
+  again (`data-default`), the other call inputs blank; the email subject is `An update on <tranid>`, the
+  message blank and no recipient ticked. A section that was on is restored as posted (T36).
+- **A2:** the email body is built inside its own try/catch. If building it throws, the email counts as
+  failed (`UpdateOppSL.Email` at error level, `nsqe=fail`, `nsq=warn`, no `email.send`) and the
+  objections and fields are still written — previously the error escaped after the phone call was
+  saved (T37).
+
+### Changed — amendment 2 (Steve, after U11–U19 passed; still 1.1.0)
+- **"From"** is the first field in "Send an email": **Me**, the opportunity's **Sales rep** or its
+  **Project engineer** (`custbody_pe`). Rep and PE appear only when set, with an email address, and not the
+  same person as an earlier option; the default is Me. The page posts only `me` / `rep` / `pe`; the server
+  finds the employee itself (one lookup with the customer) and blocks the save if that person is gone or
+  has no email address.
+- The email's **author**, card, sign-off and footer name are the chosen person, so replies go to them. As
+  the project engineer, the card's email line and EMAIL button show **design@nu-heat.co.uk** (Send Design's
+  rule); no PE phone → no CALL button. **CC me** is always you; the chosen sender gets no automatic copy.
+- The page note follows the choice: "Sent as Sales rep (…), with their contact details. Replies go to them."
+- Library: `loadSender(logKey, [employeeId])`. Tests T38–T46; T28's "no opportunity phone override"
+  check now allows the opportunity lookup to read `salesrep` / `custbody_pe`.
+
+### Changed — amendment 3 (Steve, 1 Oct; still 1.1.0)
+- **Card phone confirmed: the employee `phone` field** for every sender — Me, the sales rep and the project
+  engineer — the same field Send Quote's card reads for the rep (`loadSalesRepData`). No code change; no
+  fallback, no switchboard number; a blank `phone` means no CALL button and an email-only line. The
+  opportunity override `custbody_sales_rep_phone` (read first by Send Quote) is **not** read here — sender
+  details come from the employee record only. Send Design reads `officephone` for the PE — a known
+  difference, left as is. (An earlier push of this amendment switched to `officephone`; that is reverted.)
+- **Inactive rep or PE:** not offered in "From" (`isinactive` read in the same email check at GET), and
+  blocked on save: "<Sales rep / Project engineer> is no longer active, so the email can't be sent from
+  them." Nothing written; the save token is kept. Me is never blocked for this.
+- Tests T47–T51; three lookup-column assertions now include `isinactive` (T22, T28, T38). Governance
+  unchanged: 222 units worst case, 53 at page load.
+
+### Deployment
+- Upload **`nuheat_opp_update_lib.js` first**, then `nuheat_send_quote_sl.js` and `nuheat_update_opp_sl.js`,
+  then `nuheat_opportunity_ue.js`. No new script parameters or records.
+
+---
+
+## Docs: Production deploy recorded (29 Sep 2026) — PR #33, first commit
 **Status:** ✅ Docs only
 
 - **In Production (29 Sep 2026)**, uploaded in this order: `nuheat_opp_update_lib.js` 1.0.0, then
@@ -6,7 +113,7 @@
   `nuheat_opportunity_ue.js` 1.3.0, `nuheat_opportunity_cs.js` 1.2.0. `nuheat_send_quote_cs.js` v1.4.0 stays
   **detached** (not attached; kept for reference).
 - **Sandbox results:** Update Opportunity U1–U10 passed; Send Quote R13–R19 passed. **R4 (forecast
-  flags) stays ⚠️ open.**
+  flags) CLOSED** (29 Sep, Production): Main → `includeinforecast` true, the others false.
 - **Confirmed:** the Phone Call field IDs (U3); §9 pitfall 20 (an Estimate save re-syncs its Status onto
   the Opportunity — Estimates first, the Opportunity last); `custentity_employee_photo_link` works with an
   absolute `https://` URL (R18 E1) — its field type is still ⚠️ unconfirmed.
@@ -14,8 +121,8 @@
 - **Added:** DEPLOYMENT_CHECKLIST "Roles and permissions" (Released deployments; Custom Lists: View;
   View on Objection Type; Create/Edit on Customer Objection; Create on Phone Call; Edit on Opportunity
   and Estimate), the objection-config prerequisite and the Released / Audience / Log Level step;
-  AI_AGENT_CONTEXT §9 pitfall 26 (a missing permission shows as an empty list — check the Execution Log
-  for Permission Violation); TESTING_GUIDE U11 (as a non-admin sales role); USER_GUIDE the "In forecast"
+  AI_AGENT_CONTEXT §9 pitfall 29 (a missing permission shows as an empty list — check the Execution Log
+  for Permission Violation); TESTING_GUIDE U24 (as a non-admin sales role); USER_GUIDE the "In forecast"
   card tags; FIELD_REFERENCE a note on the repeated card label when there is no sales rep.
 - **Updated:** version lines and status tables in README, TECHNICAL_DOCUMENTATION, DEPLOYMENT_CHECKLIST
   and AI_AGENT_CONTEXT (Send Quote SL 2.3.0, all in Production).

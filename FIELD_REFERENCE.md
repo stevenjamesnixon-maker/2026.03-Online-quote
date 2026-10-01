@@ -65,7 +65,7 @@ All custom NetSuite fields used by this solution, organised by record type and p
 
 | Field ID | Type | Purpose |
 |---|---|---|
-| `includeinforecast` | Checkbox — ⚠️ **ID and type ASSUMED, not yet confirmed** | "Include in Forecast". **Written** by Send Quote SL 2.0.0 after a successful send: `true` on quotes sent as Main, `false` on Additional / Leave out — only quotes shown on the page, only where the value differs. The SL reads the type off each Estimate it loads and writes nothing (audit log `SendQuoteSL.Forecast`) unless NetSuite reports `checkbox`. Confirm the ID in Sandbox (R4/R11) |
+| `includeinforecast` | Checkbox — ✅ **confirmed** (R4 closed 29 Sep 2026, Production: Main → true, the others false) | "Include in Forecast". **Written** by Send Quote SL 2.0.0 after a successful send: `true` on quotes sent as Main, `false` on Additional / Leave out — only quotes shown on the page, only where the value differs. The SL reads the type off each Estimate it loads and writes nothing (audit log `SendQuoteSL.Forecast`) unless NetSuite reports `checkbox`. Confirm the ID in Sandbox (R4/R11) |
 
 ### Redirect parameters (Send Quote SL / Update Opportunity SL → Opportunity, read by Opportunity UE)
 
@@ -75,16 +75,18 @@ record; unknown values are dropped.
 
 | Param | Value | Meaning |
 |---|---|---|
-| `nsq` | `ok` \| `warn` | Banner type: green confirmation, or amber "wasn't fully updated". Anything else → no banner |
+| `nsq` | `ok` \| `warn` \| `dup` | Banner type: green confirmation, or amber "wasn't fully updated". *(UE 1.4.0, upd only)* `dup` → "Already saved" (a resubmitted page that saved nothing). Anything else → no banner |
 | `nsqt` | epoch seconds | When the send finished. Missing, non-numeric or older than **300 s** → no banner (a refresh or shared link cannot replay it) |
 | `nsqf` | comma list of keys | Opportunity fields changed: `entitystatus`, `next_contact`, `del_date`, `build_stage`, `close_date` (v2.0.2). Values are read from the record |
 | `nsqff` | comma list of keys | Opportunity fields the write failed on — "Please set … on this record." |
 | `nsqfi` / `nsqfx` | counts | Quotes now included / excluded from the forecast (target states of the quotes on the page). Sent only when at least one flag changed |
 | `nsqqf` | comma list of Estimate IDs | Forecast writes that failed. Shown by `tranid`, and only for Estimates linked to this Opportunity |
 | `nsqs` | `send` \| `upd` | *(UE 1.3.0)* Which page sent the user back. Missing or anything else → `send` (old redirects keep working). `upd` uses the "Opportunity updated" titles and never shows "View proposal" |
-| `nsqc` | Phone Call ID | *(upd)* The call just logged — shown as "Call logged: <title from the call>" **only if** the call's `transaction` is this Opportunity |
+| `nsqc` | Phone Call ID | *(upd)* The call just logged — shown as "Call logged: <title from the call>" **only if** the call's `transaction` is this Opportunity. *(1.1.0)* Absent when the call was switched off |
 | `nsqo` | count | *(upd)* Customer Objections created — "<n> objection(s) logged" |
 | `nsqof` | comma list of Objection Type IDs | *(upd)* Objections that failed to save — named from the Objection Type records; IDs that are not Objection Types are dropped |
+| `nsqe` | `sent` \| `fail` | *(upd, UE 1.4.0)* The bespoke email: "Email sent to N recipient(s)" / warning "The email was not sent." Anything else ignored. If the email was the only action, the title is "Email sent" / "Email not sent" |
+| `nsqen` | count | *(upd, UE 1.4.0)* To + CC addresses, excluding CC me (only with `nsqe=sent`) |
 
 ## Send Quote SL 2.2.0 — proposal email: account manager card
 
@@ -110,7 +112,7 @@ All values are HTML-escaped; tags are substituted in one pass.
 
 ⚠️ Known cosmetic issue (not fixed): with **no sales rep** on the Opportunity, the card shows the label YOUR ACCOUNT MANAGER above the fallback name "Your Account Manager" — the label repeats.
 
-## Update Opportunity SL 1.0.0 — phone call, customer objections, lists
+## Update Opportunity SL 1.0.0 / 1.1.0 — phone call, email, customer objections, lists
 
 ### Lists and records (read at runtime by script ID — no internal IDs in code)
 
@@ -127,9 +129,9 @@ All values are HTML-escaped; tags are substituted in one pass.
 | `custrecord_nhobj_opportunity` | the Opportunity | parent (Communication subtab), mandatory |
 | `custrecord_nhobj_type` | the ticked Objection Type | mandatory; validated against the Objection Type search |
 | `custrecord_nhobj_quote` | the "About quote" Estimate, if chosen | validated: must be an Estimate on this Opportunity |
-| `custrecord_nhobj_notes` | `<per-objection note>` + blank line + `Call notes (<call date>): <call notes>` (no note → just the call-notes line) | mandatory; the only notes field — the call notes are duplicated deliberately so each objection stands alone |
+| `custrecord_nhobj_notes` | `<per-objection note>` + blank line + a context line (no note → just the context line). Context line *(1.1.0, D21)*: call on → `Call notes (<call date>): <call notes>`; call off and the email sent → `Email sent (<today>): <subject>`; otherwise `Logged via Update opportunity (<today>)` | mandatory — never empty; the only notes field — the context is duplicated deliberately so each objection stands alone |
 | `custrecord_nhobj_raised_by` | the current user | |
-| `custrecord_nhobj_raised_on` | **the call date** | mandatory |
+| `custrecord_nhobj_raised_on` | **the call date**; *(1.1.0)* with the call off, today — the browser's date if within [server today, +1], else the server's | mandatory |
 | `custrecord_nhobj_group` | — | ⚠️ **never set** — NetSuite sources it from the Type |
 | `custrecord_nhobj_customer` | — | ⚠️ **never set** — NetSuite sources it from the Opportunity |
 
@@ -145,6 +147,34 @@ All values are HTML-escaped; tags are substituted in one pass.
 | `transaction` | the Opportunity — shows the call under the Opportunity's Communication › Activities (U3) |
 | `assigned` | the current user |
 | `contact` | the chosen contact, if any |
+
+*(1.1.0)* No Phone Call is created when "Log a phone call" is switched off.
+
+### Email (Update Opportunity SL 1.1.0) — sent with `email.send`, no new fields
+
+| Item | Source |
+|---|---|
+| `author` | *(amendment 2)* the chosen sender: `me` → the current user; `rep` → the Opportunity's `salesrep`; `pe` → the Opportunity's `custbody_pe` (Employee). Read by the server with one `search.lookupFields` on the Opportunity (`entity`, `salesrep`, `custbody_pe`) |
+| To | ticked contacts (their `email` from the opportunity's contact search), the customer's `email` (`search.lookupFields` on the customer), other addresses as typed — 1 to 10, de-duplicated |
+| CC | the **current user**, if "CC me" (whoever the email is from; dropped if already in To). The chosen sender gets no automatic copy |
+| `relatedRecords` | `entityId` = the opportunity's customer, `transactionId` = the opportunity (Communication › Messages) |
+| Subject / headline | the "Subject and headline" box (default `An update on <tranid>`, max 120) |
+| Sender card | **Employee** (one `search.lookupFields` on the chosen sender): `firstname`, `lastname`, `entityid` (name if both are empty), `email` (required), **`phone`** (the card phone for every sender — the same field Send Quote's card reads for the rep, Steve 1 Oct; no fallback, no switchboard), `isinactive` (rep / PE inactive → blocked), `custentity_employee_photo_link` (https only). No opportunity override — `custbody_sales_rep_phone` is **not** read. As the PE, the card's email line and EMAIL button show `design@nu-heat.co.uk` (Send Design's rule). ⚠️ **Send Design reads `officephone`** for the PE — a known difference, left as is |
+| "From" options (GET) | per offered rep / PE, one `search.lookupFields` on the Employee: `email`, `isinactive` — offered only if active (`isinactive` true / `'T'` / `'true'` = inactive) and with an email |
+
+### Page fields posted (1.1.0)
+
+| Field | Meaning |
+|---|---|
+| `custpage_call_on` | `T` / `F` — missing = on (a 1.0 page) |
+| `custpage_email_on` | `T` / `F` — missing = off |
+| `custpage_email_from` | *(amendment 2)* `me` \| `rep` \| `pe` — a code, never an employee ID; missing = `me`; anything else blocks the save |
+| `custpage_email_subject`, `custpage_email_message` | the email (posted only while the section is on) |
+| `custpage_rcpt_contacts` | comma list of contact IDs |
+| `custpage_rcpt_customer`, `custpage_rcpt_ccme` | `T` / `F` |
+| `custpage_rcpt_extra` | other addresses, as typed |
+| `custpage_today` | the browser's date, `yyyy-mm-dd` |
+| `custpage_save_token` | the one-time save token (`N/cache`, PRIVATE, cache `nh_update_opp_save_guard`, 1 hour) |
 
 ## Doubled and misspelled field IDs — correct as written
 

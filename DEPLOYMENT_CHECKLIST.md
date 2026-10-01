@@ -27,19 +27,19 @@
 |--------|------|---------------|
 | **BUS Grant Module** | `nuheat_bus_grant.js` | v1.0.0 |
 | **VAT Rates Module** | `nuheat_vat_rates.js` | v1.0.0 |
-| **Opportunity Update Library** | `nuheat_opp_update_lib.js` | 1.0.0 — in Production |
+| **Opportunity Update Library** | `nuheat_opp_update_lib.js` | 1.1.0 — ✅ in Production (1 Oct 2026) |
 | Quote Suitelet | `nuheat_quote_suitelet.js` | v4.6.0 |
 | Quote UE | `nuheat_quote_ue.js` | v4.0.9 |
 | Quote CS | `nuheat_quote_cs.js` | v4.0.6 |
 | Quote Viewer | `nuheat_quote_viewer_sl.js` | v1.1.0 |
 | Scheduled Script | `nuheat_quote_generator_ss.js` | v1.0.0 |
 | Master Proposal | `nuheat_master_proposal.js` | v1.8.3 |
-| Send Quote SL | `nuheat_send_quote_sl.js` | 2.3.0 — in Production |
-| Update Opportunity SL | `nuheat_update_opp_sl.js` | 1.0.0 — in Production |
-| Send Quote CS | `nuheat_send_quote_cs.js` | v1.4.0 — detached (not attached; kept for reference, no upload needed) |
+| Send Quote SL | `nuheat_send_quote_sl.js` | 2.3.1 — ✅ in Production (1 Oct 2026) |
+| Update Opportunity SL | `nuheat_update_opp_sl.js` | 1.1.0 — ✅ in Production (1 Oct 2026) |
+| Send Quote CS | `nuheat_send_quote_cs.js` | v1.4.0 — detached, kept for reference (no upload needed) |
 | Analytics Suitelet | `nuheat_analytics_sl.js` | v1.0.1 |
-| Opportunity UE | `nuheat_opportunity_ue.js` | 1.3.0 — in Production |
-| Opportunity CS | `nuheat_opportunity_cs.js` | 1.2.0 — in Production |
+| Opportunity UE | `nuheat_opportunity_ue.js` | 1.4.0 — ✅ in Production (1 Oct 2026) |
+| Opportunity CS | `nuheat_opportunity_cs.js` | 1.2.0 — ✅ in Production (29 Sep 2026) |
 
 > Read each version from the `SCRIPT_VERSION` / `MODULE_VERSION` constant in the file, not from the
 > JSDoc header — the two drift. `nuheat_quote_ue.js` is currently out by one patch version
@@ -80,6 +80,7 @@
       (`customlist_nh_call_title`, `customlist_nh_objection_group`), the **Objection Type** record
       (`customrecord_nh_objection_type`, with its types) and the **Customer Objection** record
       (`customrecord_nh_objection`). Field IDs: `FIELD_REFERENCE.md` › Update Opportunity SL 1.0.0.
+      ✅ Built directly in **Production**. A **Sandbox refresh** is needed before any Sandbox testing.
 
 ### 1.5 Environment
 
@@ -109,6 +110,18 @@
 >
 > If you have already redeployed a consumer and it is erroring on load, upload the missing module
 > and the error clears — no redeploy of the consumer is needed.
+>
+> **Update Opportunity 1.1.0 / Send Quote 2.3.1 — ✅ deployed to Production 1 Oct 2026, in this order:**
+>
+> | # | File | Version |
+> |---|---|---|
+> | 1 | `nuheat_opp_update_lib.js` — **first** (both Suitelets call its email functions) | 1.1.0 |
+> | 2 | `nuheat_send_quote_sl.js` | 2.3.1 |
+> | 3 | `nuheat_update_opp_sl.js` | 1.1.0 |
+> | 4 | `nuheat_opportunity_ue.js` | 1.4.0 |
+>
+> Read back every version header after upload. `nuheat_opportunity_cs.js` stays 1.2.0 (29 Sep). No new
+> script parameters or records.
 
 2. Upload the scripts (all files live at the **repository root** — there is no `src/` directory):
    - **`nuheat_bus_grant.js`** ← **upload FIRST** (shared module, no script record needed)
@@ -189,7 +202,7 @@ Navigate to **Customization > Scripting > Scripts > New** for each:
   - ID: `customdeploy_nuheat_send_quote_sl`
   - Status: Released
 
-#### 2f-2. Update Opportunity Suitelet (new, Update Opportunity SL 1.0.0)
+#### 2f-2. Update Opportunity Suitelet (new in 1.0.0; 1.1.0 adds the email and the save guard)
 - **Name:** Nu-Heat Update Opportunity
 - **Script ID:** `customscript_nuheat_update_opp_sl`
 - **Script File:** `SuiteScripts/NuHeat/2026 Quote/nuheat_update_opp_sl.js`
@@ -200,6 +213,14 @@ Navigate to **Customization > Scripting > Scripts > New** for each:
   - Audience: the sales / account-manager roles
   - **Log Level: Audit** (the `UpdateOppSL.*` lines are audit-level)
 - The roles need the permissions under **Roles and permissions** below.
+- **1.1.0:** the email is sent as the chosen sender (Me, the sales rep or the project engineer) and
+  logged on the customer and the opportunity (`relatedRecords`), so the role must be able to send email
+  and read **Employee** records (`firstname`, `lastname`, `entityid`, `email`, `phone`, `isinactive`,
+  `custentity_employee_photo_link`) and the customer's `email`. `N/cache` needs no setup. No new script
+  parameters.
+- **Account checks (done for 1.1.0, 1 Oct 2026):** no workflow or user event script runs on **Message**
+  records; every rep's employee record has an email address and a phone number. Sandbox may redirect
+  outgoing email, which hides real-recipient bugs — test recipients should be your own addresses.
 
 #### 2g. Opportunity User Event
 - **Name:** Nu-Heat Opportunity UE
@@ -243,7 +264,7 @@ dropdown or list, not an error on screen — check the Execution Log for **Permi
 - **Create on Phone Call** (Lists › Calls, or the equivalent Activities permission).
 - **Edit on Opportunity** and **Edit on Estimate** — Estimate for the forecast flags.
 
-Verify with TESTING_GUIDE **U11** (as a non-admin sales role).
+Verify with TESTING_GUIDE **U24** (as a non-admin sales role).
 
 ### Step 3: Verify Folder Permissions
 
