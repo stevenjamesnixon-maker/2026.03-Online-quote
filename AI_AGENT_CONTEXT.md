@@ -294,8 +294,8 @@ that something has regressed at source. See §6.
 | Master Proposal | v1.8.3 | `nuheat_master_proposal.js` | ✅ Live in Production |
 | Send Quote SL | 2.3.1 | `nuheat_send_quote_sl.js` | ✅ In Production (1 Oct 2026); email byte-identical to 2.3.0 |
 | Send Quote CS | v1.4.0 — detached | `nuheat_send_quote_cs.js` | Detached, kept for reference (the Send Quote SL has its own inline script) |
-| Update Opportunity SL | 1.1.0 | `nuheat_update_opp_sl.js` | ✅ In Production (1 Oct 2026); U11–U23 passed, including amendments 1–3 |
-| Opportunity Update Library | 1.1.0 | `nuheat_opp_update_lib.js` | ✅ In Production (1 Oct 2026; upload first) |
+| Update Opportunity SL | 1.1.1 | `nuheat_update_opp_sl.js` | 🔶 1.1.1 in review (objection loop moved to the library; no behaviour change). 1.1.0 in Production (1 Oct 2026); U11–U23 passed, including amendments 1–3 |
+| Opportunity Update Library | 1.2.0 | `nuheat_opp_update_lib.js` | 🔶 1.2.0 in review (customer-safe functions for the customer dashboard). 1.1.0 in Production (1 Oct 2026; upload first) |
 | Opportunity UE | 1.4.0 | `nuheat_opportunity_ue.js` | ✅ In Production (1 Oct 2026) |
 | Opportunity CS | 1.2.0 | `nuheat_opportunity_cs.js` | ✅ In Production (29 Sep 2026) |
 | Analytics Suitelet | v1.0.1 | `nuheat_analytics_sl.js` | ✅ Live in Production |
@@ -562,6 +562,45 @@ the Phone Call field IDs (`title`, `message`, `startdate`, `status` = `COMPLETE`
 `assigned`, `contact`) are ✅ **confirmed** (Sandbox U3, Sep 2026). The UE deliberately does not import the
 library — a missing library must never break the opportunity view.
 
+### Customer-safe library functions (library 1.2.0, Release 2.1 part A)
+
+> ⚠️ **External consumer: the customer dashboard requires this library by absolute path.** The
+> dashboard (repo `NS-Customer-Dashboard`) does `require` of
+> `/SuiteScripts/NuHeat/2026 Quote/nuheat_opp_update_lib` (the module is `@NModuleScope Public` — keep
+> it so). **Don't rename, move or change the signatures of `fieldOptions`, `writeOppUpdate`,
+> `createObjections` or `LIB_VERSION` without a matching dashboard change.**
+
+Server-side, for callers that do not post the internal page's form. They add to the library; nothing
+the existing pages do changed (both suites pass unedited). Errors are plain `Error`s whose **`name` is
+the code** (`OPPLIB_*`) — no `N/error`, so `define()` is unchanged.
+
+- **`fieldOptions(key, [oppId])`** → `[{ id, text }]` for a library select field (`entitystatus`,
+  `build_stage`; the library key or the field ID). **Mechanism = the internal page's:** a *dynamic*
+  Opportunity, `getField()` (reported type must be `select`, as `prepareFields`) and
+  `Field.getSelectOptions()`, so the list is the dropdown's list — NetSuite offers only active values.
+  With `oppId` that Opportunity is loaded (`record.load`, **10 units**); without, a new dynamic
+  Opportunity is created in memory and never saved (`record.create`, **10 units**).
+  `getSelectOptions()` costs 0. Not a library select → `OPPLIB_NOT_A_SELECT`; missing / other type / no
+  options → `OPPLIB_FIELD_UNAVAILABLE`.
+- **`writeOppUpdate({ oppId, values, allowed })`** → `{ written: { key: { old, new } }, unchanged: [keys] }`.
+  Validates everything first; any failure throws and **nothing is written**: a key outside `FIELDS` (the
+  sub-status is never one) → `OPPLIB_UNKNOWN_FIELD`; a select value not in `allowed[key]` **and** among
+  the field's options on that Opportunity → `OPPLIB_VALUE_NOT_ALLOWED` (closes the gap that
+  `pendingChanges` does not check posted select values); a date that isn't `yyyy-mm-dd` (`parseIsoDate`)
+  → `OPPLIB_INVALID_DATE`. Blank never clears (listed in `unchanged`). Current values come from **one
+  `lookupFields`** (never caller-supplied), and the comparison **is `pendingChanges()`**; the write is
+  `updateFields()`' — one `submitFields`, `ignoreMandatoryFields: true`, `enableSourcing: true` only when
+  Status is among the values **written**. Nothing changed → no write. A failed `submitFields` is logged
+  and re-thrown. Worst case 21 units (load 10 + lookup 1 + submit 10).
+- **`createObjections({ oppId, typeIds, notes, contextLine, raisedBy, raisedOn, quoteId, logKey })`** →
+  `{ created: [ids], failed: [typeIds], errors: { typeId: message } }`. The Update Opportunity Suitelet's
+  loop moved here (SL 1.1.1 calls it): same fields, D11 notes (`<note>\n\n<context line>`, or either
+  alone), `raisedOn` (Date or `yyyy-mm-dd`) default server today, `raisedBy` blank (a customer) → raised
+  by left empty, `_group` / `_customer` never set. Each type in its own try — one failure doesn't stop
+  the others. Empty notes for a type → `OPPLIB_NOTES_REQUIRED` before any record. **The caller validates
+  type ids and the quote** (the Suitelet does against the record; the dashboard must too). 6 units per
+  objection.
+
 ### The Master Proposal never loads an Estimate
 
 This is the single most important architectural constraint in the system, and it is not obvious
@@ -702,7 +741,7 @@ detectable. NetSuite's original `taxtotal` is retained alongside for comparison,
 │   ├── generateQuoteCards()     # System cards with benefits
 │   └── calculateTotals()        # Aggregate pricing
 │
-├── nuheat_opp_update_lib.js    # Shared by both opportunity pages (1.0.0): fields, required gate, redirect codes, page CSS/header/sections, PAGE_SCRIPT_CORE
+├── nuheat_opp_update_lib.js    # Shared by both opportunity pages (1.2.0): fields, required gate, redirect codes, page CSS/header/sections, PAGE_SCRIPT_CORE, email; customer-safe fieldOptions / writeOppUpdate / createObjections (also required by the customer dashboard — see §4)
 ├── nuheat_update_opp_sl.js     # Update Opportunity page (1.0.0): phone call, fields, objections
 ├── nuheat_send_quote_sl.js     # ~2,500 lines (2.1.0: update-field code moved to the library)
 │   ├── onRequest()              # GET = form, POST = generate/preview/email
