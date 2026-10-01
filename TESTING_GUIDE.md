@@ -57,7 +57,7 @@ for f in nuheat_opp_update_lib.js nuheat_send_quote_sl.js nuheat_update_opp_sl.j
 
 ```bash
 node test/send-quote-opp-update.js   # must end "400 passed, 0 failed" — includes H1, the proposal email byte-identical to 2.3.0
-node test/update-opp.js              # must end "222 passed, 0 failed"
+node test/update-opp.js              # must end "238 passed, 0 failed"
 for f in nuheat_opp_update_lib.js nuheat_send_quote_sl.js nuheat_update_opp_sl.js nuheat_opportunity_ue.js; do node --check "$f"; done
 ```
 
