@@ -6,13 +6,23 @@
  * @name        Nu-Heat Opportunity User Event
  * @description Adds the "Send Quote" and "Update opportunity" buttons to the Opportunity form (VIEW
  *              only) and, after either page saves, shows its result banner.
- * @version     1.3.0
+ * @version     1.4.0
  * @author      Nu-Heat Development
  *
  * Script ID:      customscript_nuheat_opportunity_ue
  * Deployment ID:  customdeploy_nuheat_opportunity_ue
  * Applies To:     Opportunity
  * Event Types:    Before Load
+ *
+ * CHANGELOG v1.4.0 (Update Opportunity SL 1.1.0 — pending test):
+ *   - ADDED (nsqs=upd only; a Send Quote banner ignores all of these):
+ *       - nsqe = 'sent' | 'fail' (whitelisted; anything else ignored) and nsqen (a count):
+ *         "Email sent to <n> recipient(s)" / warning "The email was not sent.";
+ *       - nsq = 'dup' (a resubmitted page that saved nothing): title "Already saved", line "This
+ *         update had already been saved, so nothing was repeated.";
+ *       - titles when the only action was an email (no call, no objection logged or failed, no
+ *         field changed or failed): "Email sent" / "Email not sent". Otherwise as 1.3.0.
+ *   - Every word is still fixed text or read from the record — never the subject or an address.
  *
  * CHANGELOG v1.3.0 (Update Opportunity SL 1.0.0):
  *   - ADDED: second VIEW-only button "Update opportunity" (custpage_update_opp →
@@ -55,7 +65,7 @@ function (log, runtime, message, search, format) {
 
     'use strict';
 
-    var SCRIPT_VERSION = '1.3.0';
+    var SCRIPT_VERSION = '1.4.0';
 
     /** Banner lifetime. A refresh or a shared link after this shows nothing. */
     var BANNER_MAX_AGE_SECONDS = 300;
@@ -296,7 +306,7 @@ function (log, runtime, message, search, format) {
             var p = request.parameters;
 
             var status = p.nsq;
-            if (status !== 'ok' && status !== 'warn') return;
+            if (status !== 'ok' && status !== 'warn' && status !== 'dup') return;
 
             var t = String(p.nsqt || '');
             if (!/^\d{1,12}$/.test(t)) return;
@@ -308,6 +318,18 @@ function (log, runtime, message, search, format) {
 
             // v1.3.0: which page sent us here. Whitelisted; missing or unknown → 'send'.
             var source = p.nsqs === 'upd' ? 'upd' : 'send';
+
+            // v1.4.0: a resubmitted Update Opportunity page saved nothing (nsq=dup). Fixed words only.
+            if (status === 'dup') {
+                if (source !== 'upd') return;
+                context.form.addPageInitMessage({
+                    type:    message.Type.INFORMATION,
+                    title:   escapeHtml('Already saved'),
+                    message: escapeHtml('This update had already been saved, so nothing was repeated.')
+                });
+                log.audit('OpportunityUE.banner', 'Opportunity ' + context.newRecord.id + ' — upd/dup');
+                return;
+            }
 
             var rec = context.newRecord;
             var lines = [];
@@ -341,13 +363,25 @@ function (log, runtime, message, search, format) {
 
             // v1.3.0: Update Opportunity — the call and the objections, words from the records
             var updLines = [];
+            var onlyEmail = '';   // v1.4.0: 'sent' | 'fail' when the email was the only action
             if (source === 'upd') {
                 var callTitle = lookupCallTitle(rec.id, p.nsqc);
                 if (callTitle) updLines.push('Call logged: ' + callTitle);
+                // v1.4.0: the email — fixed words and a count only
+                var emailState = (p.nsqe === 'sent' || p.nsqe === 'fail') ? p.nsqe : '';
+                if (emailState === 'sent') {
+                    var sentTo = parseCount(p.nsqen);
+                    updLines.push(sentTo ? 'Email sent to ' + sentTo + ' recipient' + (sentTo === 1 ? '' : 's') : 'Email sent');
+                } else if (emailState === 'fail') {
+                    warnings.push('The email was not sent.');
+                }
                 var logged = parseCount(p.nsqo);
                 if (logged) updLines.push(logged + ' objection' + (logged === 1 ? '' : 's') + ' logged');
                 var notSaved = lookupObjectionTypeNames(p.nsqof);
                 if (notSaved.length) warnings.push('Objections not saved: ' + notSaved.join(', ') + '.');
+                if (emailState && !idList(p.nsqc).length && !logged && !idList(p.nsqof).length && !changed.length && !failed.length) {
+                    onlyEmail = emailState;
+                }
             }
             lines = updLines.concat(lines);
 
@@ -370,15 +404,19 @@ function (log, runtime, message, search, format) {
                 send: ['Proposal sent', 'Proposal sent — but the opportunity wasn’t fully updated'],
                 upd:  ['Opportunity updated', 'Opportunity updated — but not everything saved']
             };
+            var title = TITLES[source][isWarn ? 1 : 0];
+            if (onlyEmail === 'sent') title = 'Email sent';          // v1.4.0
+            else if (onlyEmail === 'fail') title = 'Email not sent';
             context.form.addPageInitMessage({
                 type:    isWarn ? message.Type.WARNING : message.Type.CONFIRMATION,
-                title:   escapeHtml(TITLES[source][isWarn ? 1 : 0]),
+                title:   escapeHtml(title),
                 message: parts.join('<br>')
             });
 
             log.audit('OpportunityUE.banner', 'Opportunity ' + rec.id + ' — ' + source + '/' + status +
                 ' | changed: ' + (changed.join(',') || 'none') + ' | failed fields: ' + (failed.join(',') || 'none') +
-                ' | failed quotes: ' + (failedQuotes.join(',') || 'none'));
+                ' | failed quotes: ' + (failedQuotes.join(',') || 'none') +
+                (source === 'upd' ? ' | email: ' + ((p.nsqe === 'sent' || p.nsqe === 'fail') ? p.nsqe : 'none') : ''));
 
         } catch (e) {
             // Fail closed: no banner, record view unaffected.

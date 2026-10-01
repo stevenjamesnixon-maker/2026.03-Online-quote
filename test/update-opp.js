@@ -252,7 +252,7 @@ var modules = {
     'N/redirect': redirectStub,
     'N/runtime': { getCurrentUser: function () { return { id: '7' }; }, getCurrentScript: function () { return { id: 'x', deploymentId: 'y' }; } },
     'N/format': formatStub,
-    'N/ui/message': { Type: { CONFIRMATION: 'confirmation', WARNING: 'warning' } },
+    'N/ui/message': { Type: { CONFIRMATION: 'confirmation', WARNING: 'warning', INFORMATION: 'information' } },
     // v1.1.0: email.send (10 units) and N/cache (1 unit per get / put / remove)
     'N/email': {
         send: function (o) {
@@ -793,7 +793,7 @@ ok(objections().length === 25 && state.emails.length === 1 && !!state.redirect &
 ok(state.units < 300, 'save used ' + state.units + ' units (< 300)');
 console.log('     ledger: ' + JSON.stringify(state.calls.reduce(function (m, c) { var k = c.replace(/:.*$/, ''); m[k] = (m[k] || 0) + 1; return m; }, {})));
 
-// ─── T14–T16: Opportunity UE 1.3.0 banner ─────────────────────────────────────
+// ─── T14–T16 (UE 1.3.0) and T33–T34 (UE 1.4.0): Opportunity UE banner ─────────────────────────────────────
 
 var ue = loadModule('nuheat_opportunity_ue.js', modules);
 function runUe(params, recId) {
@@ -875,6 +875,62 @@ resetState();
 var t16 = runUe({ nsq: 'ok', nsqt: NOW, nsqf: 'entitystatus,next_contact', nsqfi: '1', nsqfx: '2' }).msg;
 ok(t16 && t16.message === 'Opportunity updated: Status → Quoted · Next contact → 12/10/2026<br>Forecast: 1 quote included, 2 excluded<br><a href="https://acct.app.netsuite.com/core/media/media.nl?id=1&amp;h=abc" target="_blank" rel="noopener">View proposal</a>',
    'exact 1.2.1 message for a Send Quote redirect');
+
+console.log('T33. UE 1.4.0: email codes, dup, email-only titles');
+resetState();
+var u33a = runUe({ nsqs: 'upd', nsq: 'ok', nsqt: NOW, nsqe: 'sent', nsqen: '3', nsqo: '0' });
+ok(u33a.msg && u33a.msg.type === 'confirmation' && u33a.msg.title === 'Email sent' && u33a.msg.message === 'Email sent to 3 recipients', 'email only, sent → "Email sent" / "Email sent to 3 recipients"');
+resetState();
+var u33a1 = runUe({ nsqs: 'upd', nsq: 'ok', nsqt: NOW, nsqe: 'sent', nsqen: '1' });
+ok(u33a1.msg && u33a1.msg.message === 'Email sent to 1 recipient', 'singular');
+resetState();
+var u33b = runUe({ nsqs: 'upd', nsq: 'warn', nsqt: NOW, nsqe: 'fail', nsqo: '0' });
+ok(u33b.msg && u33b.msg.type === 'warning' && u33b.msg.title === 'Email not sent' && u33b.msg.message === 'The email was not sent.', 'email only, failed → WARNING "Email not sent" / "The email was not sent."');
+resetState();
+var u33c = runUe({ nsqs: 'upd', nsq: 'ok', nsqt: NOW, nsqc: '4001', nsqe: 'sent', nsqen: '2', nsqo: '1', nsqf: 'entitystatus' });
+ok(u33c.msg && u33c.msg.title === 'Opportunity updated' &&
+   u33c.msg.message === 'Call logged: Quote follow up<br>Email sent to 2 recipients<br>1 objection logged<br>Opportunity updated: Status → Quoted',
+   'with a call, objections and a field → 1.3.0 title; email line after the call (' + (u33c.msg && u33c.msg.message) + ')');
+resetState();
+var u33d = runUe({ nsqs: 'upd', nsq: 'warn', nsqt: NOW, nsqe: 'fail', nsqf: 'next_contact' });
+ok(u33d.msg && u33d.msg.title === 'Opportunity updated — but not everything saved' && u33d.msg.message === 'The email was not sent.<br>Opportunity updated: Next contact → 12/10/2026',
+   'email failed + a field changed → 1.3.0 warning title, the warning first');
+resetState();
+var u33e = runUe({ nsqs: 'upd', nsq: 'warn', nsqt: NOW, nsqe: 'fail', nsqof: '12' });
+ok(u33e.msg && u33e.msg.title === 'Opportunity updated — but not everything saved', 'email failed + an objection failed → not "only an email"');
+resetState();
+var u33f = runUe({ nsqs: 'upd', nsq: 'ok', nsqt: NOW, nsqe: 'junk<script>', nsqen: '<b>9', nsqf: 'build_stage' });
+ok(u33f.msg && u33f.msg.title === 'Opportunity updated' && u33f.msg.message === 'Opportunity updated: Build stage → Roof on' && !/junk|script|<b>|9/.test(JSON.stringify(u33f.msg)),
+   'nsqe=junk → ignored; nothing echoed');
+resetState();
+var u33g = runUe({ nsqs: 'upd', nsq: 'ok', nsqt: NOW, nsqe: 'sent', nsqen: 'abc' });
+ok(u33g.msg && u33g.msg.message === 'Email sent' && u33g.msg.title === 'Email sent', 'bad count → "Email sent" without a number');
+resetState();
+var u33h = runUe({ nsqs: 'upd', nsq: 'dup', nsqt: NOW });
+ok(u33h.msg && u33h.msg.type === 'information' && u33h.msg.title === 'Already saved' && u33h.msg.message === 'This update had already been saved, so nothing was repeated.', 'nsq=dup → "Already saved"');
+resetState();
+var u33i = runUe({ nsqs: 'upd', nsq: 'dup', nsqt: NOW, nsqc: '4001', nsqe: 'sent', nsqen: '2', nsqf: 'entitystatus' });
+ok(u33i.msg && u33i.msg.message === 'This update had already been saved, so nothing was repeated.', 'dup ignores any other codes');
+resetState();
+runUe({ nsqs: 'upd', nsq: 'dup', nsqt: String(Math.floor(Date.now() / 1000) - 301) });
+ok(state.pageMessages.length === 0, 'dup older than 300 s → no banner');
+resetState();
+var u33j = runUe({ nsqs: 'upd', nsq: 'ok', nsqt: NOW, nsqc: '4001' });
+ok(u33j.msg && u33j.msg.title === 'Opportunity updated' && u33j.msg.message === 'Call logged: Quote follow up', 'no nsqe → as 1.3.0');
+
+console.log('T34. UE 1.4.0: a Send Quote banner ignores nsqe / nsqen / dup');
+resetState();
+var t34base = runUe({ nsq: 'ok', nsqt: NOW, nsqf: 'entitystatus', nsqfi: '1', nsqfx: '0' }).msg;
+resetState();
+var t34e = runUe({ nsq: 'ok', nsqt: NOW, nsqf: 'entitystatus', nsqfi: '1', nsqfx: '0', nsqe: 'fail', nsqen: '4' }).msg;
+ok(t34base && JSON.stringify(t34base) === JSON.stringify(t34e) && /^Proposal sent$/.test(t34e.title), 'send + nsqe/nsqen → identical to without');
+resetState();
+var t34s = runUe({ nsqs: 'send', nsq: 'ok', nsqt: NOW, nsqe: 'sent', nsqen: '2' }).msg;
+ok(t34s && t34s.title === 'Proposal sent' && !/Email/.test(t34s.message), 'nsqs=send + nsqe=sent → no email line, Send Quote title');
+resetState();
+runUe({ nsq: 'dup', nsqt: NOW });
+runUe({ nsqs: 'send', nsq: 'dup', nsqt: NOW });
+ok(state.pageMessages.length === 0, 'nsq=dup without nsqs=upd → no banner');
 
 console.log('\n' + passes + ' passed, ' + failures + ' failed');
 process.exit(failures ? 1 : 0);
