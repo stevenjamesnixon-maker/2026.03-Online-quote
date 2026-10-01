@@ -1,7 +1,7 @@
 /**
  * Tests for Update Opportunity SL 1.1.0 (+ nuheat_opp_update_lib.js 1.1.0, Opportunity UE 1.4.0).
  * T1–T17 from 1.0.0 (T1 and T3 adjusted for the new section numbering — marked "changed in 1.1.0"),
- * T18–T35 for 1.1.0.
+ * T18–T37 for 1.1.0 (T36–T37: amendment 1).
  *
  * Same style as send-quote-opp-update.js: `define` is stubbed, the real Suitelet, library and UE are
  * loaded under stubbed N/* modules, every scenario is checked with ok(), non-zero exit on failure.
@@ -794,6 +794,54 @@ ok(state.units < 300, 'save used ' + state.units + ' units (< 300)');
 console.log('     ledger: ' + JSON.stringify(state.calls.reduce(function (m, c) { var k = c.replace(/:.*$/, ''); m[k] = (m[k] || 0) + 1; return m; }, {})));
 ok(ALL_WRITES.every(function (w) { return !('custbody_opportunity_sub_status' in w.values) && !('includeinforecast' in w.values) && w.type !== 'estimate'; }),
    'T13 re-checked across the 1.1.0 scenarios: no sub-status, no forecast flag, no Estimate write (' + ALL_WRITES.length + ' writes)');
+
+console.log('T36. Re-render after a validation failure: a section that was off renders as a fresh GET');
+resetState();
+var CALL_UNPOSTED = { custpage_call_on: 'F', custpage_call_std: undefined, custpage_call_title: undefined, custpage_call_date: undefined,
+                      custpage_call_contact: undefined, custpage_call_notes: undefined };
+var f36a = post(CALL_UNPOSTED);   // call off, nothing else → D23 failure
+var h36a = html(f36a);
+ok(nothingWritten() && /Log a call, send an email/.test(h36a), '(a) call off + D23 failure → re-rendered');
+ok(new RegExp('id="nsq-call-date" name="custpage_call_date" value="' + TODAY + '" max="' + TODAY + '" data-default="1"').test(h36a),
+   '(a) the call date carries data-default="1" (and today), as a fresh GET');
+ok(/name="custpage_call_title" maxlength="99" autocomplete="off" value=""/.test(h36a) && /name="custpage_call_notes" rows="5" maxlength="3900"><\/textarea>/.test(h36a) &&
+   !/<option value="[^"]+" selected>/.test(h36a.split('id="nsq-call-body"')[1].split('</section>')[0]), '(a) the other call inputs are blank, nothing selected');
+resetState();
+var f36b = post({ custpage_call_title: '' });   // call on, email off (no email fields posted) → failure
+var h36b = html(f36b);
+ok(nothingWritten() && /Enter a call title\./.test(h36b), '(b) email off + a failure → re-rendered');
+ok(/id="nsq-email-subject" name="custpage_email_subject" maxlength="120" autocomplete="off" value="An update on OPP123"/.test(h36b), '(b) subject = "An update on <tranid>"');
+ok(/name="custpage_email_message" rows="8" maxlength="10000"><\/textarea>/.test(h36b) && !/class="nsq-rcpt"[^>]* checked/.test(h36b) && !/id="nsq-rcpt-ccme" checked/.test(h36b),
+   '(b) message blank, no recipient ticked, CC me off');
+resetState();
+var past36 = iso(addDays(-3));
+var f36c = emailPost({ custpage_call_date: past36, custpage_call_title: 'Kept title', custpage_rcpt_contacts: '' });   // call on → recipients failure
+var h36c = html(f36c);
+ok(nothingWritten() && /Choose at least one recipient\./.test(h36c), '(c) call on + a failure → re-rendered');
+ok(new RegExp('id="nsq-call-date" name="custpage_call_date" value="' + past36 + '" max="' + TODAY + '"></div>').test(h36c) && /value="Kept title"/.test(h36c),
+   '(c) the posted call date and title kept; no data-default');
+resetState();
+var f36d = emailPost({ custpage_email_subject: 'My own subject', custpage_email_message: 'My own message', custpage_rcpt_contacts: '71', custpage_rcpt_extra: 'bad' });
+var h36d = html(f36d);
+ok(nothingWritten() && /These addresses are not valid: bad/.test(h36d), '(d) email on + a failure → re-rendered');
+ok(/value="My own subject"/.test(h36d) && />My own message<\/textarea>/.test(h36d) && /data-contact-id="71" data-email="ann@example\.com" checked>/.test(h36d),
+   '(d) the posted subject, message and ticks kept');
+
+console.log('T37. Building the email body throws → an email failure, the rest still saved (D24)');
+resetState();
+var realShell = LIB.emailShell;
+LIB.emailShell = function () { throw new Error('shell broke'); };
+try {
+    emailPost({ custpage_call_on: 'F', custpage_obj_sel: '["11"]', custpage_upd_entitystatus: '12' });
+} finally {
+    LIB.emailShell = realShell;
+}
+ok(state.calls.indexOf('email.send') === -1 && state.emails.length === 0, 'no email.send');
+ok(objections().length === 1 && writesOf('submitFields', 'opportunity').length === 1 && !!state.redirect, 'objections and fields still written; redirected');
+ok(rparams().nsqe === 'fail' && rparams().nsq === 'warn' && !('nsqen' in rparams()), 'nsqe=fail, nsq=warn');
+ok(objections()[0].values.custrecord_nhobj_notes === 'Logged via Update opportunity (' + dmy(new Date()) + ')', 'the context line is not "Email sent"');
+ok(state.logs.some(function (l) { return l.level === 'error' && l.title === 'UpdateOppSL.Email' && /could not be built; not sent: shell broke/.test(l.details); }), 'UpdateOppSL.Email at error level with the message');
+ok(audit('UpdateOppSL.Summary').some(function (l) { return /; email fail \(1 recipient\)$/.test(l.details); }), 'summary: email fail');
 
 // ─── T14–T16 (UE 1.3.0) and T33–T34 (UE 1.4.0): Opportunity UE banner ─────────────────────────────────────
 

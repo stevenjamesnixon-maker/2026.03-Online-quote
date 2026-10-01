@@ -45,7 +45,17 @@ send a short personal email from the same page. 1.0.0 forced a call on every sav
 ### Tests
 - `test/send-quote-opp-update.js`: H1 (6 assertions) — 400 in total, every earlier assertion unchanged.
 - `test/update-opp.js`: `N/email` and `N/cache` stubs, `post()` defaults for the new fields; T1 and T3
-  adjusted for the new section numbers; T18–T35 added — 222 in total.
+  adjusted for the new section numbers; T18–T37 added — 238 in total.
+
+### Fixed — amendment 1 (review of 1 Oct; still 1.1.0)
+- **A1:** a section that was switched off when the page was posted (its inputs disabled, so not posted)
+  now re-renders after a validation failure exactly as a fresh page: the call date is filled with today
+  again (`data-default`), the other call inputs blank; the email subject is `An update on <tranid>`, the
+  message blank and no recipient ticked. A section that was on is restored as posted (T36).
+- **A2:** the email body is built inside its own try/catch. If building it throws, the email counts as
+  failed (`UpdateOppSL.Email` at error level, `nsqe=fail`, `nsq=warn`, no `email.send`) and the
+  objections and fields are still written — previously the error escaped after the phone call was
+  saved (T37).
 
 ### Deployment
 - Upload **`nuheat_opp_update_lib.js` first**, then `nuheat_send_quote_sl.js` and `nuheat_update_opp_sl.js`,

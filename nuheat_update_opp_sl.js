@@ -300,6 +300,11 @@ define([
         var r = restore || {};
         var callOn  = restore ? r.callOn !== false : true;    // D15: on by default
         var emailOn = restore ? r.emailOn === true : false;   // D16: off by default
+        // A section that was OFF when posted had its inputs disabled, so nothing of it was posted:
+        // render it exactly as a fresh GET would (defaults, nothing ticked). ON → restore as posted.
+        var callFresh  = !restore || !callOn;
+        var emailFresh = !restore || !emailOn;
+        var rc = callFresh ? {} : r;
         var h = [];
         h.push(lib.baseCss() + PAGE_CSS);
         h.push('<div id="nsq-root" class="nsq" data-opp-url="' + escapeHtml(page.oppUrl) + '">');
@@ -316,7 +321,7 @@ define([
 
         // ── 1 Log the call ──
         var today = serverToday();
-        var dateValue = restore ? (r.date || '') : today;
+        var dateValue = callFresh ? today : (r.date || '');
         h.push('<section class="nsq-card"><h2 class="nsq-h2"><span class="nsq-num">1</span>Log the call' +
             switchHTML('nsq-call-on', 'Log a phone call', callOn, 'nsq-call-off') + '</h2>');
         h.push('<div id="nsq-call-body"' + (callOn ? '' : ' hidden') + '>');
@@ -324,28 +329,28 @@ define([
         h.push('<div class="nsq-field"><label class="nsq-label" for="nsq-std-title">Standard title</label>' +
             '<select id="nsq-std-title" name="custpage_call_std" class="nsq-input"><option value=""></option>' +
             page.callTitles.map(function (t) {
-                return '<option value="' + escapeHtml(t.name) + '"' + (r.std === t.name ? ' selected' : '') + '>' + escapeHtml(t.name) + '</option>';
+                return '<option value="' + escapeHtml(t.name) + '"' + (rc.std === t.name ? ' selected' : '') + '>' + escapeHtml(t.name) + '</option>';
             }).join('') + '</select></div>');
         h.push('<div class="nsq-field"><label class="nsq-label" for="nsq-call-title">Title <span class="nsq-req" aria-hidden="true">*</span></label>' +
             '<input type="text" class="nsq-input" id="nsq-call-title" name="custpage_call_title" maxlength="' + CALL_TITLE_MAX +
-            '" autocomplete="off" value="' + escapeHtml(r.title || '') + '"></div>');
+            '" autocomplete="off" value="' + escapeHtml(rc.title || '') + '"></div>');
         h.push('<div class="nsq-field"><label class="nsq-label" for="nsq-call-date">Call date <span class="nsq-req" aria-hidden="true">*</span></label>' +
             '<input type="date" class="nsq-input" id="nsq-call-date" name="custpage_call_date" value="' + escapeHtml(dateValue) +
-            '" max="' + escapeHtml(today) + '"' + (restore ? '' : ' data-default="1"') + '></div>');
+            '" max="' + escapeHtml(today) + '"' + (callFresh ? ' data-default="1"' : '') + '></div>');
         h.push('<div class="nsq-field"><label class="nsq-label" for="nsq-call-contact">Contact</label>' +
             '<select id="nsq-call-contact" name="custpage_call_contact" class="nsq-input"><option value="">No contact</option>' +
             page.contacts.map(function (c) {
-                return '<option value="' + escapeHtml(String(c.id)) + '"' + (String(r.contact || '') === String(c.id) ? ' selected' : '') + '>' +
+                return '<option value="' + escapeHtml(String(c.id)) + '"' + (String(rc.contact || '') === String(c.id) ? ' selected' : '') + '>' +
                     escapeHtml(c.name) + '</option>';
             }).join('') + '</select></div>');
         h.push('</div>');
         h.push('<div class="nsq-field"><label class="nsq-label" for="nsq-call-notes">What was discussed <span class="nsq-req" aria-hidden="true">*</span></label>' +
             '<textarea class="nsq-input nsq-textarea" id="nsq-call-notes" name="custpage_call_notes" rows="5" maxlength="' + CALL_NOTES_MAX + '">' +
-            escapeHtml(r.notes || '') + '</textarea></div>');
+            escapeHtml(rc.notes || '') + '</textarea></div>');
         h.push('</div></section>');
 
         // ── 2 Send an email (v1.1.0) ──
-        var subject = restore ? (r.subject || '') : defaultSubject(page);
+        var subject = emailFresh ? defaultSubject(page) : (r.subject || '');
         h.push('<section class="nsq-card"><h2 class="nsq-h2"><span class="nsq-num">2</span>Send an email' +
             switchHTML('nsq-email-on', 'Send an email', emailOn, 'nsq-email-off') + '</h2>');
         h.push('<div id="nsq-email-body"' + (emailOn ? '' : ' hidden') + '>');
@@ -354,8 +359,8 @@ define([
             '" autocomplete="off" value="' + escapeHtml(subject) + '"></div>');
         h.push('<div class="nsq-field"><label class="nsq-label" for="nsq-email-message">Message <span class="nsq-req" aria-hidden="true">*</span></label>' +
             '<textarea class="nsq-input nsq-textarea" id="nsq-email-message" name="custpage_email_message" rows="8" maxlength="' + EMAIL_MESSAGE_MAX + '">' +
-            escapeHtml(r.message || '') + '</textarea></div>');
-        h.push(lib.buildRecipientsHTML(page.contacts, page.customerEmail, restore ? r.rcpt : null));
+            escapeHtml(emailFresh ? '' : (r.message || '')) + '</textarea></div>');
+        h.push(lib.buildRecipientsHTML(page.contacts, page.customerEmail, emailFresh ? null : r.rcpt));
         h.push('<p class="nsq-help nsq-email-note">' + escapeHtml(EMAIL_COPY.pageNote) + '</p>');
         h.push('</div></section>');
 
@@ -868,17 +873,28 @@ define([
             var cc = [];
             var me = sender.email.toLowerCase();
             if (rcpt.ccMe && !rcpt.to.some(function (a) { return a.toLowerCase() === me; })) cc.push(sender.email);
-            var sent = lib.sendEmail({
-                author:     userId,
-                to:         rcpt.to,
-                cc:         cc,
-                subject:    subject,
-                body:       buildBespokeEmail(subject, message, sender),
-                customerId: custId,
-                oppId:      opportunityId,
-                logKey:     'UpdateOppSL.Email'
-            });
-            emailState = sent.ok ? 'sent' : 'fail';
+            // Built in its own try: a failure here is an email failure (D24), never a stop.
+            var body = null;
+            try {
+                body = buildBespokeEmail(subject, message, sender);
+            } catch (e) {
+                log.error('UpdateOppSL.Email', 'Opportunity ' + opportunityId + ' — email body could not be built; not sent: ' + ((e && e.message) || String(e)));
+            }
+            if (body === null) {
+                emailState = 'fail';
+            } else {
+                var sent = lib.sendEmail({
+                    author:     userId,
+                    to:         rcpt.to,
+                    cc:         cc,
+                    subject:    subject,
+                    body:       body,
+                    customerId: custId,
+                    oppId:      opportunityId,
+                    logKey:     'UpdateOppSL.Email'
+                });
+                emailState = sent.ok ? 'sent' : 'fail';
+            }
             emailCount = rcpt.to.length;   // To + CC excluding CC me (CC only ever holds the sender)
         }
 
