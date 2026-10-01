@@ -7,12 +7,29 @@
  *              and Update Opportunity (nuheat_update_opp_sl.js): field rules, preparing and writing
  *              the Opportunity fields, the required-field gate, redirect codes, text cleaning, and
  *              the page building blocks (CSS, header, update section, error page, page-script core).
- * @version     1.1.0
+ * @version     1.2.0
  * @author      Nu-Heat Development
+ *
+ * ⚠️ EXTERNAL CONSUMER: the customer dashboard (NS-Customer-Dashboard) requires this library by
+ *    absolute path (/SuiteScripts/NuHeat/2026 Quote/nuheat_opp_update_lib). Don't rename, move or
+ *    change the signatures of fieldOptions, writeOppUpdate, createObjections or LIB_VERSION without
+ *    a matching dashboard change.
  *
  * ⚠️ DEPLOYMENT: a shared AMD module — no script record, no deployment. Upload it to
  *    SuiteScripts/NuHeat/2026 Quote/ BEFORE either Suitelet is redeployed; both define() it as
  *    './nuheat_opp_update_lib' and fail at load time without it.
+ *
+ * CHANGELOG v1.2.0 (Release 2.1 part A — customer-safe server functions; additive only):
+ *   - ADDED: fieldOptions(key, [oppId]) — a select field's options [{ id, text }] by prepareFields()'
+ *     mechanism (dynamic Opportunity + getSelectOptions()). Not a select → OPPLIB_NOT_A_SELECT.
+ *   - ADDED: writeOppUpdate({ oppId, values, allowed }) — validated server write: unknown key →
+ *     OPPLIB_UNKNOWN_FIELD; a select value outside allowed[key] or the options →
+ *     OPPLIB_VALUE_NOT_ALLOWED; bad date → OPPLIB_INVALID_DATE; nothing written on any of them.
+ *     Compares with pendingChanges() against one lookupFields; writes as updateFields() does.
+ *   - ADDED: createObjections({ oppId, typeIds, notes, contextLine, raisedBy, raisedOn, quoteId }) —
+ *     moved from Update Opportunity SL 1.1.0 (same fields, same notes format); the Suitelet (1.1.1)
+ *     now calls it. Also OBJECTION_FIELDS and objectionNotes.
+ *   - LIB_VERSION exported (it already was; now 1.2.0). No existing export changed; define() unchanged.
  *
  * CHANGELOG v1.1.0 (in Production, 1 Oct 2026):
  *   - ADDED (moved from Send Quote SL 2.3.0, unchanged bytes): the email shell emailShell(slots),
@@ -60,7 +77,7 @@ function (serverWidget, search, record, log, url, format, email, runtime) {
 
     'use strict';
 
-    var LIB_VERSION = '1.1.0';
+    var LIB_VERSION = '1.2.0';
 
     // ─── Field rules ──────────────────────────────────────────────────────────────
 
@@ -321,6 +338,310 @@ function (serverWidget, search, record, log, url, format, email, runtime) {
         }
 
         return result;
+    }
+
+    // ─── Server-side, customer-safe functions (v1.2.0) ────────────────────────────
+    //
+    // ⚠️ EXTERNAL CONSUMER: the customer dashboard (NS-Customer-Dashboard) requires this library by
+    //    absolute path. Don't rename, move or change the signatures of fieldOptions, writeOppUpdate,
+    //    createObjections or LIB_VERSION without a matching dashboard change.
+    //
+    // Errors are plain Error objects whose `name` is the code (OPPLIB_*), so this module's define()
+    // list stays as it was (no N/error). Catch and test e.name.
+
+    function oppLibError(code, message) {
+        var e = new Error(code + ': ' + message);
+        e.name = code;
+        return e;
+    }
+
+    /**
+     * The field definition for a library key ('build_stage') or its NetSuite field ID
+     * ('custbody_build_stage') — both name the same field. null when it is neither. The sub-status is
+     * not in OPP_UPDATE_FIELDS, so it never resolves.
+     */
+    function resolveFieldDef(keyOrFieldId) {
+        var k = String(keyOrFieldId === null || keyOrFieldId === undefined ? '' : keyOrFieldId);
+        for (var i = 0; i < OPP_UPDATE_FIELDS.length; i++) {
+            if (OPP_UPDATE_FIELDS[i].key === k || OPP_UPDATE_FIELDS[i].fieldId === k) return OPP_UPDATE_FIELDS[i];
+        }
+        return null;
+    }
+
+    /**
+     * A select field's options from a DYNAMIC Opportunity record — prepareFields()' mechanism
+     * (getField() → reported type check → getSelectOptions()). Throws OPPLIB_FIELD_UNAVAILABLE when
+     * the field is missing, reports another type or has no options.
+     */
+    function selectOptionsFrom(oppRecord, def) {
+        var nsField = oppRecord.getField({ fieldId: def.fieldId });
+        if (!nsField) throw oppLibError('OPPLIB_FIELD_UNAVAILABLE', def.fieldId + ' is not available on the Opportunity');
+        var reportedType = String(nsField.type || '').toLowerCase();
+        if (reportedType !== 'select') {
+            throw oppLibError('OPPLIB_FIELD_UNAVAILABLE', def.fieldId + ' reports type "' + reportedType + '", not "select"');
+        }
+        var options = nsField.getSelectOptions() || [];
+        if (!options.length) throw oppLibError('OPPLIB_FIELD_UNAVAILABLE', def.fieldId + ' returned no select options');
+        return options.map(function (o) { return { id: String(o.value), text: String(o.text) }; });
+    }
+
+    /**
+     * v1.2.0: the options of one of the library's select fields, read on the server —
+     * [{ id, text }], exactly what the internal pages put in their dropdowns.
+     *
+     * Mechanism (the same as prepareFields): a DYNAMIC Opportunity record and
+     * Field.getSelectOptions(). With oppId, that Opportunity is loaded (record.load, 10 units),
+     * so the list is the one its own page shows; without, a new dynamic Opportunity is created in
+     * memory and never saved (record.create, 10 units). getSelectOptions() itself costs nothing.
+     *
+     * @param {string} key - a library key ('build_stage') or its field ID ('custbody_build_stage')
+     * @param {string} [oppId]
+     * @returns {Array<{id: string, text: string}>}
+     * @throws OPPLIB_NOT_A_SELECT (not one of the library's select fields), OPPLIB_FIELD_UNAVAILABLE
+     */
+    function fieldOptions(key, oppId) {
+        var def = resolveFieldDef(key);
+        if (!def || def.kind !== 'select') {
+            throw oppLibError('OPPLIB_NOT_A_SELECT', '"' + key + '" is not one of the library\'s select fields');
+        }
+        var oppRecord = oppId
+            ? record.load({ type: record.Type.OPPORTUNITY, id: oppId, isDynamic: true })
+            : record.create({ type: record.Type.OPPORTUNITY, isDynamic: true });
+        return selectOptionsFrom(oppRecord, def);
+    }
+
+    /** A lookupFields value as the page's original: select → its value, date → yyyy-mm-dd. */
+    function lookupOrig(def, v) {
+        if (def.kind === 'select') {
+            if (Array.isArray(v)) return { orig: v.length ? String(v[0].value || '') : '', origText: v.length ? String(v[0].text || '') : '' };
+            return { orig: v === null || v === undefined ? '' : String(v), origText: '' };
+        }
+        if (v === null || v === undefined || v === '') return { orig: '', origText: '' };
+        var d = v instanceof Date ? v : null;
+        if (!d) {
+            try { d = format.parse({ value: String(v), type: format.Type.DATE }); } catch (e) { d = null; }
+        }
+        if (!(d instanceof Date) || isNaN(d.getTime())) return { orig: '', origText: String(v) };
+        return { orig: toIsoDate(d), origText: String(v) };
+    }
+
+    /**
+     * v1.2.0: a validated server write of the library's fields — for callers that do not post the
+     * internal page's form (the customer dashboard). Validates EVERYTHING before any write; any
+     * failure throws and nothing is written.
+     *
+     *   values  { <key>: value } — library keys or their field IDs, OPP_UPDATE_FIELDS only
+     *           (unknown → OPPLIB_UNKNOWN_FIELD; the sub-status is never one). Selects: an option id.
+     *           Dates: 'yyyy-mm-dd' (parseIsoDate; invalid → OPPLIB_INVALID_DATE). Blank never clears.
+     *   allowed { <key>: [ids] } — every non-blank select value must be in allowed[key] AND among
+     *           the field's options on this Opportunity (fieldOptions' mechanism), else
+     *           OPPLIB_VALUE_NOT_ALLOWED.
+     *
+     * The comparison is pendingChanges() itself, fed with the Opportunity's CURRENT values (one
+     * search.lookupFields — never caller-supplied originals). The write is updateFields()' write:
+     * one record.submitFields, ignoreMandatoryFields: true, enableSourcing: true only when Status is
+     * among the values written. Nothing changed → no write.
+     *
+     * Governance: lookupFields 1 + (a non-blank select) record.load 10 + (a change) submitFields 10.
+     *
+     * @param {{oppId: string, values: Object, allowed: Object, statusChange: *, logKey: string}} o
+     *        statusChange is accepted and not used: sourcing follows whether Status is written.
+     * @returns {{written: Object<string, {old: string, new: string}>, unchanged: string[]}}
+     *          keys are library keys; old/new are option ids or yyyy-mm-dd. Blank values are in
+     *          unchanged (they never clear).
+     */
+    function writeOppUpdate(o) {
+        o = o || {};
+        var logKey = o.logKey || 'OppUpdateLib.writeOppUpdate';
+        var oppId = o.oppId;
+        if (!oppId) throw oppLibError('OPPLIB_BAD_ARGS', 'oppId is required');
+        var values = o.values;
+        if (!values || typeof values !== 'object' || Array.isArray(values)) throw oppLibError('OPPLIB_BAD_ARGS', 'values must be an object');
+        var allowed = (o.allowed && typeof o.allowed === 'object') ? o.allowed : {};
+
+        // ── 1. Keys, dates and the allowed lists — no I/O ──
+        var items = [];
+        var seen = {};
+        Object.keys(values).forEach(function (k) {
+            var def = resolveFieldDef(k);
+            if (!def) throw oppLibError('OPPLIB_UNKNOWN_FIELD', '"' + k + '" is not a field this library writes');
+            if (seen[def.key]) throw oppLibError('OPPLIB_UNKNOWN_FIELD', '"' + k + '" names ' + def.key + ' twice');
+            seen[def.key] = true;
+            var raw = values[k];
+            var v = String(raw === null || raw === undefined ? '' : raw).trim();
+            if (v && def.kind === 'date' && !parseIsoDate(v)) {
+                throw oppLibError('OPPLIB_INVALID_DATE', def.key + ' value "' + v + '" is not a yyyy-mm-dd calendar date');
+            }
+            if (v && def.kind === 'select') {
+                var list = allowed.hasOwnProperty(def.key) ? allowed[def.key] : allowed[def.fieldId];
+                var ok = Array.isArray(list) && list.some(function (a) { return String(a) === v; });
+                if (!ok) throw oppLibError('OPPLIB_VALUE_NOT_ALLOWED', def.key + ' value "' + v + '" is not in the allowed list');
+            }
+            items.push({ def: def, value: v });
+        });
+
+        var result = { written: {}, unchanged: [] };
+        var toCheck = items.filter(function (it) { return it.value; });
+        items.forEach(function (it) { if (!it.value) result.unchanged.push(it.def.key); });   // blank never clears
+        if (!toCheck.length) {
+            log.audit(logKey, 'Opportunity ' + oppId + ' — no values to write');
+            return result;
+        }
+
+        // ── 2. Select values must be real options on this Opportunity (one load for all) ──
+        var selects = toCheck.filter(function (it) { return it.def.kind === 'select'; });
+        if (selects.length) {
+            var oppRecord = record.load({ type: record.Type.OPPORTUNITY, id: oppId, isDynamic: true });
+            selects.forEach(function (it) {
+                var options = selectOptionsFrom(oppRecord, it.def);
+                if (!options.some(function (op) { return op.id === it.value; })) {
+                    throw oppLibError('OPPLIB_VALUE_NOT_ALLOWED', it.def.key + ' value "' + it.value + '" is not an option on Opportunity ' + oppId);
+                }
+            });
+        }
+
+        // ── 3. Current values (one lookupFields), then pendingChanges() decides ──
+        var current = search.lookupFields({
+            type:    search.Type.OPPORTUNITY,
+            id:      oppId,
+            columns: toCheck.map(function (it) { return it.def.fieldId; })
+        }) || {};
+        var params = {};
+        var origByKey = {};
+        params[OPP_UPDATE_KEYS_FIELD] = toCheck.map(function (it) { return it.def.key; }).join(',');
+        toCheck.forEach(function (it) {
+            var cur = lookupOrig(it.def, current[it.def.fieldId]);
+            origByKey[it.def.key] = cur.orig;
+            params[updFieldId(it.def)]      = it.value;
+            params[origFieldId(it.def)]     = cur.orig;
+            params[origTextFieldId(it.def)] = cur.origText;
+        });
+        var pending = pendingChanges(params);
+        if (pending.invalidDates.length) {   // already rejected above; kept so the two can never disagree silently
+            throw oppLibError('OPPLIB_INVALID_DATE', pending.invalidDates.map(function (d) { return d.fieldId; }).join(', '));
+        }
+        var changedKeys = pending.changed.map(function (c) { return c.key; });
+        toCheck.forEach(function (it) {
+            if (changedKeys.indexOf(it.def.key) === -1) result.unchanged.push(it.def.key);
+        });
+        if (!pending.changed.length) {
+            log.audit(logKey, 'Opportunity ' + oppId + ' — no changes');
+            return result;
+        }
+
+        // ── 4. The write — updateFields()' options; the sub-status is never in values ──
+        var statusChanged = pending.values.hasOwnProperty('entitystatus');
+        try {
+            record.submitFields({
+                type:    record.Type.OPPORTUNITY,
+                id:      oppId,
+                values:  pending.values,
+                options: {
+                    enableSourcing:        statusChanged,
+                    ignoreMandatoryFields: true
+                }
+            });
+        } catch (e) {
+            log.error(logKey, 'Opportunity ' + oppId + ' — update FAILED. Attempted: ' + pending.logParts.join('; ') + ' | Error: ' + e.message);
+            throw e;
+        }
+        log.audit(logKey, 'Opportunity ' + oppId + ' — updated ' + pending.logParts.join('; ') + ' (enableSourcing: ' + statusChanged + ')');
+        pending.changed.forEach(function (c) {
+            result.written[c.key] = { old: origByKey[c.key], new: c.to };
+        });
+        return result;
+    }
+
+    // ─── Customer Objections (v1.2.0: moved from Update Opportunity SL 1.1.0) ─────
+
+    /**
+     * Customer Objection. custrecord_nhobj_group and custrecord_nhobj_customer are sourced by
+     * NetSuite — NEVER set them here.
+     */
+    var OBJ = {
+        record:      'customrecord_nh_objection',
+        opportunity: 'custrecord_nhobj_opportunity',
+        type:        'custrecord_nhobj_type',
+        quote:       'custrecord_nhobj_quote',
+        notes:       'custrecord_nhobj_notes',
+        raisedBy:    'custrecord_nhobj_raised_by',
+        raisedOn:    'custrecord_nhobj_raised_on'
+    };
+
+    /**
+     * D11 / D21: "<note>\n\n<context line>", or just the context line (or just the note when there
+     * is no context line). custrecord_nhobj_notes is mandatory on the record.
+     */
+    function objectionNotes(note, contextLine) {
+        if (!contextLine) return note;
+        return note ? note + '\n\n' + contextLine : contextLine;
+    }
+
+    /**
+     * v1.2.0: creates one Customer Objection per type — the Update Opportunity Suitelet's own loop
+     * (D10, D11), moved here unchanged. One failure does not stop the others.
+     *
+     *   notes        per-type notes { <typeId>: note } or one string for every type (optional)
+     *   contextLine  appended after a blank line (D11/D21); the note alone without it
+     *   raisedBy     employee id; blank (a customer) → custrecord_nhobj_raised_by left empty
+     *   raisedOn     Date or 'yyyy-mm-dd'; default the server's today
+     *   quoteId      optional Estimate id
+     *
+     * The caller validates the type ids and the quote (the Suitelet does, against the record).
+     * A type whose notes would be empty → OPPLIB_NOTES_REQUIRED before ANY record is created.
+     * Governance: per objection record.create 2 + save 4 (custom record).
+     *
+     * @returns {{created: string[], failed: string[], errors: Object<string, string>}}
+     */
+    function createObjections(o) {
+        o = o || {};
+        var logKey = o.logKey || 'OppUpdateLib.Objection';
+        var oppId = o.oppId;
+        if (!oppId) throw oppLibError('OPPLIB_BAD_ARGS', 'oppId is required');
+        var typeIds = Array.isArray(o.typeIds) ? o.typeIds : [];
+        var contextLine = String(o.contextLine || '');
+
+        var raisedOn = o.raisedOn;
+        if (raisedOn === undefined || raisedOn === null || raisedOn === '') {
+            var now = new Date();
+            raisedOn = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+        } else if (!(raisedOn instanceof Date)) {
+            var parsed = parseIsoDate(String(raisedOn).trim());
+            if (!parsed) throw oppLibError('OPPLIB_INVALID_DATE', 'raisedOn "' + raisedOn + '" is not a yyyy-mm-dd calendar date');
+            raisedOn = parsed;
+        }
+
+        function noteFor(typeId) {
+            var n = (o.notes && typeof o.notes === 'object') ? o.notes[typeId] : o.notes;
+            return String(n === null || n === undefined ? '' : n).trim();
+        }
+        var notesByType = {};
+        typeIds.forEach(function (typeId) {
+            var text = objectionNotes(noteFor(typeId), contextLine);
+            if (!text) throw oppLibError('OPPLIB_NOTES_REQUIRED', 'objection of type ' + typeId + ' would have no notes');
+            notesByType[typeId] = text;
+        });
+
+        var out = { created: [], failed: [], errors: {} };
+        typeIds.forEach(function (typeId) {
+            try {
+                var rec = record.create({ type: OBJ.record });
+                rec.setValue({ fieldId: OBJ.opportunity, value: oppId });
+                rec.setValue({ fieldId: OBJ.type, value: typeId });
+                if (o.quoteId) rec.setValue({ fieldId: OBJ.quote, value: o.quoteId });
+                rec.setValue({ fieldId: OBJ.notes, value: notesByType[typeId] });
+                if (o.raisedBy) rec.setValue({ fieldId: OBJ.raisedBy, value: o.raisedBy });
+                rec.setValue({ fieldId: OBJ.raisedOn, value: raisedOn });   // D10 / D22
+                var oid = rec.save();
+                out.created.push(oid);
+                log.audit(logKey, 'Opportunity ' + oppId + ' — objection ' + oid + ' created (type ' + typeId + ')');
+            } catch (e) {
+                out.failed.push(typeId);
+                out.errors[typeId] = e.message || String(e);
+                log.error(logKey, 'Opportunity ' + oppId + ' — objection of type ' + typeId + ' FAILED: ' + e.message);
+            }
+        });
+        return out;
     }
 
     // ─── Page data ────────────────────────────────────────────────────────────────
@@ -1320,7 +1641,13 @@ function (serverWidget, search, record, log, url, format, email, runtime) {
         RECIPIENTS_SCRIPT:      RECIPIENTS_SCRIPT,
         buildRecipientsHTML:    buildRecipientsHTML,
         readPostedRecipients:   readPostedRecipients,
-        resolveRecipients:      resolveRecipients
+        resolveRecipients:      resolveRecipients,
+        // v1.2.0: customer-safe server functions (external consumer: the customer dashboard)
+        fieldOptions:           fieldOptions,
+        writeOppUpdate:         writeOppUpdate,
+        createObjections:       createObjections,
+        OBJECTION_FIELDS:       OBJ,
+        objectionNotes:         objectionNotes
     };
 
 });

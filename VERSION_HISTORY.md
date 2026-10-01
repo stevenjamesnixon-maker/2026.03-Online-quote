@@ -361,6 +361,12 @@
 
 ## Send Quote Suitelet (`nuheat_send_quote_sl.js`) & Client Script (`nuheat_send_quote_cs.js`)
 
+### Opportunity Update Library v1.2.0 / Update Opportunity SL v1.1.1 — 1 October 2026 🔶 In review
+
+- ADDED (library 1.2.0): `fieldOptions`, `writeOppUpdate`, `createObjections` — customer-safe server
+  functions for the customer dashboard, which requires the library by absolute path.
+- CHANGED (SL 1.1.1): the objection loop calls `lib.createObjections`; no behaviour change.
+
 ### Update Opportunity SL v1.1.0 / Opportunity Update Library v1.1.0 / Send Quote SL v2.3.1 / Opportunity UE v1.4.0 — 1 October 2026 ✅ In Production (1 Oct 2026; U11–U23 passed, amendments 1–3 included)
 
 - CHANGED (Send Quote 2.3.1): the email layout moved to the library (`emailShell`, `emailRepCard`,

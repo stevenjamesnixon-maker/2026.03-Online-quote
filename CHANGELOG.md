@@ -1,3 +1,20 @@
+## [Opportunity Update Library v1.2.0, Update Opportunity SL v1.1.1] — 1 October 2026 (Release 2.1 part A)
+**Status:** 🔶 In review — not deployed
+**Components:** `nuheat_opp_update_lib.js`, `nuheat_update_opp_sl.js`, `test/opp-lib-customer.js` (new)
+
+**Why:** the customer dashboard (`NS-Customer-Dashboard`) will let customers update an open opportunity,
+reusing this library by absolute path. Additive only — the existing pages are unchanged.
+
+- ADDED (library): `fieldOptions(key, [oppId])` — select options via the page's own mechanism (dynamic
+  Opportunity + `getSelectOptions()`, 10 units); `writeOppUpdate({ oppId, values, allowed })` — validated
+  server write (unknown key / disallowed select value / bad date → throws, nothing written; reuses
+  `pendingChanges` and `updateFields`' write rules); `createObjections(...)` — moved from the Suitelet.
+  `LIB_VERSION` = `1.2.0`. No existing export or `define()` dependency changed.
+- CHANGED (Update Opportunity SL 1.1.1): its objection loop calls `lib.createObjections` — the records,
+  logs and governance are byte-identical (the 293-test suite passes unedited; every write and log line
+  matched before/after).
+- Upload order: library 1.2.0 first, then the Suitelet 1.1.1.
+
 ## Docs: Production deploys recorded (29 Sep and 1 Oct 2026)
 **Status:** ✅ Docs only
 

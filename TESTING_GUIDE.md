@@ -5,6 +5,28 @@
 
 ---
 
+## Customer-safe library functions (library 1.2.0 / Update Opportunity SL 1.1.1) — Release 2.1 part A
+
+### Automated (before uploading)
+
+```
+node test/opp-lib-customer.js        # must end "72 passed, 0 failed" — C1–C12 from the brief, C13–C15 extra
+node test/update-opp.js              # must end "293 passed, 0 failed" — unedited; proves the objection path is unchanged
+node test/send-quote-opp-update.js   # must end "400 passed, 0 failed" — unedited
+```
+
+### Sandbox (after upload, library first)
+
+- **L1** Update Opportunity regression: save with two objections (one with a note), call on and off —
+  records, notes and raised on as before; `UpdateOppSL.Objection` lines unchanged.
+- **L2** From a test script: `fieldOptions('build_stage')` and `fieldOptions('entitystatus')` with and
+  without an `oppId` match the internal page's dropdowns (confirms a new in-memory Opportunity offers the
+  same status list as a loaded one).
+- **L3** `writeOppUpdate` with a build stage outside `allowed` → `OPPLIB_VALUE_NOT_ALLOWED`, the
+  opportunity's System Notes show no change.
+
+---
+
 ## Update Opportunity (Update Opportunity SL 1.0.0 / library 1.0.0 / Send Quote SL 2.1.0 / Opportunity UE 1.3.0 / Opportunity CS 1.2.0)
 
 > **Before testing:**

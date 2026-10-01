@@ -9,14 +9,18 @@
  *              objections. Saves a completed Phone Call, sends a bespoke email from the user, saves one
  *              Customer Objection per ticked type, then the Opportunity fields LAST, and returns to the
  *              Opportunity with the result banner (nuheat_opportunity_ue.js, nsqs=upd).
- * @version     1.1.0
+ * @version     1.1.1
  * @author      Nu-Heat Development
  *
  * Script ID:      customscript_nuheat_update_opp_sl
  * Deployment ID:  customdeploy_nuheat_update_opp_sl
  *
- * ⚠️ DEPLOYMENT: nuheat_opp_update_lib.js (1.1.0) must be uploaded to SuiteScripts/NuHeat/2026 Quote/
+ * ⚠️ DEPLOYMENT: nuheat_opp_update_lib.js (1.2.0) must be uploaded to SuiteScripts/NuHeat/2026 Quote/
  *    BEFORE this script, or it fails at load time.
+ *
+ * CHANGELOG v1.1.1 (Release 2.1 part A — no behaviour change):
+ *   - The objection loop moved to the library as lib.createObjections (with OBJ and objectionNotes);
+ *     same fields, same notes (D11/D21), same raised on (D10/D22), same audit lines. Needs lib 1.2.0.
  *
  * CHANGELOG v1.1.0 (optional call, bespoke email, save guard — in Production, 1 Oct 2026):
  *   - D15: "Log a phone call" switch (on). Off → section 1 collapses, its inputs are disabled (not
@@ -73,7 +77,7 @@ define([
 
     'use strict';
 
-    var SCRIPT_VERSION = '1.1.0';
+    var SCRIPT_VERSION = '1.1.1';
 
     /** Page rules for the shared update fields: Next contact must end up set. */
     var RULES = { required: ['next_contact'], logKey: 'UpdateOppSL.OppUpdate' };
@@ -85,19 +89,7 @@ define([
     var OBJECTION_TYPE_RECORD = 'customrecord_nh_objection_type';
     var OBJECTION_TYPE_GROUP  = 'custrecord_nhot_group';
 
-    /**
-     * Customer Objection. custrecord_nhobj_group and custrecord_nhobj_customer are sourced by
-     * NetSuite — NEVER set them here.
-     */
-    var OBJ = {
-        record:      'customrecord_nh_objection',
-        opportunity: 'custrecord_nhobj_opportunity',
-        type:        'custrecord_nhobj_type',
-        quote:       'custrecord_nhobj_quote',
-        notes:       'custrecord_nhobj_notes',
-        raisedBy:    'custrecord_nhobj_raised_by',
-        raisedOn:    'custrecord_nhobj_raised_on'
-    };
+    // v1.1.1: the Customer Objection fields (OBJ) moved to the library (lib.OBJECTION_FIELDS).
 
     /**
      * Phone Call — ⚠️ ASSUMED standard field IDs, assumed until Sandbox U3 confirms them (the call
@@ -656,13 +648,7 @@ define([
         }
     }
 
-    /**
-     * D11 / D21: "<note>\n\n<context line>", or just the context line — never empty
-     * (custrecord_nhobj_notes is mandatory on the record).
-     */
-    function objectionNotes(note, contextLine) {
-        return note ? note + '\n\n' + contextLine : contextLine;
-    }
+    // v1.1.1: objectionNotes (D11 / D21) moved to the library (lib.objectionNotes).
 
     /**
      * D21: the context line, in priority order — the call, an email that was actually sent, or a
@@ -1021,25 +1007,21 @@ define([
         var callDateText = callOn ? format.format({ value: callDate, type: format.Type.DATE }) : '';
         var todayText = format.format({ value: today, type: format.Type.DATE });
         var contextLine = objectionContextLine(callOn, callDateText, notes, emailState === 'sent', todayText, subject);
-        var created = [];
-        var failedTypes = [];
-        sel.ids.forEach(function (typeId) {
-            try {
-                var o = record.create({ type: OBJ.record });
-                o.setValue({ fieldId: OBJ.opportunity, value: opportunityId });
-                o.setValue({ fieldId: OBJ.type, value: typeId });
-                if (quoteId) o.setValue({ fieldId: OBJ.quote, value: quoteId });
-                o.setValue({ fieldId: OBJ.notes, value: objectionNotes(String(params['custpage_obj_note_' + typeId] || '').trim(), contextLine) });
-                o.setValue({ fieldId: OBJ.raisedBy, value: userId });
-                o.setValue({ fieldId: OBJ.raisedOn, value: callOn ? callDate : today });   // D10 / D22
-                var oid = o.save();
-                created.push(oid);
-                log.audit('UpdateOppSL.Objection', 'Opportunity ' + opportunityId + ' — objection ' + oid + ' created (type ' + typeId + ')');
-            } catch (e) {
-                failedTypes.push(typeId);
-                log.error('UpdateOppSL.Objection', 'Opportunity ' + opportunityId + ' — objection of type ' + typeId + ' FAILED: ' + e.message);
-            }
+        // v1.1.1: the loop lives in the library (lib.createObjections) — same fields, notes and logs
+        var objNotes = {};
+        sel.ids.forEach(function (typeId) { objNotes[typeId] = String(params['custpage_obj_note_' + typeId] || '').trim(); });
+        var objResult = lib.createObjections({
+            oppId:       opportunityId,
+            typeIds:     sel.ids,
+            notes:       objNotes,
+            contextLine: contextLine,
+            raisedBy:    userId,
+            raisedOn:    callOn ? callDate : today,   // D10 / D22
+            quoteId:     quoteId,
+            logKey:      'UpdateOppSL.Objection'
         });
+        var created = objResult.created;
+        var failedTypes = objResult.failed;
 
         // ── 4. Opportunity fields — LAST ─────────────────────────────────────────
         var oppUpdate = lib.updateFields(opportunityId, params, RULES);
