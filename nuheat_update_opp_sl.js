@@ -36,6 +36,12 @@
  *     (nsq=dup). Freed when the call fails; never consumed by a validation failure.
  *   - New audit keys UpdateOppSL.Email and UpdateOppSL.Guard; the summary line gains email and call.
  *   - The D3 message now says "Set it in step 3" (the update section moved from 2 to 3).
+ *   - Amendment 2 (D18a): a "From" select — Me, the Opportunity's sales rep (salesrep) or project
+ *     engineer (custbody_pe), each only when set, with an email, and not a repeat. Posted as a code
+ *     (custpage_email_from = me | rep | pe, missing = me); the server resolves the employee (one
+ *     lookupFields with entity), and author, card and sign-off are that employee. As the PE, the
+ *     card's email line and EMAIL button show design@nu-heat.co.uk (Send Design's rule). "CC me" is
+ *     always the current user; the chosen sender gets no automatic copy.
  *
  * DECISIONS (see AI_AGENT_CONTEXT — do not reverse without Steve):
  *   - Never touches forecast flags (includeinforecast) and never writes custbody_opportunity_sub_status.
@@ -133,7 +139,22 @@ define([
         cardLabel:    'YOUR NU-HEAT CONTACT',
         footer:       'Any questions at all, just reply to this email – it comes straight to me.',
         nameFallback: 'Nu-Heat',                        // only if the employee record has no name at all
-        pageNote:     'Sent from you, with your contact details. Replies come to you.'
+        pageNote:     'Sent from you, with your contact details. Replies come to you.',
+        // Amendment 2 (D18a): the note when sending as the sales rep / project engineer
+        pageNoteOtherStart: 'Sent as ',                 // + the selected option's label
+        pageNoteOtherEnd:   ', with their contact details. Replies go to them.',
+        // The project engineer's card shows the design team's address, not the PE's own — Send Design's
+        // rule (NS-Design-Email dsn_sl_send_design.js, senderEmailForBody). Replies still go to the PE.
+        peCardEmail:  'design@nu-heat.co.uk'
+    };
+
+    /**
+     * D18a: who the email can be from. The page posts only the code; the server resolves the employee.
+     * `me` = the current user; `rep` / `pe` = the Opportunity's field (Employee).
+     */
+    var FROM_ROLES = {
+        rep: { field: 'salesrep',    label: 'Sales rep' },
+        pe:  { field: 'custbody_pe', label: 'Project engineer' }
     };
 
     // ─── Save guard (v1.1.0, D25) ─────────────────────────────────────────────────
@@ -265,6 +286,7 @@ define([
         page.callTitles   = loadCallTitles();
         page.types        = loadObjectionTypes();
         page.estimates    = loadEstimates(opportunityId);
+        page.senders      = senderOptions(page.oppRecord);   // D18a
         // D25: a re-rendered page keeps its token (a validation failure never consumes it)
         page.saveToken    = (restore && TOKEN_RE.test(restore.token || '')) ? restore.token : newSaveToken();
 
@@ -283,6 +305,48 @@ define([
     function newSaveToken() {
         var user = String(runtime.getCurrentUser().id || '0').replace(/[^A-Za-z0-9_-]/g, '');
         return 'u' + user + '-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 12);
+    }
+
+    /** True if the employee's record has a usable email address (one lookupFields; false on any error). */
+    function employeeHasEmail(employeeId) {
+        try {
+            var f = search.lookupFields({ type: search.Type.EMPLOYEE, id: employeeId, columns: ['email'] }) || {};
+            return lib.EMAIL_RE.test(lib.lookupText(f.email).trim());
+        } catch (e) {
+            log.debug('UpdateOppSL.Email', 'Employee ' + employeeId + ' email check failed: ' + e.message);
+            return false;
+        }
+    }
+
+    /**
+     * D18a: the "From" options — Me, then the sales rep and the project engineer when set on the
+     * Opportunity, with an email address, and not the same person as an earlier option.
+     * Names come from the Opportunity's field text (rep / PE) and the session user's name (me).
+     * @returns {Array<{code: string, id: string, label: string}>}
+     */
+    function senderOptions(oppRecord) {
+        var user = runtime.getCurrentUser();
+        var opts = [{ code: 'me', id: String(user.id || ''), label: 'Me' + (user.name ? ' (' + user.name + ')' : '') }];
+        ['rep', 'pe'].forEach(function (code) {
+            var role = FROM_ROLES[code];
+            var id = '', name = '';
+            try {
+                id   = String(oppRecord.getValue({ fieldId: role.field }) || '');
+                name = oppRecord.getText({ fieldId: role.field }) || '';
+            } catch (e) {
+                log.debug('UpdateOppSL.Email', role.field + ' could not be read: ' + e.message);
+            }
+            if (!id || opts.some(function (o) { return o.id === id; })) return;
+            if (!employeeHasEmail(id)) return;
+            opts.push({ code: code, id: id, label: role.label + (name ? ' (' + name + ')' : '') });
+        });
+        return opts;
+    }
+
+    /** The page note for a From option (D18a). */
+    function senderNote(opt) {
+        return (!opt || opt.code === 'me') ? EMAIL_COPY.pageNote
+            : EMAIL_COPY.pageNoteOtherStart + opt.label + EMAIL_COPY.pageNoteOtherEnd;
     }
 
     /** D17: "An update on <tranid>". */
@@ -354,6 +418,14 @@ define([
         h.push('<section class="nsq-card"><h2 class="nsq-h2"><span class="nsq-num">2</span>Send an email' +
             switchHTML('nsq-email-on', 'Send an email', emailOn, 'nsq-email-off') + '</h2>');
         h.push('<div id="nsq-email-body"' + (emailOn ? '' : ' hidden') + '>');
+        // D18a: From — posted as a code only; the posted code is restored if still offered, else 'me'
+        var fromCode = (!emailFresh && page.senders.some(function (o) { return o.code === r.from; })) ? r.from : 'me';
+        var fromOpt = page.senders.filter(function (o) { return o.code === fromCode; })[0];
+        h.push('<div class="nsq-field"><label class="nsq-label" for="nsq-email-from">From</label>' +
+            '<select id="nsq-email-from" name="custpage_email_from" class="nsq-input">' +
+            page.senders.map(function (o) {
+                return '<option value="' + o.code + '"' + (o.code === fromCode ? ' selected' : '') + '>' + escapeHtml(o.label) + '</option>';
+            }).join('') + '</select></div>');
         h.push('<div class="nsq-field"><label class="nsq-label" for="nsq-email-subject">Subject and headline <span class="nsq-req" aria-hidden="true">*</span></label>' +
             '<input type="text" class="nsq-input" id="nsq-email-subject" name="custpage_email_subject" maxlength="' + EMAIL_SUBJECT_MAX +
             '" autocomplete="off" value="' + escapeHtml(subject) + '"></div>');
@@ -361,7 +433,9 @@ define([
             '<textarea class="nsq-input nsq-textarea" id="nsq-email-message" name="custpage_email_message" rows="8" maxlength="' + EMAIL_MESSAGE_MAX + '">' +
             escapeHtml(emailFresh ? '' : (r.message || '')) + '</textarea></div>');
         h.push(lib.buildRecipientsHTML(page.contacts, page.customerEmail, emailFresh ? null : r.rcpt));
-        h.push('<p class="nsq-help nsq-email-note">' + escapeHtml(EMAIL_COPY.pageNote) + '</p>');
+        h.push('<p class="nsq-help nsq-email-note" id="nsq-email-note" data-note-me="' + escapeHtml(EMAIL_COPY.pageNote) +
+            '" data-note-pre="' + escapeHtml(EMAIL_COPY.pageNoteOtherStart) + '" data-note-post="' + escapeHtml(EMAIL_COPY.pageNoteOtherEnd) + '">' +
+            escapeHtml(senderNote(fromOpt)) + '</p>');
         h.push('</div></section>');
 
         // ── 3 Update the opportunity ──
@@ -485,6 +559,13 @@ define([
         '      });',
         '    });',
         '    $("nsq-email-message").addEventListener("input", update);',
+        '    var from = $("nsq-email-from"), note = $("nsq-email-note");',
+        '    function setNote() {',
+        '      var o = from.options[from.selectedIndex];',
+        '      note.textContent = (!o || o.value === "me") ? note.getAttribute("data-note-me") : note.getAttribute("data-note-pre") + o.text + note.getAttribute("data-note-post");',
+        '    }',
+        '    from.addEventListener("change", setNote);',
+        '    setNote();',
         '    recipientsInit();',
         '    [["nsq-call-on", "nsq-call-body", "nsq-call-off", "nsq-call-on-val"],',
         '     ["nsq-email-on", "nsq-email-body", "nsq-email-off", "nsq-email-on-val"]].forEach(function (s) {',
@@ -546,6 +627,7 @@ define([
             date:     String(params.custpage_call_date || ''),
             contact:  String(params.custpage_call_contact || ''),
             notes:    String(params.custpage_call_notes || ''),
+            from:     String(params.custpage_email_from || ''),
             subject:  String(params.custpage_email_subject || ''),
             message:  String(params.custpage_email_message || ''),
             rcpt:     lib.readPostedRecipients(params),
@@ -627,9 +709,11 @@ define([
      *
      * @param {string} subject - the subject, also the headline
      * @param {string} message - plain text as typed
-     * @param {Object} sender - lib.loadSender()
+     * @param {Object} sender - lib.loadSender() — the chosen sender (D18a: me, the sales rep or the PE)
+     * @param {string} cardEmail - the card's email line and EMAIL button: the sender's own address, or
+     *                             EMAIL_COPY.peCardEmail when sending as the project engineer
      */
-    function buildBespokeEmail(subject, message, sender) {
+    function buildBespokeEmail(subject, message, sender, cardEmail) {
         var font = lib.EMAIL_FONT, face = lib.EMAIL_FACE;
         var name  = sender.fullName || EMAIL_COPY.nameFallback;
         var first = String(sender.firstName || '').trim();
@@ -646,10 +730,10 @@ define([
         var card = lib.emailRepCard({
             name:       emailText(name),
             phone:      emailText(phone),
-            email:      emailText(sender.email),
+            email:      emailText(cardEmail),
             photo:      sender.photoUrl ? escapeHtml(sender.photoUrl) : '',
             tel:        escapeHtml(phone.replace(/[^\d+]/g, '')),
-            mailto:     escapeHtml(sender.email),
+            mailto:     escapeHtml(cardEmail),
             firstUpper: emailText(first.toUpperCase())
         }, emailText(EMAIL_COPY.cardLabel));
 
@@ -731,18 +815,21 @@ define([
             if (!contacts) contacts = lib.loadContacts(opportunityId, 'UpdateOppSL');
             return contacts;
         }
-        var customerId = null;
-        function opportunityCustomer() {
-            if (customerId !== null) return customerId;
-            customerId = '';
+        // One lookupFields for the customer and (D18a) the sales rep and project engineer
+        var oppFields = null;
+        function opportunityFields() {
+            if (oppFields) return oppFields;
+            oppFields = { entity: '', rep: '', pe: '' };
+            var first = function (v) { return (Array.isArray(v) && v[0]) ? String(v[0].value || '') : ''; };
             try {
-                var opp = search.lookupFields({ type: search.Type.OPPORTUNITY, id: opportunityId, columns: ['entity'] });
-                customerId = (opp.entity && opp.entity[0]) ? opp.entity[0].value : '';
+                var opp = search.lookupFields({ type: search.Type.OPPORTUNITY, id: opportunityId, columns: ['entity', 'salesrep', 'custbody_pe'] });
+                oppFields = { entity: first(opp.entity), rep: first(opp.salesrep), pe: first(opp.custbody_pe) };
             } catch (e) {
                 log.error('UpdateOppSL.Call', 'Opportunity ' + opportunityId + ' — customer lookup failed: ' + e.message);
             }
-            return customerId;
+            return oppFields;
         }
+        function opportunityCustomer() { return opportunityFields().entity; }
 
         // ── Validation — nothing is written until all of this passes ─────────────
         var title = '', notes = '', callDate = null;
@@ -762,7 +849,7 @@ define([
             if (callDate > latest) return invalid('The call date can’t be in the future.');
         }
 
-        var subject = '', message = '', rcpt = null, sender = null;
+        var subject = '', message = '', rcpt = null, sender = null, fromCode = '', ccMeEmail = '';
         if (emailOn) {
             subject = String(params.custpage_email_subject || '').trim();
             if (!subject) return invalid('Enter a subject for the email.');
@@ -783,10 +870,36 @@ define([
             rcpt = lib.resolveRecipients(params, opportunityContacts(), customerEmail);
             if (rcpt.error) return invalid(rcpt.error);
 
-            sender = lib.loadSender('UpdateOppSL.Email');
-            if (sender.error) return invalid('Your employee record could not be read, so the email can’t be sent from you.');
-            if (!sender.email || !lib.EMAIL_RE.test(sender.email)) {
-                return invalid('Your employee record has no email address, so the email can’t be sent from you.');
+            // D18a: who it is from — a whitelisted code; the server finds the employee itself
+            fromCode = params.custpage_email_from === undefined || params.custpage_email_from === '' ? 'me' : String(params.custpage_email_from);
+            if (fromCode !== 'me' && !FROM_ROLES.hasOwnProperty(fromCode)) return invalid('Choose who the email is from.');
+            if (fromCode === 'me') {
+                sender = lib.loadSender('UpdateOppSL.Email');
+                if (sender.error) return invalid('Your employee record could not be read, so the email can’t be sent from you.');
+                if (!sender.email || !lib.EMAIL_RE.test(sender.email)) {
+                    return invalid('Your employee record has no email address, so the email can’t be sent from you.');
+                }
+            } else {
+                var role = FROM_ROLES[fromCode];
+                var noEmail = role.label + ' has no email address on their employee record, so the email can’t be sent from them.';
+                var empId = opportunityFields()[fromCode];
+                if (!empId) return invalid(noEmail);
+                sender = lib.loadSender('UpdateOppSL.Email', empId);
+                if (sender.error) return invalid(role.label + '’s employee record could not be read, so the email can’t be sent from them.');
+                if (!sender.email || !lib.EMAIL_RE.test(sender.email)) return invalid(noEmail);
+            }
+            // "CC me" is always the CURRENT user, whoever the email is from
+            if (rcpt.ccMe) {
+                if (fromCode === 'me') {
+                    ccMeEmail = sender.email;
+                } else {
+                    try {
+                        ccMeEmail = lib.lookupText(search.lookupFields({ type: search.Type.EMPLOYEE, id: runtime.getCurrentUser().id, columns: ['email'] }).email).trim();
+                    } catch (e) {
+                        ccMeEmail = '';
+                    }
+                    if (!lib.EMAIL_RE.test(ccMeEmail)) return invalid('Your employee record has no email address, so you can’t be copied in. Untick CC me.');
+                }
             }
         }
 
@@ -871,12 +984,13 @@ define([
         var emailCount = 0;
         if (emailOn) {
             var cc = [];
-            var me = sender.email.toLowerCase();
-            if (rcpt.ccMe && !rcpt.to.some(function (a) { return a.toLowerCase() === me; })) cc.push(sender.email);
+            var me = ccMeEmail.toLowerCase();
+            if (rcpt.ccMe && !rcpt.to.some(function (a) { return a.toLowerCase() === me; })) cc.push(ccMeEmail);
+            log.audit('UpdateOppSL.Email', 'Opportunity ' + opportunityId + ' — from ' + fromCode + ' (employee ' + sender.id + ')');
             // Built in its own try: a failure here is an email failure (D24), never a stop.
             var body = null;
             try {
-                body = buildBespokeEmail(subject, message, sender);
+                body = buildBespokeEmail(subject, message, sender, fromCode === 'pe' ? EMAIL_COPY.peCardEmail : sender.email);
             } catch (e) {
                 log.error('UpdateOppSL.Email', 'Opportunity ' + opportunityId + ' — email body could not be built; not sent: ' + ((e && e.message) || String(e)));
             }
@@ -884,7 +998,7 @@ define([
                 emailState = 'fail';
             } else {
                 var sent = lib.sendEmail({
-                    author:     userId,
+                    author:     sender.id,   // D18a: the chosen sender — replies go to them
                     to:         rcpt.to,
                     cc:         cc,
                     subject:    subject,

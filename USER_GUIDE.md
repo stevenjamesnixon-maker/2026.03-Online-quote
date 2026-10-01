@@ -201,14 +201,19 @@ of them: a call, an email, an objection or a changed field is enough.
    **Call date** (today by default; it can't be in the future), choose a **Contact** if you spoke to one,
    and write **What was discussed**.
 3. **Send an email** — off by default; tick **Send an email** to open it.
+   - **From** — **Me** by default. You can also send it as the opportunity's **Sales rep** or **Project
+     engineer** (each is listed only if set on the opportunity and they have an email address). The email
+     then comes from them, with their photo, phone and sign-off, and replies go to them. As the project
+     engineer, the card shows design@nu-heat.co.uk as the email address. They don't get a copy — tick
+     **CC me** if *you* want one.
    - **Subject and headline** starts as "An update on" plus the opportunity number. Change it if you like —
      it's both the email's subject and the big heading inside it.
    - Write your **Message** as plain text. Leave a blank line for a new paragraph.
    - Choose who it goes to: tick the opportunity's contacts (only those with an email address are listed),
      **Customer**, and/or type **Other addresses** (separate them with commas). Up to 10 addresses.
      Tick **CC me** for a copy.
-   - The email comes **from you**, with your photo, phone number and email from your employee record, so
-     replies come straight back to you. It's saved on the opportunity under Communication › Messages.
+   - With **From: Me**, the email comes **from you**, with your photo, phone number and email from your
+     employee record, so replies come straight back to you. It's saved on the opportunity under Communication › Messages.
      There are no attachments.
 4. **Update the opportunity** — the same fields as Send Quote. **Next contact is required**: if the
    opportunity has none, you must set one before you can save, even when you're only sending an email.

@@ -152,12 +152,12 @@ All values are HTML-escaped; tags are substituted in one pass.
 
 | Item | Source |
 |---|---|
-| `author` | the current user (`runtime.getCurrentUser().id`) |
+| `author` | *(amendment 2)* the chosen sender: `me` → the current user; `rep` → the Opportunity's `salesrep`; `pe` → the Opportunity's `custbody_pe` (Employee). Read by the server with one `search.lookupFields` on the Opportunity (`entity`, `salesrep`, `custbody_pe`) |
 | To | ticked contacts (their `email` from the opportunity's contact search), the customer's `email` (`search.lookupFields` on the customer), other addresses as typed — 1 to 10, de-duplicated |
-| CC | the sender, if "CC me" (dropped if already in To) |
+| CC | the **current user**, if "CC me" (whoever the email is from; dropped if already in To). The chosen sender gets no automatic copy |
 | `relatedRecords` | `entityId` = the opportunity's customer, `transactionId` = the opportunity (Communication › Messages) |
 | Subject / headline | the "Subject and headline" box (default `An update on <tranid>`, max 120) |
-| Sender card | **Employee** (one `search.lookupFields` on the current user): `firstname`, `lastname` (`entityid` if both are empty), `email` (required), `phone` (same field Send Quote's card reads; no opportunity override), `custentity_employee_photo_link` (https only) |
+| Sender card | **Employee** (one `search.lookupFields` on the chosen sender): `firstname`, `lastname` (`entityid` if both are empty), `email` (required), `phone` (same field Send Quote's card reads; no opportunity override), `custentity_employee_photo_link` (https only). As the PE, the card's email line and EMAIL button show `design@nu-heat.co.uk` (Send Design's rule) |
 
 ### Page fields posted (1.1.0)
 
@@ -165,6 +165,7 @@ All values are HTML-escaped; tags are substituted in one pass.
 |---|---|
 | `custpage_call_on` | `T` / `F` — missing = on (a 1.0 page) |
 | `custpage_email_on` | `T` / `F` — missing = off |
+| `custpage_email_from` | *(amendment 2)* `me` \| `rep` \| `pe` — a code, never an employee ID; missing = `me`; anything else blocks the save |
 | `custpage_email_subject`, `custpage_email_message` | the email (posted only while the section is on) |
 | `custpage_rcpt_contacts` | comma list of contact IDs |
 | `custpage_rcpt_customer`, `custpage_rcpt_ccme` | `T` / `F` |

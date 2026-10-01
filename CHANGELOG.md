@@ -45,7 +45,7 @@ send a short personal email from the same page. 1.0.0 forced a call on every sav
 ### Tests
 - `test/send-quote-opp-update.js`: H1 (6 assertions) — 400 in total, every earlier assertion unchanged.
 - `test/update-opp.js`: `N/email` and `N/cache` stubs, `post()` defaults for the new fields; T1 and T3
-  adjusted for the new section numbers; T18–T37 added — 238 in total.
+  adjusted for the new section numbers; T18–T46 added — 271 in total.
 
 ### Fixed — amendment 1 (review of 1 Oct; still 1.1.0)
 - **A1:** a section that was switched off when the page was posted (its inputs disabled, so not posted)
@@ -56,6 +56,19 @@ send a short personal email from the same page. 1.0.0 forced a call on every sav
   failed (`UpdateOppSL.Email` at error level, `nsqe=fail`, `nsq=warn`, no `email.send`) and the
   objections and fields are still written — previously the error escaped after the phone call was
   saved (T37).
+
+### Changed — amendment 2 (Steve, after U11–U19 passed; still 1.1.0)
+- **"From"** is the first field in "Send an email": **Me**, the opportunity's **Sales rep** or its
+  **Project engineer** (`custbody_pe`). Rep and PE appear only when set, with an email address, and not the
+  same person as an earlier option; the default is Me. The page posts only `me` / `rep` / `pe`; the server
+  finds the employee itself (one lookup with the customer) and blocks the save if that person is gone or
+  has no email address.
+- The email's **author**, card, sign-off and footer name are the chosen person, so replies go to them. As
+  the project engineer, the card's email line and EMAIL button show **design@nu-heat.co.uk** (Send Design's
+  rule); no PE phone → no CALL button. **CC me** is always you; the chosen sender gets no automatic copy.
+- The page note follows the choice: "Sent as Sales rep (…), with their contact details. Replies go to them."
+- Library: `loadSender(logKey, [employeeId])`. Tests T38–T46; T28's "no opportunity phone override"
+  check now allows the opportunity lookup to read `salesrep` / `custbody_pe`.
 
 ### Deployment
 - Upload **`nuheat_opp_update_lib.js` first**, then `nuheat_send_quote_sl.js` and `nuheat_update_opp_sl.js`,

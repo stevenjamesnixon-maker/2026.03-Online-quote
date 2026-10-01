@@ -22,7 +22,8 @@
  *   - ADDED: sendEmail(o) — email.send with relatedRecords { entityId, transactionId }; never throws.
  *   - ADDED: pendingChanges(params) — the pure "what would change" half of updateFields(), which
  *     now uses it (identical behaviour: Send Quote's suites and hashes pass unchanged).
- *   - ADDED (Update Opportunity 1.1.0): loadSender(logKey) — the current user's employee card;
+ *   - ADDED (Update Opportunity 1.1.0): loadSender(logKey, [employeeId]) — an employee's card (the
+ *     current user by default; amendment 2: the sales rep or project engineer when given);
  *     the recipients component — buildRecipientsHTML, RECIPIENTS_SCRIPT (constant script fragment),
  *     readPostedRecipients, resolveRecipients (server rebuilds every address; 1–10 To addresses).
  *   - define() gains N/email and N/runtime (NOT N/render).
@@ -1087,19 +1088,21 @@ function (serverWidget, search, record, log, url, format, email, runtime) {
     // ─── Sender (v1.1.0) ──────────────────────────────────────────────────────────
 
     /**
-     * The current user's employee record, for an email sent FROM them (Update Opportunity D18):
+     * An employee record, for an email sent FROM them (Update Opportunity D18 / D18a) — the current
+     * user, or the employee given (the Opportunity's sales rep or project engineer):
      * one search.lookupFields — firstname, lastname, entityid (name fallback), email, phone (the
      * same employee field Send Quote's card reads via loadSalesRepData) and the photo link (https
      * only, checkPhotoUrl). No Opportunity override fields. Never throws: error is set instead.
      *
      * @param {string} logKey - audit key (no address is ever logged)
+     * @param {string} [employeeId] - the employee to read; omitted → the current user
      * @returns {{ id, firstName, fullName, email, phone, photoUrl, error }}
      */
-    function loadSender(logKey) {
+    function loadSender(logKey, employeeId) {
         var out = { id: '', firstName: '', fullName: '', email: '', phone: '', photoUrl: '', error: '' };
         var photo = { url: '', reason: 'not read' };
         try {
-            out.id = String(runtime.getCurrentUser().id || '');
+            out.id = String(employeeId || runtime.getCurrentUser().id || '');
             var f = search.lookupFields({
                 type:    search.Type.EMPLOYEE,
                 id:      out.id,

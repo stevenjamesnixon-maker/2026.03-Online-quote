@@ -57,7 +57,7 @@ for f in nuheat_opp_update_lib.js nuheat_send_quote_sl.js nuheat_update_opp_sl.j
 
 ```bash
 node test/send-quote-opp-update.js   # must end "400 passed, 0 failed" — includes H1, the proposal email byte-identical to 2.3.0
-node test/update-opp.js              # must end "238 passed, 0 failed"
+node test/update-opp.js              # must end "271 passed, 0 failed"
 for f in nuheat_opp_update_lib.js nuheat_send_quote_sl.js nuheat_update_opp_sl.js nuheat_opportunity_ue.js; do node --check "$f"; done
 ```
 
@@ -74,6 +74,10 @@ for f in nuheat_opp_update_lib.js nuheat_send_quote_sl.js nuheat_update_opp_sl.j
 | U17 | Press Save, then browser Back and Save again | The second save shows **Already saved**; no second call or email |
 | U18 | Outlook desktop and a phone mail app | The card renders as Send Quote's does |
 | U19 | Send Quote after the update | Unchanged: send one proposal (as R3) and compare the email |
+| U20 | *(amendment 2)* Send as the sales rep (not yourself), to yourself as the recipient | It arrives from the rep, with the rep's card and sign-off. Reply → it goes to the rep. The rep gets no copy. Logged under Communication › Messages |
+| U21 | Send as the PE | It arrives from the PE: the PE's name and phone, but the email line and button say design@nu-heat.co.uk. Reply → it goes to the PE |
+| U22 | An opportunity with no PE | No PE option |
+| U23 | You are the sales rep | Only "Me" appears |
 
 > Also worth a look: (a) with the call off and nothing else, Save stays disabled with "Log a call, send an
 > email, tick an objection or change a field."; (b) the subject's tranid — Steve expects `QR…`; if the
