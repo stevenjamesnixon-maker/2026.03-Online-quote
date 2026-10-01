@@ -26,18 +26,18 @@
 |--------|------|---------------|
 | **BUS Grant Module** | `nuheat_bus_grant.js` | v1.0.0 |
 | **VAT Rates Module** | `nuheat_vat_rates.js` | v1.0.0 |
-| **Opportunity Update Library** | `nuheat_opp_update_lib.js` | 1.0.0 — pending Sandbox |
+| **Opportunity Update Library** | `nuheat_opp_update_lib.js` | 1.1.0 — pending test |
 | Quote Suitelet | `nuheat_quote_suitelet.js` | v4.6.0 |
 | Quote UE | `nuheat_quote_ue.js` | v4.0.9 |
 | Quote CS | `nuheat_quote_cs.js` | v4.0.6 |
 | Quote Viewer | `nuheat_quote_viewer_sl.js` | v1.1.0 |
 | Scheduled Script | `nuheat_quote_generator_ss.js` | v1.0.0 |
 | Master Proposal | `nuheat_master_proposal.js` | v1.8.3 |
-| Send Quote SL | `nuheat_send_quote_sl.js` | 2.1.1 — pending Sandbox |
-| Update Opportunity SL | `nuheat_update_opp_sl.js` | 1.0.0 — pending Sandbox |
+| Send Quote SL | `nuheat_send_quote_sl.js` | 2.3.1 — pending test |
+| Update Opportunity SL | `nuheat_update_opp_sl.js` | 1.1.0 — pending test |
 | Send Quote CS | `nuheat_send_quote_cs.js` | v1.4.0 — detached (no upload needed) |
 | Analytics Suitelet | `nuheat_analytics_sl.js` | v1.0.1 |
-| Opportunity UE | `nuheat_opportunity_ue.js` | 1.3.0 — pending Sandbox |
+| Opportunity UE | `nuheat_opportunity_ue.js` | 1.4.0 — pending test |
 | Opportunity CS | `nuheat_opportunity_cs.js` | 1.2.0 — pending Sandbox |
 
 > Read each version from the `SCRIPT_VERSION` / `MODULE_VERSION` constant in the file, not from the
@@ -101,6 +101,12 @@
 >
 > If you have already redeployed a consumer and it is erroring on load, upload the missing module
 > and the error clears — no redeploy of the consumer is needed.
+>
+> **Update Opportunity 1.1.0 / Send Quote 2.3.1 (1 Oct 2026):** upload **`nuheat_opp_update_lib.js`
+> 1.1.0 first** — both Suitelets call its email functions — then `nuheat_send_quote_sl.js` and
+> `nuheat_update_opp_sl.js`, then `nuheat_opportunity_ue.js`. Read back every version header (library
+> 1.1.0, Send Quote SL 2.3.1, Update Opportunity SL 1.1.0, Opportunity UE 1.4.0). No new script
+> parameters or records.
 
 2. Upload the scripts (all files live at the **repository root** — there is no `src/` directory):
    - **`nuheat_bus_grant.js`** ← **upload FIRST** (shared module, no script record needed)
@@ -181,7 +187,7 @@ Navigate to **Customization > Scripting > Scripts > New** for each:
   - ID: `customdeploy_nuheat_send_quote_sl`
   - Status: Released
 
-#### 2f-2. Update Opportunity Suitelet (new, Update Opportunity SL 1.0.0)
+#### 2f-2. Update Opportunity Suitelet (new in 1.0.0; 1.1.0 adds the email and the save guard)
 - **Name:** Nu-Heat Update Opportunity
 - **Script ID:** `customscript_nuheat_update_opp_sl`
 - **Script File:** `SuiteScripts/NuHeat/2026 Quote/nuheat_update_opp_sl.js`
@@ -193,6 +199,13 @@ Navigate to **Customization > Scripting > Scripts > New** for each:
   - **Log Level: Audit** (the `UpdateOppSL.*` lines are audit-level)
 - The role needs **Create** on Phone Call and on the Customer Objection custom record, and **View** on
   Objection Type and the Call Title list.
+- **1.1.0:** the email is sent as the **current user** and logged on the customer and the opportunity
+  (`relatedRecords`), so the role must be able to send email and read its own **Employee** record
+  (`firstname`, `lastname`, `entityid`, `email`, `phone`, `custentity_employee_photo_link`) and the
+  customer's `email`. `N/cache` needs no setup. No new script parameters.
+- **Account checks before testing 1.1.0:** no workflow or user event script runs on **Message**
+  records; every rep's employee record has an email address and a phone number. Sandbox may redirect
+  outgoing email, which hides real-recipient bugs — test recipients should be your own addresses.
 
 #### 2g. Opportunity User Event
 - **Name:** Nu-Heat Opportunity UE

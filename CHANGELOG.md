@@ -1,3 +1,58 @@
+## [Update Opportunity SL v1.1.0, library v1.1.0, Send Quote SL v2.3.1, Opportunity UE v1.4.0] — 1 October 2026
+**Status:** ⏳ Pending test (U11–U19; U1–U10 still apply)
+**Components:** `nuheat_opp_update_lib.js`, `nuheat_send_quote_sl.js` (extraction only),
+`nuheat_update_opp_sl.js`, `nuheat_opportunity_ue.js`, `test/update-opp.js`, `test/send-quote-opp-update.js`
+
+**Why:** a rep often updates an opportunity without a phone call (an email, or just a date), and wants to
+send a short personal email from the same page. 1.0.0 forced a call on every save.
+
+### Changed — the email layout moves to the library (Send Quote 2.3.1, no behaviour change)
+- `lib.emailShell(slots)`, `lib.emailRepCard(rep, label)`, `lib.emailButton()`, the photo / first-name
+  helpers, the email constants, `EMAIL_RE`, `parseEmails` (comma-only) and `invalidEmails` move unchanged
+  from Send Quote to the library. Send Quote keeps its copy, subject, author (the opportunity's sales
+  rep), phone sourcing (`custbody_sales_rep_phone` first), rep lookup, page and page script.
+- The proposal email is **byte-identical** to 2.3.0: test H1 compares four SHA-256 fixtures captured at
+  `9742aed` before the move, and the committed `docs/samples/send-quote-email-2.2.0.html`.
+- The library gains `N/email` and `N/runtime` (not `N/render`), `sendEmail()` (never throws) and
+  `pendingChanges()` — the pure half of `updateFields()`, which now uses it.
+
+### Added — Update Opportunity 1.1.0
+- **"Log a phone call" switch** (on). Off: no phone call, the call fields are disabled, not posted and not
+  validated, and the banner has no call line.
+- **"Send an email" section** (switch, off): subject = headline (`An update on <tranid>`, max 120), a
+  plain-text message (max 10,000), recipients (contact ticks, Customer, other addresses, CC me; 1–10 To
+  addresses, rebuilt on the server). Sent **from you**, logged on the customer and the opportunity
+  (Communication › Messages), in the branded layout with your own contact card: photo, name, phone,
+  email, CALL / EMAIL buttons, the sign-off "Best wishes," and the footer "Any questions at all, just
+  reply to this email – it comes straight to me." No attachments; no templates yet (1.2).
+- Save order: call → **email** → objections → opportunity fields last. A failed call still stops
+  everything; a failed email does not (amber banner "The email was not sent.").
+- **Objection notes** are always optional; the saved note always ends with a context line —
+  `Call notes (…): …`, `Email sent (<today>): <subject>`, or `Logged via Update opportunity (<today>)`.
+  With the call off, "raised on" is today in the UK (the browser's date, checked by the server).
+- **Something to save:** Save stays disabled until there is a call, an email, an objection or a changed
+  field. Next contact is still required on every save.
+- **Save guard:** pressing Save again on a resubmitted page (browser Back, refresh) saves nothing and
+  shows **Already saved**.
+- Section numbers: 1 Log the call · 2 Send an email · 3 Update the opportunity · 4 Log any objections.
+  The objections help text is now "Optional. Add a note to any objection if it helps."
+
+### Added — Opportunity UE 1.4.0 banner
+- "Email sent to N recipient(s)" / "The email was not sent."; titles **Email sent** / **Email not sent**
+  when the email was the only thing done; **Already saved** for a duplicate save. Fixed words only — never
+  the subject or an address. Send Quote banners are unchanged.
+
+### Tests
+- `test/send-quote-opp-update.js`: H1 (6 assertions) — 400 in total, every earlier assertion unchanged.
+- `test/update-opp.js`: `N/email` and `N/cache` stubs, `post()` defaults for the new fields; T1 and T3
+  adjusted for the new section numbers; T18–T35 added — 222 in total.
+
+### Deployment
+- Upload **`nuheat_opp_update_lib.js` first**, then `nuheat_send_quote_sl.js` and `nuheat_update_opp_sl.js`,
+  then `nuheat_opportunity_ue.js`. No new script parameters or records.
+
+---
+
 ## [Send Quote SL v2.3.0 (and v2.2.1)] — 29 September 2026
 **Status:** ⏳ Pending Sandbox testing (R19)
 **Components:** `nuheat_send_quote_sl.js`, `test/send-quote-opp-update.js`

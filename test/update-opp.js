@@ -792,6 +792,8 @@ emailPost({ custpage_obj_sel: JSON.stringify(state.types.map(function (t) { retu
 ok(objections().length === 25 && state.emails.length === 1 && !!state.redirect && rparams().nsq === 'ok', 'everything saved and sent');
 ok(state.units < 300, 'save used ' + state.units + ' units (< 300)');
 console.log('     ledger: ' + JSON.stringify(state.calls.reduce(function (m, c) { var k = c.replace(/:.*$/, ''); m[k] = (m[k] || 0) + 1; return m; }, {})));
+ok(ALL_WRITES.every(function (w) { return !('custbody_opportunity_sub_status' in w.values) && !('includeinforecast' in w.values) && w.type !== 'estimate'; }),
+   'T13 re-checked across the 1.1.0 scenarios: no sub-status, no forecast flag, no Estimate write (' + ALL_WRITES.length + ' writes)');
 
 // ─── T14–T16 (UE 1.3.0) and T33–T34 (UE 1.4.0): Opportunity UE banner ─────────────────────────────────────
 

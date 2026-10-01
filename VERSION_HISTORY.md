@@ -361,6 +361,17 @@
 
 ## Send Quote Suitelet (`nuheat_send_quote_sl.js`) & Client Script (`nuheat_send_quote_cs.js`)
 
+### Update Opportunity SL v1.1.0 / Opportunity Update Library v1.1.0 / Send Quote SL v2.3.1 / Opportunity UE v1.4.0 — 1 October 2026 ⏳ Pending test
+
+- CHANGED (Send Quote 2.3.1): the email layout moved to the library (`emailShell`, `emailRepCard`,
+  `emailButton`); the proposal email is byte-identical to 2.3.0 (test H1). No behaviour change.
+- ADDED (Update Opportunity 1.1.0): "Log a phone call" switch (on) and "Send an email" section (off) —
+  a bespoke email from the user, in the branded layout with the user's own contact card; recipients
+  rebuilt on the server (1–10). Save order call → email → objections → opportunity last. Objection
+  notes always carry a context line. Something-to-save rule. One-time save token (`N/cache`).
+- ADDED (library 1.1.0): `sendEmail`, `loadSender`, the recipients component, `pendingChanges`.
+- ADDED (UE 1.4.0): banner codes `nsqe` / `nsqen` and `nsq=dup`.
+
 ### Send Quote SL v2.1.1 — 29 September 2026 ⏳ Pending Sandbox testing
 
 - FIXED: proposal email — contact buttons shown twice, and left drift, in viewers that strip styles

@@ -1,6 +1,6 @@
 # Testing Guide
 
-**Last Updated:** 29 September 2026
+**Last Updated:** 1 October 2026
 **Environment:** Sandbox (472052_SB1)
 
 ---
@@ -39,6 +39,46 @@ for f in nuheat_opp_update_lib.js nuheat_send_quote_sl.js nuheat_update_opp_sl.j
 | U8 | Send Quote after the refactor | Unchanged — run **R3** and **R16** again |
 | U9 | A role without create rights on Customer Objection | The call and fields save; amber banner names the objections not saved |
 | U10 | Refresh 6 minutes later | No banner |
+
+## Update Opportunity 1.1 (Update Opportunity SL 1.1.0 / library 1.1.0 / Send Quote SL 2.3.1 / Opportunity UE 1.4.0) — optional call, bespoke email, save guard
+
+> **Before testing — as an NH Account Manager role, not Administrator:**
+> - Upload **`nuheat_opp_update_lib.js` first**, then `nuheat_send_quote_sl.js` and `nuheat_update_opp_sl.js`,
+>   then `nuheat_opportunity_ue.js`. Read back every version header: library 1.1.0, Send Quote SL 2.3.1,
+>   Update Opportunity SL 1.1.0, Opportunity UE 1.4.0 (Opportunity CS stays 1.2.0).
+> - No new script parameters or records are needed.
+> - **Where to test:** the objection configuration exists **only in Production**. Either build it in
+>   Sandbox first, or test in Production on a test opportunity whose contacts are your own addresses.
+>   Sandbox may also redirect outgoing email, which hides real-recipient bugs.
+> - **Account checks first:** no workflow or user event script runs on **Message** records; every rep's
+>   employee record has an email address and a phone number.
+
+### Automated (before uploading)
+
+```bash
+node test/send-quote-opp-update.js   # must end "400 passed, 0 failed" — includes H1, the proposal email byte-identical to 2.3.0
+node test/update-opp.js              # must end "222 passed, 0 failed"
+for f in nuheat_opp_update_lib.js nuheat_send_quote_sl.js nuheat_update_opp_sl.js nuheat_opportunity_ue.js; do node --check "$f"; done
+```
+
+### Scenarios
+
+| # | Test | Expected |
+|---|---|---|
+| U11 | Call off, Next contact changed only | Saves; no phone call under Activities; banner without a call line |
+| U12 | Email only (call off), to yourself as a contact, plus CC me | You receive it from the rep: subject/headline `An update on QR…`, your message, sign-off, contact block with the sender's photo and number, the friendly footer. It appears under the opportunity's **Communication › Messages**. Banner: **Email sent** |
+| U13 | Reply to the email | The reply goes to the sender |
+| U14 | Open the logged message in NetSuite (pitfall 25 view) | No duplicated buttons; readable with styles stripped |
+| U15 | Call + email + 2 objections (one with a note) + Status change | All saved in order. The objection notes show the call line. Banner lists call, email, objections and status |
+| U16 | Call off, email on, 1 objection, no note | The objection note reads `Email sent (<today>): <subject>`; raised on = today |
+| U17 | Press Save, then browser Back and Save again | The second save shows **Already saved**; no second call or email |
+| U18 | Outlook desktop and a phone mail app | The card renders as Send Quote's does |
+| U19 | Send Quote after the update | Unchanged: send one proposal (as R3) and compare the email |
+
+> Also worth a look: (a) with the call off and nothing else, Save stays disabled with "Log a call, send an
+> email, tick an objection or change a field."; (b) the subject's tranid — Steve expects `QR…`; if the
+> pre-filled subject shows something else, report it (the code uses the opportunity's `tranid`).
+
 
 Also worth a look: an objection type or quote with HTML in its name shows clean text; a call date of
 today works first thing in the morning (UK); the Execution Log shows `UpdateOppSL.Summary` for each save.
