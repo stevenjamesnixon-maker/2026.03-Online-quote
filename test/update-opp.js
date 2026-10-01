@@ -1,7 +1,7 @@
 /**
  * Tests for Update Opportunity SL 1.1.0 (+ nuheat_opp_update_lib.js 1.1.0, Opportunity UE 1.4.0).
  * T1–T17 from 1.0.0 (T1 and T3 adjusted for the new section numbering — marked "changed in 1.1.0"),
- * T18–T46 for 1.1.0 (T36–T37: amendment 1; T38–T46: amendment 2).
+ * T18–T51 for 1.1.0 (T36–T37: amendment 1; T38–T46: amendment 2; T47–T51: amendment 3).
  *
  * Same style as send-quote-opp-update.js: `define` is stubbed, the real Suitelet, library and UE are
  * loaded under stubbed N/* modules, every scenario is checked with ok(), non-zero exit on failure.
@@ -83,7 +83,8 @@ function resetState() {
         // v1.1.0
         emails: [], emailThrows: null, cache: {}, cacheThrows: null,
         customerEmail: 'cust@example.com',
-        employee: { firstname: 'Sam', lastname: 'Taylor', entityid: 'Sam Taylor', email: 'sam.taylor@nu-heat.co.uk', phone: '01404 549 770',
+        employee: { firstname: 'Sam', lastname: 'Taylor', entityid: 'Sam Taylor', email: 'sam.taylor@nu-heat.co.uk', officephone: '01404 549 770',   // amendment 3: Office Phone (was phone)
+                    
                     custentity_employee_photo_link: 'https://1234567.app.netsuite.com/core/media/media.nl?id=5&c=1234567&h=ab' },
         employeeThrows: null
     };
@@ -556,7 +557,7 @@ var s22 = scripts(g22);
 ok(s22.length === 1 && !/example\.com|Ann|Cat|OPP123|An update/.test(s22[0]), 'GET: no record data in the script');
 var parsed22 = true; try { new vm.Script(s22[0]); } catch (e) { parsed22 = false; console.log('     ' + e.message); }
 ok(parsed22, 'GET: the script parses');
-ok(state.calls.indexOf('lookupFields:employee:firstname,lastname,entityid,email,phone,custentity_employee_photo_link') === -1, 'GET: no employee lookup');
+ok(!state.calls.some(function (c) { return /^lookupFields:employee/.test(c); }), 'GET: no employee lookup');   // changed in amendment 3: any employee lookup (was: the old column list)
 resetState();
 state.contacts.push({ id: '73', first: 'Cat', last: 'Day', email: 'Cat@Example.com' });
 emailPost({ custpage_rcpt_contacts: '71,73', custpage_rcpt_customer: 'T', custpage_rcpt_extra: 'extra@example.org; ANN@example.com', custpage_rcpt_ccme: 'T' });
@@ -660,13 +661,13 @@ ok(paras28.length === 2 && /Para two &#123;&#123;PROPOSAL_URL\}\}<\/font><\/p>$/
 ok(/<font [^>]*>Best wishes,<br>Sam Taylor<\/font><\/p>/.test(b28) && b28.indexOf('Best wishes,') > b28.indexOf('Para two'), 'sign-off directly under the body: Best wishes, Sam Taylor');
 ok(/<b>A MESSAGE FROM NU-HEAT<\/b>/.test(b28) && /<b>YOUR NU-HEAT CONTACT<\/b>/.test(b28) && !/YOUR ACCOUNT MANAGER|YOUR QUOTE IS READY|requested a quote/.test(b28), 'labels: A MESSAGE FROM NU-HEAT, YOUR NU-HEAT CONTACT; no proposal copy');
 ok(/<b>CALL SAM<\/b>/.test(b28) && /<b>EMAIL SAM<\/b>/.test(b28) && b28.indexOf('href="tel:01404549770"') !== -1 && b28.indexOf('href="mailto:sam.taylor@nu-heat.co.uk"') !== -1, 'CALL SAM → tel:, EMAIL SAM → mailto: (the sender)');
-ok(b28.indexOf('<span class="cl-line">01404 549 770</span><span class="cl-sep"> · </span><span class="cl-line">sam.taylor@nu-heat.co.uk</span>') !== -1, 'card: the sender\'s phone (employee phone) and email');
+ok(b28.indexOf('<span class="cl-line">01404 549 770</span><span class="cl-sep"> · </span><span class="cl-line">sam.taylor@nu-heat.co.uk</span>') !== -1, 'card: the sender\'s phone (Office Phone) and email');
 ok(/<img src="https:\/\/1234567\.app\.netsuite\.com\/core\/media\/media\.nl\?id=5&amp;c=1234567&amp;h=ab" width="96"[^>]* alt="Sam Taylor"/.test(b28), 'card: the sender\'s photo');
 ok(b28.indexOf('Any questions at all, just reply to this email – it comes straight to me. Sam</font></p>') !== -1, 'footer from the sender, with the first name');
 var pre28 = (/<span style="display:none;[^"]*">([^<]*)<\/span>/.exec(b28) || [])[1];
 ok(MSG28.replace(/\s+/g, ' ').trim().length > 90 && pre28 === LIB.escapeHtml(MSG28.replace(/\s+/g, ' ').trim().substring(0, 90)).replace(/\{\{/g, '&#123;&#123;'),
    'preheader: the first 90 characters of the message, plain text, escaped');
-ok(state.calls.indexOf('lookupFields:employee:firstname,lastname,entityid,email,phone,custentity_employee_photo_link') !== -1 &&
+ok(state.calls.indexOf('lookupFields:employee:firstname,lastname,entityid,email,officephone,isinactive,custentity_employee_photo_link') !== -1 &&   // changed in amendment 3: officephone + isinactive (was phone)
    !state.calls.some(function (c) { return /custbody_sales_rep_phone/.test(c); }) &&
    state.calls.filter(function (c) { return /^lookupFields:opportunity:/.test(c) && !/custbody_next_contact/.test(c); }).join() === 'lookupFields:opportunity:entity,salesrep,custbody_pe',
    'one employee lookup (the current user); no opportunity phone override read');   // changed in amendment 2: the opportunity lookup now reads salesrep / custbody_pe for "From" (was: no salesrep anywhere)
@@ -674,7 +675,7 @@ var w28 = b28.match(/<[a-z]+[^>]*style="[^"]*display:\s*none[^"]*"[^>]*>/gi) || 
 ok(w28.length === 1 && /^<span/.test(w28[0]) && (b28.match(/<!--\[if !mso\]><!-- -->/g) || []).length === 2, 'pitfall 25: only the preheader is display:none; one [if !mso]/[if mso] pair per button');
 ok(/<table role="presentation" class="width600 main-container" width="600" align="center"/.test(b28), 'container width="600" (attribute)');
 resetState();
-state.employee.firstname = ''; state.employee.lastname = ''; state.employee.entityid = ''; state.employee.phone = ''; state.employee.custentity_employee_photo_link = '';
+state.employee.firstname = ''; state.employee.lastname = ''; state.employee.entityid = ''; state.employee.officephone = ''; state.employee.custentity_employee_photo_link = '';
 emailPost({});
 var b28b = state.emails[0] ? String(state.emails[0].body) : '';
 ok(/<b>SEND AN EMAIL<\/b>/.test(b28b) && !/CALL|tel:/.test(b28b.replace(/CLICK TO CALL/g, '')), 'no first name, no phone → SEND AN EMAIL only, no tel:');
@@ -858,8 +859,8 @@ function withTeam() {
     state.oppValues.custbody_pe = '82';
     state.oppTexts = { salesrep: 'Rob <Rep>', custbody_pe: 'Pat & PE' };
     state.employees = {
-        '81': { firstname: 'Rob', lastname: 'Rep', entityid: 'Rob Rep', email: 'rob.rep@nu-heat.co.uk', phone: '01404 111 222', custentity_employee_photo_link: 'https://x.example/rob.jpg' },
-        '82': { firstname: 'Pat', lastname: 'Engineer', entityid: 'Pat Engineer', email: 'pat.pe@nu-heat.co.uk', phone: '01404 333 444', custentity_employee_photo_link: 'https://x.example/pat.jpg' }
+        '81': { firstname: 'Rob', lastname: 'Rep', entityid: 'Rob Rep', email: 'rob.rep@nu-heat.co.uk', officephone: '01404 111 222', custentity_employee_photo_link: 'https://x.example/rob.jpg' },
+        '82': { firstname: 'Pat', lastname: 'Engineer', entityid: 'Pat Engineer', email: 'pat.pe@nu-heat.co.uk', officephone: '01404 333 444', custentity_employee_photo_link: 'https://x.example/pat.jpg' }
     };
 }
 function fromOptions(h) { var out = []; h.replace(/<option value="(me|rep|pe)"( selected)?>([^<]*)<\/option>/g, function (m, c, sel, label) { out.push(c + (sel ? '*' : '') + '=' + label); }); return out; }
@@ -876,7 +877,7 @@ ok(!/81|82|Rob|Pat|Sam Taylor|nu-heat\.co\.uk/.test(s38), 'no IDs, names or addr
 ok(/id="nsq-email-note" data-note-me="Sent from you, with your contact details\. Replies come to you\." data-note-pre="Sent as " data-note-post=", with their contact details\. Replies go to them\.">Sent from you, with your contact details\. Replies come to you\.<\/p>/.test(h38),
    'page note: the "me" text, with the other texts in data- attributes');
 ok(!/value="81"|value="82"/.test(h38), 'no employee ID anywhere in the page values');
-ok(state.calls.filter(function (c) { return /^lookupFields:employee:email$/.test(c); }).length === 2, 'two email checks (rep, PE) at GET');
+ok(state.calls.filter(function (c) { return /^lookupFields:employee:email,isinactive$/.test(c); }).length === 2, 'two email checks (rep, PE) at GET');   // changed in amendment 3: + isinactive, same lookup
 
 console.log('T39. GET: I am the rep; PE empty');
 resetState(); withTeam();
@@ -923,7 +924,7 @@ ok(b42.indexOf('pat.pe@') === -1, 'the PE\'s own address appears nowhere in the 
 
 console.log('T43. POST from=pe, the PE has no phone');
 resetState(); withTeam();
-state.employees['82'].phone = '';
+state.employees['82'].officephone = '';
 emailPost({ custpage_email_from: 'pe' });
 var b43 = state.emails[0] ? String(state.emails[0].body) : '';
 ok(b43 && b43.indexOf('tel:') === -1 && !/CALL PAT|CLICK TO CALL/.test(b43) && b43.indexOf('01404 540604') === -1 && b43.indexOf('<span class="cl-sep">') === -1,
@@ -972,6 +973,75 @@ resetState(); withTeam();
 state.units = 0;
 runGet();
 ok(state.units <= 60, 'page load used ' + state.units + ' units (two email checks added)');
+
+// ─── T47–T51: amendment 3 — Office Phone, inactive senders ────────────────────
+
+console.log('T47. The card phone is Office Phone');
+resetState(); withTeam();
+state.employee.phone = '07777 000 111';   // a `phone` value too — must never be used
+emailPost({ custpage_rcpt_ccme: 'F' });
+var b47 = state.emails[0] ? String(state.emails[0].body) : '';
+var emp47 = state.calls.filter(function (c) { return /^lookupFields:employee:/.test(c); });
+ok(emp47.length === 1 && emp47[0] === 'lookupFields:employee:firstname,lastname,entityid,email,officephone,isinactive,custentity_employee_photo_link',
+   'loadSender columns: officephone and isinactive; never phone (' + emp47.join(' | ') + ')');
+ok(b47.indexOf('href="tel:01404549770"') !== -1 && b47.indexOf('07777') === -1, 'card phone = Office Phone; the phone value is not used');
+resetState(); withTeam();
+state.employees['81'].phone = '07777 222 333';
+emailPost({ custpage_email_from: 'rep' });
+ok(state.emails[0] && String(state.emails[0].body).indexOf('href="tel:01404111222"') !== -1 && String(state.emails[0].body).indexOf('07777') === -1, 'same for the rep');
+
+console.log('T48. Office Phone blank, phone set');
+[['me', function () { state.employee.officephone = ''; state.employee.phone = '07777 444 555'; }],
+ ['rep', function () { state.employees['81'].officephone = ''; state.employees['81'].phone = '07777 444 555'; }],
+ ['pe', function () { state.employees['82'].officephone = ''; state.employees['82'].phone = '07777 444 555'; }]
+].forEach(function (c) {
+    resetState(); withTeam(); c[1]();
+    emailPost({ custpage_email_from: c[0] });
+    var b = state.emails[0] ? String(state.emails[0].body) : '';
+    ok(b && b.indexOf('tel:') === -1 && !/CALL [A-Z]|CLICK TO CALL/.test(b) && b.indexOf('07777') === -1 && b.indexOf('01404 540604') === -1 && b.indexOf('<span class="cl-sep">') === -1,
+       c[0] + ': no CALL button, the phone value appears nowhere, no switchboard, email-only line');
+});
+
+console.log('T49. GET: the PE is inactive');
+[true, 'T', 'true'].forEach(function (v) {
+    resetState(); withTeam();
+    state.employees['82'].isinactive = v;
+    var opts = fromOptions(html(runGet())).join(' | ');
+    ok(opts === 'me*=Me (Sam Taylor) | rep=Sales rep (Rob &lt;Rep&gt;)', 'isinactive = ' + JSON.stringify(v) + ' → no PE option (' + opts + ')');
+});
+[false, 'F', 'false', ''].forEach(function (v) {
+    resetState(); withTeam();
+    state.employees['82'].isinactive = v;
+    ok(/value="pe"/.test(html(runGet())), 'isinactive = ' + JSON.stringify(v) + ' → PE offered');
+});
+
+console.log('T50. POST from=rep, the rep inactive since GET');
+[true, 'T', 'true'].forEach(function (v) {
+    resetState(); withTeam();
+    state.employees['81'].isinactive = v;
+    var f = emailPost({ custpage_email_from: 'rep', custpage_upd_entitystatus: '12' });
+    ok(nothingWritten() && state.emails.length === 0 && Object.keys(state.cache).length === 0 &&
+       html(f).indexOf('Sales rep is no longer active, so the email can’t be sent from them.') !== -1, 'isinactive = ' + JSON.stringify(v) + ' → blocked; nothing written; token kept');
+});
+resetState(); withTeam();
+state.employee.isinactive = true;   // never blocks "me" — the current user is logged in
+emailPost({});
+ok(state.emails.length === 1 && state.emails[0].author === '7', 'me with isinactive set → still sent');
+
+console.log('T51. Governance');
+resetState(); withTeam();
+state.types = [];
+for (var g51 = 1; g51 <= 25; g51++) state.types.push({ id: String(100 + g51), name: 'Type ' + g51, group: String(1 + (g51 % 7)), groupName: 'G' });
+state.contacts.push({ id: '73', first: 'Cat', last: 'Day', email: 'cat@example.com' });
+state.units = 0;
+emailPost({ custpage_email_from: 'pe', custpage_obj_sel: JSON.stringify(state.types.map(function (t) { return t.id; })), custpage_obj_quote: '901', custpage_call_contact: '71',
+            custpage_rcpt_contacts: '71,73', custpage_rcpt_customer: 'T', custpage_rcpt_extra: 'x@example.org', custpage_rcpt_ccme: 'T',
+            custpage_upd_entitystatus: '12', custpage_upd_next_contact: '', custpage_upd_build_stage: '4' });
+ok(objections().length === 25 && state.emails.length === 1 && state.units === 222, 'worst case unchanged at 222 units (isinactive rides on existing lookups) — got ' + state.units);
+resetState(); withTeam();
+state.units = 0;
+runGet();
+ok(state.units === 53, 'page load unchanged at 53 units — got ' + state.units);
 
 // ─── T14–T16 (UE 1.3.0) and T33–T34 (UE 1.4.0): Opportunity UE banner ─────────────────────────────────────
 

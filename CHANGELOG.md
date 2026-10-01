@@ -45,7 +45,7 @@ send a short personal email from the same page. 1.0.0 forced a call on every sav
 ### Tests
 - `test/send-quote-opp-update.js`: H1 (6 assertions) — 400 in total, every earlier assertion unchanged.
 - `test/update-opp.js`: `N/email` and `N/cache` stubs, `post()` defaults for the new fields; T1 and T3
-  adjusted for the new section numbers; T18–T46 added — 271 in total.
+  adjusted for the new section numbers; T18–T51 added — 290 in total.
 
 ### Fixed — amendment 1 (review of 1 Oct; still 1.1.0)
 - **A1:** a section that was switched off when the page was posted (its inputs disabled, so not posted)
@@ -69,6 +69,17 @@ send a short personal email from the same page. 1.0.0 forced a call on every sav
 - The page note follows the choice: "Sent as Sales rep (…), with their contact details. Replies go to them."
 - Library: `loadSender(logKey, [employeeId])`. Tests T38–T46; T28's "no opportunity phone override"
   check now allows the opportunity lookup to read `salesrep` / `custbody_pe`.
+
+### Changed — amendment 3 (Steve, 1 Oct; still 1.1.0)
+- **Card phone = Office Phone** (`officephone`) for every sender — Me, the sales rep and the project
+  engineer — as Send Design. No fallback to `phone`, no switchboard number; a blank Office Phone means no
+  CALL button and an email-only line. Send Quote still reads `phone` (with the `custbody_sales_rep_phone`
+  override) — a known difference, left for a separate decision.
+- **Inactive rep or PE:** not offered in "From" (`isinactive` read in the same email check at GET), and
+  blocked on save: "<Sales rep / Project engineer> is no longer active, so the email can't be sent from
+  them." Nothing written; the save token is kept. Me is never blocked for this.
+- Tests T47–T51; fixtures and three lookup-column assertions moved from `phone` to `officephone`.
+  Governance unchanged: 222 units worst case, 53 at page load.
 
 ### Deployment
 - Upload **`nuheat_opp_update_lib.js` first**, then `nuheat_send_quote_sl.js` and `nuheat_update_opp_sl.js`,

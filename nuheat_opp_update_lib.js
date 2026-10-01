@@ -1090,28 +1090,33 @@ function (serverWidget, search, record, log, url, format, email, runtime) {
     /**
      * An employee record, for an email sent FROM them (Update Opportunity D18 / D18a) — the current
      * user, or the employee given (the Opportunity's sales rep or project engineer):
-     * one search.lookupFields — firstname, lastname, entityid (name fallback), email, phone (the
-     * same employee field Send Quote's card reads via loadSalesRepData) and the photo link (https
-     * only, checkPhotoUrl). No Opportunity override fields. Never throws: error is set instead.
+     * one search.lookupFields — firstname, lastname, entityid (name fallback), email, officephone
+     * (Office Phone — the card phone for every sender, Steve 1 Oct, as Send Design; NO fallback to
+     * `phone` and no switchboard number), isinactive (amendment 3) and the photo link (https only,
+     * checkPhotoUrl). No Opportunity override fields. Never throws: error is set instead.
+     * ⚠️ Send Quote's card still reads the employee `phone` (loadSalesRepData, with the Opportunity's
+     *    custbody_sales_rep_phone override) — a known difference, left for a separate decision.
      *
      * @param {string} logKey - audit key (no address is ever logged)
      * @param {string} [employeeId] - the employee to read; omitted → the current user
-     * @returns {{ id, firstName, fullName, email, phone, photoUrl, error }}
+     * @returns {{ id, firstName, fullName, email, phone, inactive, photoUrl, error }} phone = officephone
      */
     function loadSender(logKey, employeeId) {
-        var out = { id: '', firstName: '', fullName: '', email: '', phone: '', photoUrl: '', error: '' };
+        var out = { id: '', firstName: '', fullName: '', email: '', phone: '', inactive: false, photoUrl: '', error: '' };
         var photo = { url: '', reason: 'not read' };
         try {
             out.id = String(employeeId || runtime.getCurrentUser().id || '');
             var f = search.lookupFields({
                 type:    search.Type.EMPLOYEE,
                 id:      out.id,
-                columns: ['firstname', 'lastname', 'entityid', 'email', 'phone', 'custentity_employee_photo_link']
+                columns: ['firstname', 'lastname', 'entityid', 'email', 'officephone', 'isinactive', 'custentity_employee_photo_link']
             }) || {};
             out.fullName  = (lookupText(f.firstname).trim() + ' ' + lookupText(f.lastname).trim()).trim() || lookupText(f.entityid).trim();
             out.firstName = resolveFirstName(f.firstname, out.fullName);
             out.email     = lookupText(f.email).trim();
-            out.phone     = lookupText(f.phone).trim();
+            out.phone     = lookupText(f.officephone).trim();   // Office Phone only (amendment 3)
+            // lookupFields returns a checkbox as true/false, but 'T' / 'true' also occur — all mean inactive
+            out.inactive  = f.isinactive === true || f.isinactive === 'T' || f.isinactive === 'true';
             photo         = checkPhotoUrl(f.custentity_employee_photo_link);
             out.photoUrl  = photo.url;
         } catch (e) {
@@ -1119,7 +1124,7 @@ function (serverWidget, search, record, log, url, format, email, runtime) {
         }
         log.audit(logKey || 'OppUpdateLib.Sender', 'Sender employee ' + (out.id || 'none') +
             (out.error ? ' — lookup FAILED: ' + out.error
-                : ' — email ' + (out.email ? 'present' : 'MISSING') + ', phone ' + (out.phone ? 'present' : 'missing') +
+                : ' — email ' + (out.email ? 'present' : 'MISSING') + ', officephone ' + (out.phone ? 'present' : 'missing') + (out.inactive ? ', INACTIVE' : '') +
                   (photo.url ? ', photo used' : ', photo skipped — ' + photo.reason)));
         return out;
     }

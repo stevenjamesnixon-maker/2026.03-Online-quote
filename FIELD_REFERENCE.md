@@ -157,7 +157,8 @@ All values are HTML-escaped; tags are substituted in one pass.
 | CC | the **current user**, if "CC me" (whoever the email is from; dropped if already in To). The chosen sender gets no automatic copy |
 | `relatedRecords` | `entityId` = the opportunity's customer, `transactionId` = the opportunity (Communication › Messages) |
 | Subject / headline | the "Subject and headline" box (default `An update on <tranid>`, max 120) |
-| Sender card | **Employee** (one `search.lookupFields` on the chosen sender): `firstname`, `lastname` (`entityid` if both are empty), `email` (required), `phone` (same field Send Quote's card reads; no opportunity override), `custentity_employee_photo_link` (https only). As the PE, the card's email line and EMAIL button show `design@nu-heat.co.uk` (Send Design's rule) |
+| Sender card | **Employee** (one `search.lookupFields` on the chosen sender): `firstname`, `lastname`, `entityid` (name if both are empty), `email` (required), **`officephone`** (the card phone for every sender — Steve, 1 Oct, as Send Design; no fallback to `phone`, no switchboard), `isinactive` (rep / PE inactive → blocked), `custentity_employee_photo_link` (https only). No opportunity override. As the PE, the card's email line and EMAIL button show `design@nu-heat.co.uk` (Send Design's rule). ⚠️ **Send Quote still reads `phone`** (with the `custbody_sales_rep_phone` override) — a known difference, left for a separate decision |
+| "From" options (GET) | per offered rep / PE, one `search.lookupFields` on the Employee: `email`, `isinactive` — offered only if active (`isinactive` true / `'T'` / `'true'` = inactive) and with an email |
 
 ### Page fields posted (1.1.0)
 

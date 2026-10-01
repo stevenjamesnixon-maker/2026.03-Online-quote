@@ -307,10 +307,14 @@ define([
         return 'u' + user + '-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 12);
     }
 
-    /** True if the employee's record has a usable email address (one lookupFields; false on any error). */
+    /**
+     * True if the employee is ACTIVE and has a usable email address (one lookupFields; false on any
+     * error). Amendment 3: isinactive read in the same lookup — true, 'T' and 'true' all mean inactive.
+     */
     function employeeHasEmail(employeeId) {
         try {
-            var f = search.lookupFields({ type: search.Type.EMPLOYEE, id: employeeId, columns: ['email'] }) || {};
+            var f = search.lookupFields({ type: search.Type.EMPLOYEE, id: employeeId, columns: ['email', 'isinactive'] }) || {};
+            if (f.isinactive === true || f.isinactive === 'T' || f.isinactive === 'true') return false;
             return lib.EMAIL_RE.test(lib.lookupText(f.email).trim());
         } catch (e) {
             log.debug('UpdateOppSL.Email', 'Employee ' + employeeId + ' email check failed: ' + e.message);
@@ -320,7 +324,7 @@ define([
 
     /**
      * D18a: the "From" options — Me, then the sales rep and the project engineer when set on the
-     * Opportunity, with an email address, and not the same person as an earlier option.
+     * Opportunity, active, with an email address, and not the same person as an earlier option.
      * Names come from the Opportunity's field text (rep / PE) and the session user's name (me).
      * @returns {Array<{code: string, id: string, label: string}>}
      */
@@ -886,6 +890,7 @@ define([
                 if (!empId) return invalid(noEmail);
                 sender = lib.loadSender('UpdateOppSL.Email', empId);
                 if (sender.error) return invalid(role.label + '’s employee record could not be read, so the email can’t be sent from them.');
+                if (sender.inactive) return invalid(role.label + ' is no longer active, so the email can’t be sent from them.');   // amendment 3
                 if (!sender.email || !lib.EMAIL_RE.test(sender.email)) return invalid(noEmail);
             }
             // "CC me" is always the CURRENT user, whoever the email is from
