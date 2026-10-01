@@ -1,5 +1,7 @@
 /**
- * Tests for Update Opportunity SL 1.0.0 (+ nuheat_opp_update_lib.js 1.0.0, Opportunity UE 1.3.0).
+ * Tests for Update Opportunity SL 1.1.0 (+ nuheat_opp_update_lib.js 1.1.0, Opportunity UE 1.4.0).
+ * T1–T17 from 1.0.0 (T1 and T3 adjusted for the new section numbering — marked "changed in 1.1.0"),
+ * T18–T35 for 1.1.0.
  *
  * Same style as send-quote-opp-update.js: `define` is stubbed, the real Suitelet, library and UE are
  * loaded under stubbed N/* modules, every scenario is checked with ok(), non-zero exit on failure.
@@ -77,7 +79,13 @@ function resetState() {
             { id: '950', opp: '777', tranid: 'EST950', title: 'Other opp', desc: '' }
         ],
         contacts: [{ id: '71', first: 'Ann', last: 'Lee', email: 'ann@example.com' }, { id: '72', first: 'Bob', last: 'Ray', email: '' }],
-        phoneCalls: { '4001': { title: 'Quote follow up', transaction: '123' }, '4002': { title: 'Other opp call', transaction: '777' } }
+        phoneCalls: { '4001': { title: 'Quote follow up', transaction: '123' }, '4002': { title: 'Other opp call', transaction: '777' } },
+        // v1.1.0
+        emails: [], emailThrows: null, cache: {}, cacheThrows: null,
+        customerEmail: 'cust@example.com',
+        employee: { firstname: 'Sam', lastname: 'Taylor', entityid: 'Sam Taylor', email: 'sam.taylor@nu-heat.co.uk', phone: '01404 549 770',
+                    custentity_employee_photo_link: 'https://1234567.app.netsuite.com/core/media/media.nl?id=5&c=1234567&h=ab' },
+        employeeThrows: null
     };
 }
 
@@ -177,7 +185,7 @@ function result(vals, texts) {
 }
 
 var searchStub = {
-    Type: { CUSTOMER: 'customer', OPPORTUNITY: 'opportunity', ESTIMATE: 'estimate', PHONE_CALL: 'phonecall' },
+    Type: { CUSTOMER: 'customer', OPPORTUNITY: 'opportunity', ESTIMATE: 'estimate', PHONE_CALL: 'phonecall', EMPLOYEE: 'employee' },
     Sort: { DESC: 'DESC', ASC: 'ASC' },
     createColumn: function (o) { return o; },
     lookupFields: function (o) {
@@ -195,6 +203,13 @@ var searchStub = {
             var pc = state.phoneCalls[o.id];
             if (!pc) throw new Error('no phone call ' + o.id);
             return { title: pc.title, transaction: [{ value: pc.transaction, text: 'Opportunity' }] };
+        }
+        if (o.type === 'customer') return { email: state.customerEmail };   // v1.1.0
+        if (o.type === 'employee') {                                        // v1.1.0: the sender
+            if (state.employeeThrows) throw new Error(state.employeeThrows);
+            var emp = {};
+            o.columns.forEach(function (c) { emp[c] = state.employee[c] === undefined ? '' : state.employee[c]; });
+            return emp;
         }
         return {};
     },
@@ -238,7 +253,27 @@ var modules = {
     'N/runtime': { getCurrentUser: function () { return { id: '7' }; }, getCurrentScript: function () { return { id: 'x', deploymentId: 'y' }; } },
     'N/format': formatStub,
     'N/ui/message': { Type: { CONFIRMATION: 'confirmation', WARNING: 'warning' } },
-    'N/email': { send: function () { throw new Error('email.send not expected in 1.0 scenarios'); } }   // lib 1.1.0 dependency
+    // v1.1.0: email.send (10 units) and N/cache (1 unit per get / put / remove)
+    'N/email': {
+        send: function (o) {
+            charge(10);
+            state.calls.push('email.send');
+            if (state.emailThrows) throw new Error(state.emailThrows);
+            state.emails.push(o);
+        }
+    },
+    'N/cache': {
+        Scope: { PRIVATE: 'PRIVATE', PROTECTED: 'PROTECTED', PUBLIC: 'PUBLIC' },
+        getCache: function (o) {
+            if (state.cacheThrows) throw new Error(state.cacheThrows);
+            state.cacheName = o.name; state.cacheScope = o.scope;
+            return {
+                get:    function (g) { charge(1); state.calls.push('cache.get'); return Object.prototype.hasOwnProperty.call(state.cache, g.key) ? state.cache[g.key].value : null; },
+                put:    function (p) { charge(1); state.calls.push('cache.put'); state.cache[p.key] = { value: p.value, ttl: p.ttl }; },
+                remove: function (r) { charge(1); state.calls.push('cache.remove'); delete state.cache[r.key]; }
+            };
+        }
+    }
 };
 modules['./nuheat_opp_update_lib'] = loadModule('nuheat_opp_update_lib.js', modules);
 var sl = loadModule('nuheat_update_opp_sl.js', modules);
@@ -252,9 +287,12 @@ function runGet(params) {
     return ctx.response.page;
 }
 var TODAY = iso(new Date());
+var tokenSeq = 0;
 function post(overrides) {
     var p = {
         custpage_opportunity_id: '123',
+        // v1.1.0: what a 1.1 page posts — call on, email off, the browser's today, a fresh token
+        custpage_call_on: 'T', custpage_email_on: 'F', custpage_today: TODAY, custpage_save_token: 'tok-test-' + (++tokenSeq),
         custpage_call_std: 'Quote follow up', custpage_call_title: 'Quote follow up', custpage_call_date: TODAY,
         custpage_call_contact: '', custpage_call_notes: 'Customer wants to compare prices.',
         custpage_obj_sel: '[]', custpage_obj_quote: '',
@@ -265,7 +303,7 @@ function post(overrides) {
         custpage_upd_build_stage: '3', custpage_orig_build_stage: '3', custpage_origtxt_build_stage: 'Foundations',
         custpage_upd_close_date: '2026-12-20', custpage_orig_close_date: '2026-12-20', custpage_origtxt_close_date: '20/12/2026'
     };
-    Object.keys(overrides || {}).forEach(function (k) { p[k] = overrides[k]; });
+    Object.keys(overrides || {}).forEach(function (k) { if (overrides[k] === undefined) delete p[k]; else p[k] = overrides[k]; });
     var ctx = { request: { method: 'POST', parameters: p }, response: response() };
     sl.onRequest(ctx);
     return ctx.response.page;
@@ -284,9 +322,10 @@ resetState();
 var f1 = runGet();
 var h1 = html(f1);
 ok(f1.title === 'Update opportunity' && f1.fields.length === 1 && f1.fields[0].type === 'inlinehtml' && f1.buttons.length === 0, 'one INLINEHTML body, no native buttons');
-var i1 = h1.indexOf('Log the call'), i2 = h1.indexOf('Update the opportunity</h2>'), i3 = h1.indexOf('Log any objections');
-ok(i1 > 0 && i2 > i1 && i3 > i2, 'sections in order: 1 Log the call → 2 Update the opportunity → 3 Log any objections');
-ok(/<span class="nsq-num">1<\/span>Log the call/.test(h1) && /<span class="nsq-num">2<\/span>Update the opportunity/.test(h1) && /<span class="nsq-num">3<\/span>Log any objections/.test(h1), 'numbered 1, 2, 3');
+// changed in 1.1.0: a new section 2 "Send an email"; Update the opportunity is 3, objections 4 (was 1, 2, 3)
+var i1 = h1.indexOf('Log the call'), i1e = h1.indexOf('Send an email<label'), i2 = h1.indexOf('Update the opportunity</h2>'), i3 = h1.indexOf('Log any objections');
+ok(i1 > 0 && i1e > i1 && i2 > i1e && i3 > i2, 'sections in order: 1 Log the call → 2 Send an email → 3 Update the opportunity → 4 Log any objections');
+ok(/<span class="nsq-num">1<\/span>Log the call/.test(h1) && /<span class="nsq-num">2<\/span>Send an email/.test(h1) && /<span class="nsq-num">3<\/span>Update the opportunity/.test(h1) && /<span class="nsq-num">4<\/span>Log any objections/.test(h1), 'numbered 1, 2, 3, 4');
 var chipOrder = []; h1.replace(/data-type-id="(\d+)" data-group="(\d+)"/g, function (m, t, g) { chipOrder.push(g + ':' + t); });
 ok(chipOrder.join(',') === '1:11,1:12,2:21,7:71', 'chips grouped by group ID, then type ID (' + chipOrder.join(',') + ')');
 var groups = []; h1.replace(/<h3 class="nsq-h3">([^<]*)<\/h3>/g, function (m, g) { groups.push(g); });
@@ -305,7 +344,8 @@ ok(!/EST9|Ann|Price|Quote follow|OPP123|Barn/.test(s1[0]), 'no record data insid
 var parsed = true; try { new vm.Script(s1[0]); } catch (e) { parsed = false; console.log('     ' + e.message); }
 ok(parsed, 'the script parses');
 ok(/<option value="901">EST901 · Air source heat pump<\/option><option value="902">EST902 · UFH &amp; screed<\/option>/.test(h1) && !/EST950/.test(h1), 'About quote: every Estimate on this opportunity (tranid · description || title)');
-ok(/id="nsq-send" disabled>Save<\/button>/.test(h1) && /Each objection also stores the call notes from step 1\./.test(h1), 'Save starts disabled; helper text');
+// changed in 1.1.0: the helper text (D21 — the 1.0 line about call notes is dropped)
+ok(/id="nsq-send" disabled>Save<\/button>/.test(h1) && /Optional\. Add a note to any objection if it helps\./.test(h1) && !/Each objection also stores the call notes/.test(h1), 'Save starts disabled; helper text');
 
 console.log('T2. Entity-encoded text is decoded, stripped, escaped once');
 ok(/aria-pressed="false">Price too high<\/button>/.test(h1), 'type name');
@@ -318,7 +358,7 @@ state.lookup.custbody_next_contact = '';
 var f3 = post({ custpage_upd_next_contact: '', custpage_orig_next_contact: '', custpage_obj_sel: '["11"]', custpage_obj_note_11: 'Too dear', custpage_call_title: 'My title' });
 var h3 = html(f3);
 ok(nothingWritten(), 'nothing written, no redirect');
-ok(/Not saved\.<\/strong> Next contact is required — the opportunity has none\. Set it in step 2\./.test(h3), 'error panel');
+ok(/Not saved\.<\/strong> Next contact is required — the opportunity has none\. Set it in step 3\./.test(h3), 'error panel');   // changed in 1.1.0: step 3 (was 2)
 ok(/value="My title"/.test(h3) && /data-type-id="11" data-group="1" aria-pressed="true"/.test(h3) && /name="custpage_obj_note_11"[^>]*value="Too dear"/.test(h3), 'entries restored: title, ticked chip, its note');
 ok(/id="nsq-obj-note-11">/.test(h3) && /id="nsq-obj-note-12" hidden>/.test(h3), 'ticked note visible, others hidden');
 ok(state.calls.indexOf('lookupFields:opportunity:custbody_next_contact') !== -1, 'the record was read (lookupFields)');
@@ -445,6 +485,313 @@ resetState();
 state.units = 0;
 runGet();
 ok(state.units <= 60, 'page load used ' + state.units + ' units');
+
+// ─── T18–T32, T35: Update Opportunity 1.1.0 ───────────────────────────────────
+
+var LIB = modules['./nuheat_opp_update_lib'];
+function addDays(n) { var d = new Date(); return new Date(d.getFullYear(), d.getMonth(), d.getDate() + n); }
+/** A 1.1 page with the email on: one contact ticked, no customer, no extras, no CC me, unless overridden. */
+function emailPost(overrides) {
+    var p = {
+        custpage_email_on: 'T', custpage_email_subject: 'An update on OPP123', custpage_email_message: 'Hello Ann,\n\nThe quote is attached to your account.',
+        custpage_rcpt_contacts: '71', custpage_rcpt_customer: 'F', custpage_rcpt_extra: '', custpage_rcpt_ccme: 'F'
+    };
+    Object.keys(overrides || {}).forEach(function (k) { p[k] = overrides[k]; });
+    return post(p);
+}
+var CALL_OFF_GARBAGE = { custpage_call_on: 'F', custpage_call_title: '', custpage_call_notes: '', custpage_call_date: 'not a date', custpage_call_contact: '999' };
+function rparams() { return state.redirect ? state.redirect.parameters : {}; }
+
+console.log('T18. Call off, email off, nothing ticked, no field change → D23 blocks');
+resetState();
+var f18 = post({ custpage_call_on: 'F' });
+ok(nothingWritten() && state.emails.length === 0, 'nothing written, nothing sent, no redirect');
+ok(/Not saved\.<\/strong> Log a call, send an email, tick an objection or change a field\./.test(html(f18)), 'reason: "Log a call, send an email, tick an objection or change a field."');
+ok(Object.keys(state.cache).length === 0, 'the save token is not consumed');
+ok(/<input type="checkbox" id="nsq-call-on"> Log a phone call<\/label><span class="nsq-off" id="nsq-call-off">Off<\/span>/.test(html(f18)) &&
+   /<div id="nsq-call-body" hidden>/.test(html(f18)) && /name="custpage_call_on" id="nsq-call-on-val" value="F"/.test(html(f18)), 're-rendered with the call switch still off');
+
+console.log('T19. Call off; one field changed; Next contact set');
+resetState();
+post({ custpage_call_on: 'F', custpage_upd_entitystatus: '12' });
+ok(writesOf('create', 'phonecall').length === 0 && state.calls.indexOf('create:phonecall') === -1, 'no phone call');
+ok(writesOf('submitFields', 'opportunity').length === 1 && writesOf('submitFields', 'opportunity')[0].values.entitystatus === '12', 'fields written');
+ok(state.redirect && !('nsqc' in rparams()) && rparams().nsqs === 'upd' && rparams().nsqf === 'entitystatus' && !('nsqe' in rparams()), 'redirect without nsqc or nsqe');
+ok(audit('UpdateOppSL.Summary').some(function (l) { return /call off; objections created 0, failed none; fields changed entitystatus, failed none; email off$/.test(l.details); }), 'summary: call off, email off');
+
+console.log('T20. Call off; posted call fields are garbage → ignored');
+resetState();
+var p20 = {}; Object.keys(CALL_OFF_GARBAGE).forEach(function (k) { p20[k] = CALL_OFF_GARBAGE[k]; }); p20.custpage_upd_build_stage = '4';
+post(p20);
+ok(!!state.redirect && writesOf('create', 'phonecall').length === 0, 'saved; no call; bad title / notes / date / contact not validated');
+ok(state.logs.every(function (l) { return l.title !== 'UpdateOppSL.Validation'; }), 'no validation rejection logged');
+
+console.log('T21. custpage_call_on missing → 1.0 behaviour (call required)');
+resetState();
+var f21 = post({ custpage_call_on: undefined, custpage_call_title: '' });
+ok(nothingWritten() && /Enter a call title\./.test(html(f21)), 'missing switch + blank title → blocked as 1.0');
+resetState();
+post({ custpage_call_on: undefined, custpage_email_on: undefined, custpage_today: undefined, custpage_save_token: undefined });
+ok(writesOf('create', 'phonecall').length === 1 && rparams().nsqc === '5000', 'a 1.0 page (none of the new fields) → call created, nsqc set');
+
+console.log('T22. Email on, happy path: 2 contacts + customer + 1 extra + CC me');
+resetState();
+state.contacts.push({ id: '73', first: 'Cat', last: 'Day', email: 'Cat@Example.com' });
+var g22 = html(runGet());
+ok(/<span class="nsq-num">2<\/span>Send an email<label class="nsq-switch"><input type="checkbox" id="nsq-email-on"> Send an email<\/label><span class="nsq-off" id="nsq-email-off">Off<\/span>/.test(g22) &&
+   /<div id="nsq-email-body" hidden>/.test(g22), 'GET: email switch off, section collapsed, "Off" shown');
+ok(/<input type="checkbox" id="nsq-call-on" checked> Log a phone call/.test(g22) && /<div id="nsq-call-body">/.test(g22), 'GET: call switch on');
+ok(/id="nsq-email-subject" name="custpage_email_subject" maxlength="120" autocomplete="off" value="An update on OPP123"/.test(g22), 'GET: subject pre-filled "An update on <tranid>", max 120');
+ok(/name="custpage_email_message" rows="8" maxlength="10000"/.test(g22), 'GET: message max 10,000');
+ok(/<input type="checkbox" class="nsq-rcpt" data-contact-id="71" data-email="ann@example\.com"> Ann Lee/.test(g22) && !/data-contact-id="72"/.test(g22) &&
+   /data-customer="1" data-email="cust@example\.com"> Customer/.test(g22) && /id="nsq-rcpt-ccme"> CC me/.test(g22), 'GET: ticks for contacts with an email, Customer, CC me');
+ok(/Sent from you, with your contact details\. Replies come to you\./.test(g22), 'GET: the sender note');
+ok(/name="custpage_save_token" value="u7-[a-z0-9]+-[a-z0-9]+"/.test(g22) && /name="custpage_today" id="nsq-today" value="\d{4}-\d{2}-\d{2}"/.test(g22), 'GET: save token and today hidden fields');
+var s22 = scripts(g22);
+ok(s22.length === 1 && !/example\.com|Ann|Cat|OPP123|An update/.test(s22[0]), 'GET: no record data in the script');
+var parsed22 = true; try { new vm.Script(s22[0]); } catch (e) { parsed22 = false; console.log('     ' + e.message); }
+ok(parsed22, 'GET: the script parses');
+ok(state.calls.indexOf('lookupFields:employee:firstname,lastname,entityid,email,phone,custentity_employee_photo_link') === -1, 'GET: no employee lookup');
+resetState();
+state.contacts.push({ id: '73', first: 'Cat', last: 'Day', email: 'Cat@Example.com' });
+emailPost({ custpage_rcpt_contacts: '71,73', custpage_rcpt_customer: 'T', custpage_rcpt_extra: 'extra@example.org; ANN@example.com', custpage_rcpt_ccme: 'T' });
+var e22 = state.emails[0] || {};
+ok(state.emails.length === 1, 'email.send once');
+ok(e22.author === '7', 'author = the current user (7)');
+ok(JSON.stringify(e22.recipients) === JSON.stringify(['ann@example.com', 'Cat@Example.com', 'cust@example.com', 'extra@example.org']),
+   'To = 4 addresses rebuilt server-side, de-duplicated case-insensitively (' + JSON.stringify(e22.recipients) + ')');
+ok(JSON.stringify(e22.cc) === JSON.stringify(['sam.taylor@nu-heat.co.uk']) && !e22.bcc, 'CC = the sender; no BCC');
+ok(e22.relatedRecords && e22.relatedRecords.entityId === '55' && e22.relatedRecords.transactionId === '123', 'relatedRecords = customer + opportunity');
+ok(e22.subject === 'An update on OPP123' && !e22.attachments, 'subject as typed; no attachments');
+ok(rparams().nsqe === 'sent' && rparams().nsqen === '4' && rparams().nsq === 'ok', 'nsqe=sent, nsqen=4, nsq=ok');
+var el22 = audit('UpdateOppSL.Email');
+ok(el22.length >= 1 && el22.every(function (l) { return !/@/.test(l.details); }) && el22.some(function (l) { return /email sent OK to 5 addresses/.test(l.details); }), 'UpdateOppSL.Email audit: count, never an address');
+ok(audit('UpdateOppSL.Summary').some(function (l) { return /; email sent \(4 recipients\)$/.test(l.details); }), 'summary: email sent (4 recipients)');
+resetState();
+emailPost({ custpage_rcpt_extra: 'sam.taylor@NU-HEAT.co.uk', custpage_rcpt_ccme: 'T' });
+ok(state.emails.length === 1 && !state.emails[0].cc && rparams().nsqen === '2', 'sender already in To → no CC; nsqen counts To only');
+
+console.log('T23. Recipient rules → blocked, nothing written');
+[['a contact not on the opportunity', { custpage_rcpt_contacts: '999' }, 'A chosen contact is not on this opportunity.'],
+ ['a contact with no email', { custpage_rcpt_contacts: '72' }, 'A chosen contact has no valid email address.'],
+ ['a non-numeric contact ID', { custpage_rcpt_contacts: '71,<b>' }, 'A chosen contact is not on this opportunity.'],
+ ['a bad extra address', { custpage_rcpt_extra: 'ok@example.com, not-an-email' }, 'These addresses are not valid: not-an-email'],
+ ['11 recipients', { custpage_rcpt_contacts: '', custpage_rcpt_extra: 'a1@x.com,a2@x.com,a3@x.com,a4@x.com,a5@x.com,a6@x.com;a7@x.com,a8@x.com,a9@x.com,a10@x.com,a11@x.com' }, 'Send to 10 addresses or fewer (11 chosen).'],
+ ['no recipients', { custpage_rcpt_contacts: '' }, 'Choose at least one recipient.'],
+ ['customer ticked, no customer email', { custpage_rcpt_customer: 'T', __noCustEmail: true }, 'The customer has no valid email address.'],
+ ['blank subject', { custpage_email_subject: '  ' }, 'Enter a subject for the email.'],
+ ['subject over 120', { custpage_email_subject: new Array(122).join('s') }, 'The subject is longer than 120 characters.'],
+ ['blank message', { custpage_email_message: ' \n ' }, 'Write the email message.'],
+ ['message over 10,000', { custpage_email_message: new Array(10002).join('m') }, 'The message is longer than 10000 characters.']
+].forEach(function (c) {
+    resetState();
+    if (c[1].__noCustEmail) { state.customerEmail = ''; delete c[1].__noCustEmail; }
+    var f = emailPost(c[1]);
+    ok(nothingWritten() && state.emails.length === 0 && html(f).indexOf(c[2]) !== -1 && Object.keys(state.cache).length === 0,
+       c[0] + ' → blocked, nothing sent or written, token kept');
+});
+resetState();
+var ten = []; for (var t23 = 1; t23 <= 10; t23++) ten.push('b' + t23 + '@x.com');
+emailPost({ custpage_rcpt_contacts: '', custpage_rcpt_extra: ten.join(',') + ',B1@X.com' });
+ok(state.emails.length === 1 && state.emails[0].recipients.length === 10, '10 addresses (an 11th duplicate collapses) → sent');
+resetState();
+var f23r = emailPost({ custpage_rcpt_contacts: '71', custpage_rcpt_customer: 'T', custpage_rcpt_extra: 'x@y.com, bad', custpage_rcpt_ccme: 'T', custpage_email_message: 'Keep <this> & that' });
+var h23r = html(f23r);
+ok(/<input type="checkbox" id="nsq-email-on" checked>/.test(h23r) && /<div id="nsq-email-body">/.test(h23r) && /name="custpage_email_on" id="nsq-email-on-val" value="T"/.test(h23r), 'restored: email switch on');
+ok(/data-contact-id="71" data-email="ann@example\.com" checked>/.test(h23r) && /data-customer="1" data-email="cust@example\.com" checked>/.test(h23r) &&
+   /id="nsq-rcpt-ccme" checked>/.test(h23r) && /name="custpage_rcpt_extra" autocomplete="off" placeholder="[^"]*" value="x@y\.com, bad"/.test(h23r), 'restored: ticks, CC me and extras');
+ok(/value="An update on OPP123"/.test(h23r) && />Keep &lt;this&gt; &amp; that<\/textarea>/.test(h23r), 'restored: subject and message, escaped');
+
+console.log('T24. The sender has no employee email');
+resetState();
+state.employee.email = '';
+var f24 = emailPost({});
+ok(nothingWritten() && state.emails.length === 0 && /Your employee record has no email address, so the email can’t be sent from you\./.test(html(f24)), 'blocked with the D18 message');
+resetState();
+state.employeeThrows = 'Permission violation';
+var f24b = emailPost({});
+ok(nothingWritten() && /Your employee record could not be read/.test(html(f24b)), 'employee lookup fails → blocked');
+
+console.log('T25. Order with everything on');
+resetState();
+emailPost({ custpage_obj_sel: '["11","12"]', custpage_upd_entitystatus: '12' });
+var o25 = state.calls.filter(function (c) { return /^(cache\.put|save:|email\.send|submitFields|redirect)/.test(c); });
+ok(o25.join(' > ') === 'cache.put > save:phonecall > email.send > save:customrecord_nh_objection > save:customrecord_nh_objection > submitFields:opportunity > redirect',
+   'guard → call → email → objections → opportunity submitFields last (' + o25.join(' > ') + ')');
+ok(rparams().nsqc === '5000' && rparams().nsqo === '2' && rparams().nsqe === 'sent' && rparams().nsqen === '1' && rparams().nsqf === 'entitystatus', 'all codes present');
+ok(Object.keys(rparams()).every(function (k) { return /^[a-z0-9_,]*$/.test(rparams()[k]); }), 'codes only — no subject, address or error text');
+
+console.log('T26. email.send throws');
+resetState();
+state.emailThrows = 'SMTP refused';
+emailPost({ custpage_obj_sel: '["11"]', custpage_upd_entitystatus: '12' });
+ok(state.calls.filter(function (c) { return c === 'email.send'; }).length === 1, 'tried once — no retry');
+ok(objections().length === 1 && writesOf('submitFields', 'opportunity').length === 1, 'objections and fields still written');
+ok(rparams().nsqe === 'fail' && rparams().nsq === 'warn' && !('nsqen' in rparams()) && !/SMTP/.test(JSON.stringify(rparams())), 'nsqe=fail, nsq=warn, no count, no error text');
+ok(state.logs.some(function (l) { return l.level === 'error' && l.title === 'UpdateOppSL.Email' && /FAILED \(1 address\): SMTP refused/.test(l.details); }), 'UpdateOppSL.Email logged at error level');
+
+console.log('T27. The call fails with the email on');
+resetState();
+state.callSaveThrows = 'No permission';
+var f27 = emailPost({ custpage_obj_sel: '["11"]', custpage_upd_entitystatus: '12', custpage_save_token: 'tok-fixed-27' });
+ok(state.emails.length === 0 && state.calls.indexOf('email.send') === -1, 'no email sent');
+ok(objections().length === 0 && writesOf('submitFields').length === 0 && !state.redirect, 'nothing written');
+ok(!('tok-fixed-27' in state.cache) && state.calls.indexOf('cache.remove') !== -1, 'token removed');
+ok(/Nothing was saved:<\/strong> No permission/.test(html(f27)) && /name="custpage_save_token" value="tok-fixed-27"/.test(html(f27)), '"Nothing was saved"; the page keeps its token');
+
+console.log('T28. The email body');
+var MSG28 = 'Hi <script>alert(1)</script> & {{KEY}}\nline two, long enough to be cut for the preheader\n\n\n  Para two {{PROPOSAL_URL}}';
+var SUBJ28 = '<b>Q&A</b> {{TRAN_ID}}';
+resetState();
+emailPost({ custpage_email_subject: SUBJ28, custpage_email_message: MSG28 });
+var b28 = state.emails[0] ? String(state.emails[0].body) : '';
+ok(state.emails[0] && state.emails[0].subject === SUBJ28, 'subject sent as typed (plain text)');
+var SUBJ28_HTML = '&lt;b&gt;Q&amp;A&lt;/b&gt; &#123;&#123;TRAN_ID}}';
+ok(b28.indexOf('<title>' + SUBJ28_HTML + '</title>') !== -1 && /<h1 class="h1"[^>]*><font [^>]*>&lt;b&gt;Q&amp;A&lt;\/b&gt; &#123;&#123;TRAN_ID\}\}<\/font><\/h1>/.test(b28), 'subject = headline (and title), escaped, {{ neutralised');
+ok(b28.indexOf('<script') === -1 && b28.indexOf('&lt;script&gt;alert(1)&lt;/script&gt; &amp; &#123;&#123;KEY}}<br>line two, long enough to be cut for the preheader</font></p>') !== -1, 'message escaped; <script>, & and {{KEY}} literal; single newline → <br>');
+ok(!/\{\{/.test(b28), 'no "{{" left anywhere in the body');
+var paras28 = b28.match(/<p style="margin:0 0 16px 0;[^"]*text-align:left;"><font [^>]*>[\s\S]*?<\/font><\/p>/g) || [];
+ok(paras28.length === 2 && /Para two &#123;&#123;PROPOSAL_URL\}\}<\/font><\/p>$/.test(paras28[1]), 'blank lines → a new paragraph (2 paragraphs)');
+ok(/<font [^>]*>Best wishes,<br>Sam Taylor<\/font><\/p>/.test(b28) && b28.indexOf('Best wishes,') > b28.indexOf('Para two'), 'sign-off directly under the body: Best wishes, Sam Taylor');
+ok(/<b>A MESSAGE FROM NU-HEAT<\/b>/.test(b28) && /<b>YOUR NU-HEAT CONTACT<\/b>/.test(b28) && !/YOUR ACCOUNT MANAGER|YOUR QUOTE IS READY|requested a quote/.test(b28), 'labels: A MESSAGE FROM NU-HEAT, YOUR NU-HEAT CONTACT; no proposal copy');
+ok(/<b>CALL SAM<\/b>/.test(b28) && /<b>EMAIL SAM<\/b>/.test(b28) && b28.indexOf('href="tel:01404549770"') !== -1 && b28.indexOf('href="mailto:sam.taylor@nu-heat.co.uk"') !== -1, 'CALL SAM → tel:, EMAIL SAM → mailto: (the sender)');
+ok(b28.indexOf('<span class="cl-line">01404 549 770</span><span class="cl-sep"> · </span><span class="cl-line">sam.taylor@nu-heat.co.uk</span>') !== -1, 'card: the sender\'s phone (employee phone) and email');
+ok(/<img src="https:\/\/1234567\.app\.netsuite\.com\/core\/media\/media\.nl\?id=5&amp;c=1234567&amp;h=ab" width="96"[^>]* alt="Sam Taylor"/.test(b28), 'card: the sender\'s photo');
+ok(b28.indexOf('Any questions at all, just reply to this email – it comes straight to me. Sam</font></p>') !== -1, 'footer from the sender, with the first name');
+var pre28 = (/<span style="display:none;[^"]*">([^<]*)<\/span>/.exec(b28) || [])[1];
+ok(MSG28.replace(/\s+/g, ' ').trim().length > 90 && pre28 === LIB.escapeHtml(MSG28.replace(/\s+/g, ' ').trim().substring(0, 90)).replace(/\{\{/g, '&#123;&#123;'),
+   'preheader: the first 90 characters of the message, plain text, escaped');
+ok(state.calls.indexOf('lookupFields:employee:firstname,lastname,entityid,email,phone,custentity_employee_photo_link') !== -1 &&
+   !state.calls.some(function (c) { return /custbody_sales_rep_phone|salesrep/.test(c); }), 'one employee lookup (the current user); no opportunity phone override read');
+var w28 = b28.match(/<[a-z]+[^>]*style="[^"]*display:\s*none[^"]*"[^>]*>/gi) || [];
+ok(w28.length === 1 && /^<span/.test(w28[0]) && (b28.match(/<!--\[if !mso\]><!-- -->/g) || []).length === 2, 'pitfall 25: only the preheader is display:none; one [if !mso]/[if mso] pair per button');
+ok(/<table role="presentation" class="width600 main-container" width="600" align="center"/.test(b28), 'container width="600" (attribute)');
+resetState();
+state.employee.firstname = ''; state.employee.lastname = ''; state.employee.entityid = ''; state.employee.phone = ''; state.employee.custentity_employee_photo_link = '';
+emailPost({});
+var b28b = state.emails[0] ? String(state.emails[0].body) : '';
+ok(/<b>SEND AN EMAIL<\/b>/.test(b28b) && !/CALL|tel:/.test(b28b.replace(/CLICK TO CALL/g, '')), 'no first name, no phone → SEND AN EMAIL only, no tel:');
+ok(b28b.indexOf('Any questions at all, just reply to this email – it comes straight to me.</font></p>') !== -1, 'footer without a first name');
+ok(/Best wishes,<br>Nu-Heat<\/font>/.test(b28b) && b28b.indexOf('<span class="cl-sep">') === -1 && !/width="96"/.test(b28b), 'no name → "Nu-Heat"; card shows the email alone; no photo');
+
+console.log('T29. Objection notes (D21)');
+function notesFor(over, setup) {
+    resetState();
+    if (setup) setup();
+    var p = { custpage_obj_sel: '["11","12"]', custpage_obj_note_11: 'Too dear' };
+    Object.keys(over).forEach(function (k) { p[k] = over[k]; });
+    if (p.custpage_email_on === 'T') emailPost(p); else post(p);
+    return objections().map(function (w) { return w.values.custrecord_nhobj_notes; });
+}
+var TD = dmy(new Date());
+var n29a = notesFor({});
+ok(n29a[0] === 'Too dear\n\nCall notes (' + TD + '): Customer wants to compare prices.' && n29a[1] === 'Call notes (' + TD + '): Customer wants to compare prices.', 'call on → the D11 call-notes line, with and without a note');
+var n29b = notesFor({ custpage_call_on: 'F', custpage_email_on: 'T', custpage_email_subject: 'Your heat pump options' });
+ok(n29b[0] === 'Too dear\n\nEmail sent (' + TD + '): Your heat pump options' && n29b[1] === 'Email sent (' + TD + '): Your heat pump options', 'call off, email sent → "Email sent (<today>): <subject>", with and without a note');
+var n29c = notesFor({ custpage_call_on: 'F' });
+ok(n29c[0] === 'Too dear\n\nLogged via Update opportunity (' + TD + ')' && n29c[1] === 'Logged via Update opportunity (' + TD + ')', 'no call, no email → "Logged via Update opportunity (<today>)", with and without a note');
+var n29d = notesFor({ custpage_call_on: 'F', custpage_email_on: 'T' }, function () { state.emailThrows = 'down'; });
+ok(n29d[0] === 'Too dear\n\nLogged via Update opportunity (' + TD + ')' && n29d.every(function (n) { return !/Email sent/.test(n); }), 'email failed → never "Email sent"; the logged-via line');
+var n29e = notesFor({ custpage_email_on: 'T' });
+ok(/^Too dear\n\nCall notes \(/.test(n29e[0]), 'call and email both on → the call line wins');
+ok([].concat(n29a, n29b, n29c, n29d, n29e).every(function (n) { return typeof n === 'string' && n.trim().length > 0; }), 'never empty (10 notes)');
+
+console.log('T30. Raised on with the call off (D22)');
+[['browser today = server today', iso(addDays(0)), iso(addDays(0))],
+ ['browser today = server today + 1 (UK ahead)', iso(addDays(1)), iso(addDays(1))],
+ ['server today + 2', iso(addDays(2)), iso(addDays(0))],
+ ['yesterday', iso(addDays(-1)), iso(addDays(0))],
+ ['invalid (30 Feb)', '2026-02-30', iso(addDays(0))],
+ ['garbage', 'today', iso(addDays(0))],
+ ['missing', undefined, iso(addDays(0))]
+].forEach(function (c) {
+    resetState();
+    post({ custpage_call_on: 'F', custpage_obj_sel: '["11"]', custpage_today: c[1] });
+    var w = objections()[0];
+    ok(w && iso(w.values.custrecord_nhobj_raised_on) === c[2] && w.values.custrecord_nhobj_notes === 'Logged via Update opportunity (' + dmy(w.values.custrecord_nhobj_raised_on) + ')',
+       c[0] + ' → raised on ' + c[2] + ', same date in the note');
+});
+resetState();
+var past30 = addDays(-4);
+post({ custpage_obj_sel: '["11"]', custpage_call_date: iso(past30), custpage_today: iso(addDays(1)) });
+ok(iso(objections()[0].values.custrecord_nhobj_raised_on) === iso(past30), 'call on → raised on = the call date (D10), custpage_today ignored');
+
+console.log('T31. Save guard (D25)');
+resetState();
+post({ custpage_upd_entitystatus: '12', custpage_save_token: 'tok-fixed-31' });
+ok(state.cacheName === 'nh_update_opp_save_guard' && state.cacheScope === 'PRIVATE' && state.cache['tok-fixed-31'] && state.cache['tok-fixed-31'].ttl === 3600, 'token put: own cache name, PRIVATE scope, TTL 1 hour');
+var writes31 = state.writes.length;
+state.redirect = null; state.calls = [];
+post({ custpage_upd_entitystatus: '12', custpage_save_token: 'tok-fixed-31', custpage_email_on: 'T', custpage_email_subject: 'x', custpage_email_message: 'y', custpage_rcpt_contacts: '71' });
+ok(state.writes.length === writes31 && state.emails.length === 0 && state.calls.indexOf('create:phonecall') === -1, 'second POST with the same token → nothing written or sent');
+ok(rparams().nsqs === 'upd' && rparams().nsq === 'dup' && /^\d{10}$/.test(rparams().nsqt) && Object.keys(rparams()).length === 3, 'redirect nsqs=upd, nsq=dup, nsqt only');
+ok(audit('UpdateOppSL.Guard').some(function (l) { return /duplicate save/.test(l.details); }), 'Guard: duplicate logged');
+resetState();
+state.callSaveThrows = 'locked';
+post({ custpage_save_token: 'tok-fixed-31b' });
+ok(!('tok-fixed-31b' in state.cache), 'a call failure frees the token');
+state.callSaveThrows = null;
+post({ custpage_save_token: 'tok-fixed-31b' });
+ok(writesOf('create', 'phonecall').length === 1 && state.redirect && rparams().nsq === 'ok', '… so the corrected retry saves');
+resetState();
+var f31 = post({ custpage_call_title: '', custpage_save_token: 'tok-fixed-31c' });
+ok(nothingWritten() && !('tok-fixed-31c' in state.cache) && state.calls.indexOf('cache.get') === -1, 'a validation failure never touches the cache');
+ok(/name="custpage_save_token" value="tok-fixed-31c"/.test(html(f31)), 'the re-rendered page keeps the same token');
+post({ custpage_save_token: 'tok-fixed-31c' });
+ok(!!state.redirect && rparams().nsq === 'ok', '… and the corrected save goes through');
+resetState();
+post({ custpage_save_token: undefined });
+ok(!!state.redirect && writesOf('create', 'phonecall').length === 1 && audit('UpdateOppSL.Guard').some(function (l) { return /no save token/.test(l.details); }), 'missing token (a 1.0 page) → allowed, logged');
+resetState();
+post({ custpage_save_token: 'bad token <x>' });
+ok(!!state.redirect && Object.keys(state.cache).length === 0 && audit('UpdateOppSL.Guard').some(function (l) { return /no save token/.test(l.details); }), 'malformed token → treated as missing (never used as a key)');
+resetState();
+state.cacheThrows = 'cache down';
+post({});
+ok(!!state.redirect && state.logs.some(function (l) { return l.level === 'error' && l.title === 'UpdateOppSL.Guard' && /cache unavailable/.test(l.details); }), 'cache unavailable → saved without the guard, error logged');
+
+console.log('T32. lib.pendingChanges agrees with updateFields');
+var cases32 = [
+    ['nothing changed', {}],
+    ['Status changed', { custpage_upd_entitystatus: '12' }],
+    ['two dates changed', { custpage_upd_next_contact: '2026-10-20', custpage_upd_del_date: '2026-12-01' }],
+    ['blank never clears', { custpage_upd_del_date: '', custpage_upd_build_stage: '' }],
+    ['invalid date', { custpage_upd_next_contact: '2026-02-30', custpage_upd_build_stage: '4' }],
+    ['field not shown', { custpage_upd_fields: 'entitystatus', custpage_upd_build_stage: '4' }]
+];
+cases32.forEach(function (c) {
+    resetState();
+    var p = { custpage_upd_fields: 'entitystatus,next_contact,del_date,build_stage,close_date',
+              custpage_upd_entitystatus: '10', custpage_orig_entitystatus: '10', custpage_origtxt_entitystatus: 'Proposal',
+              custpage_upd_next_contact: '2026-10-01', custpage_orig_next_contact: '2026-10-01',
+              custpage_upd_del_date: '2026-11-15', custpage_orig_del_date: '2026-11-15',
+              custpage_upd_build_stage: '3', custpage_orig_build_stage: '3',
+              custpage_upd_close_date: '2026-12-20', custpage_orig_close_date: '2026-12-20' };
+    Object.keys(c[1]).forEach(function (k) { p[k] = c[1][k]; });
+    var pend = LIB.pendingChanges(p);
+    var res = LIB.updateFields('123', p, { logKey: 'T32' });
+    var sub = writesOf('submitFields', 'opportunity')[0];
+    ok(JSON.stringify(pend.changed) === JSON.stringify(res.changed) && (sub ? JSON.stringify(sub.values) === JSON.stringify(pend.values) : !pend.changed.length) && state.units <= 10,
+       c[0] + ': same changes (' + pend.changed.map(function (x) { return x.key; }).join(',') + ') and the same values written');
+});
+resetState();
+var u32 = state.units;
+LIB.pendingChanges({ custpage_upd_fields: 'entitystatus', custpage_upd_entitystatus: '12', custpage_orig_entitystatus: '10' });
+ok(state.units === u32 && state.calls.length === 0 && state.logs.length === 0, 'pendingChanges is pure: no units, calls or logs');
+
+console.log('T35. Governance, worst case: call + email + 25 objections + fields');
+resetState();
+state.types = [];
+for (var g35 = 1; g35 <= 25; g35++) state.types.push({ id: String(100 + g35), name: 'Type ' + g35, group: String(1 + (g35 % 7)), groupName: 'G' });
+state.contacts.push({ id: '73', first: 'Cat', last: 'Day', email: 'cat@example.com' });
+state.lookup.custbody_next_contact = '';
+state.units = 0;
+emailPost({ custpage_obj_sel: JSON.stringify(state.types.map(function (t) { return t.id; })), custpage_obj_quote: '901', custpage_call_contact: '71',
+            custpage_rcpt_contacts: '71,73', custpage_rcpt_customer: 'T', custpage_rcpt_extra: 'x@example.org', custpage_rcpt_ccme: 'T',
+            custpage_upd_entitystatus: '12', custpage_upd_next_contact: '2026-10-20', custpage_upd_build_stage: '4' });
+ok(objections().length === 25 && state.emails.length === 1 && !!state.redirect && rparams().nsq === 'ok', 'everything saved and sent');
+ok(state.units < 300, 'save used ' + state.units + ' units (< 300)');
+console.log('     ledger: ' + JSON.stringify(state.calls.reduce(function (m, c) { var k = c.replace(/:.*$/, ''); m[k] = (m[k] || 0) + 1; return m; }, {})));
 
 // ─── T14–T16: Opportunity UE 1.3.0 banner ─────────────────────────────────────
 

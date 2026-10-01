@@ -20,6 +20,11 @@
  *     checkPhotoUrl, GENERIC_REP_NAME, EMAIL_IMG / EMAIL_FONT / EMAIL_FACE / SOCIAL_LINKS, EMAIL_RE,
  *     parseEmails (comma-only, as Send Quote) and invalidEmails. No merge-tag substitution here.
  *   - ADDED: sendEmail(o) — email.send with relatedRecords { entityId, transactionId }; never throws.
+ *   - ADDED: pendingChanges(params) — the pure "what would change" half of updateFields(), which
+ *     now uses it (identical behaviour: Send Quote's suites and hashes pass unchanged).
+ *   - ADDED (Update Opportunity 1.1.0): loadSender(logKey) — the current user's employee card;
+ *     the recipients component — buildRecipientsHTML, RECIPIENTS_SCRIPT (constant script fragment),
+ *     readPostedRecipients, resolveRecipients (server rebuilds every address; 1–10 To addresses).
  *   - define() gains N/email and N/runtime (NOT N/render).
  *
  * RULES (carried from Send Quote 1.8.0–2.0.4 — see AI_AGENT_CONTEXT):
@@ -206,6 +211,51 @@ function (serverWidget, search, record, log, url, format, email, runtime) {
     }
 
     /**
+     * v1.1.0: the field changes a POST would write — PURE (no logging, no I/O). Split out of
+     * updateFields() so a page can ask "is anything changing?" before any write (Update Opportunity
+     * D23); updateFields() uses it, so both always agree.
+     *
+     * Only the fields the page showed (custpage_upd_fields); a blank never clears; selects compared
+     * as values; dates must be yyyy-mm-dd calendar dates (else listed in invalidDates, not written).
+     *
+     * @param {Object} params - request.parameters
+     * @returns {{ values: Object, changed: Array<{key, label, fieldId, from, to}>, logParts: string[],
+     *             invalidDates: Array<{fieldId: string, submitted: string}> }}
+     */
+    function pendingChanges(params) {
+        params = params || {};
+        var out = { values: {}, changed: [], logParts: [], invalidDates: [] };
+        var shownKeys = String(params[OPP_UPDATE_KEYS_FIELD] || '').split(',').filter(function (k) { return k; });
+
+        OPP_UPDATE_FIELDS.forEach(function (def) {
+            if (shownKeys.indexOf(def.key) === -1) return;
+
+            var submitted = String(params[updFieldId(def)] || '').trim();
+            var orig      = String(params[origFieldId(def)] || '').trim();
+            var origText  = String(params[origTextFieldId(def)] || '').trim();
+
+            if (!submitted) return;   // a blank never clears data
+
+            if (def.kind === 'select') {
+                if (submitted === orig) return;
+                out.values[def.fieldId] = submitted;
+            } else {
+                // v2.0.1: yyyy-mm-dd from the date picker; compared as strings
+                var newDate = parseIsoDate(submitted);
+                if (!newDate) {
+                    out.invalidDates.push({ fieldId: def.fieldId, submitted: submitted });
+                    return;
+                }
+                if (submitted === orig) return;
+                out.values[def.fieldId] = newDate;
+            }
+            out.changed.push({ key: def.key, label: def.label, fieldId: def.fieldId, from: origText || orig, to: submitted });
+            out.logParts.push(def.fieldId + ': ' + (orig || '(blank)') + ' → ' + submitted);
+        });
+        return out;
+    }
+
+    /**
      * Writes the Opportunity fields the user changed in "Update the opportunity".
      *
      * Called only after the proposal email has been sent. Rules:
@@ -229,37 +279,15 @@ function (serverWidget, search, record, log, url, format, email, runtime) {
         var logParts = [];
 
         try {
-            params = params || {};
-            var shownKeys = String(params[OPP_UPDATE_KEYS_FIELD] || '').split(',').filter(function (k) { return k; });
-
-            OPP_UPDATE_FIELDS.forEach(function (def) {
-                if (shownKeys.indexOf(def.key) === -1) return;
-
-                var submitted = String(params[updFieldId(def)] || '').trim();
-                var orig      = String(params[origFieldId(def)] || '').trim();
-                var origText  = String(params[origTextFieldId(def)] || '').trim();
-
-                if (!submitted) return;   // a blank never clears data
-
-                if (def.kind === 'select') {
-                    if (submitted === orig) return;
-                    values[def.fieldId] = submitted;
-                    result.changed.push({ key: def.key, label: def.label, fieldId: def.fieldId, from: origText || orig, to: submitted });
-                    logParts.push(def.fieldId + ': ' + (orig || '(blank)') + ' → ' + submitted);
-                } else {
-                    // v2.0.1: yyyy-mm-dd from the date picker; compared as strings
-                    var newDate = parseIsoDate(submitted);
-                    if (!newDate) {
-                        log.audit(logKey, 'Opportunity ' + opportunityId + ' — ' + def.fieldId +
-                            ' value "' + submitted + '" is not a yyyy-mm-dd calendar date; not written');
-                        return;
-                    }
-                    if (submitted === orig) return;
-                    values[def.fieldId] = newDate;
-                    result.changed.push({ key: def.key, label: def.label, fieldId: def.fieldId, from: origText || orig, to: submitted });
-                    logParts.push(def.fieldId + ': ' + (orig || '(blank)') + ' → ' + submitted);
-                }
+            // v1.1.0: the comparison lives in pendingChanges() — same rules, same order
+            var pending = pendingChanges(params);
+            pending.invalidDates.forEach(function (d) {
+                log.audit(logKey, 'Opportunity ' + opportunityId + ' — ' + d.fieldId +
+                    ' value "' + d.submitted + '" is not a yyyy-mm-dd calendar date; not written');
             });
+            values   = pending.values;
+            logParts = pending.logParts;
+            result.changed = pending.changed;
 
             if (result.changed.length === 0) {
                 log.audit(logKey, 'Opportunity ' + opportunityId + ' — no changes');
@@ -886,7 +914,7 @@ function (serverWidget, search, record, log, url, format, email, runtime) {
      * The contact card (Send Quote 2.2.0's Account Manager card) with a label slot.
      *
      * Every rep value is HTML the caller has ALREADY escaped (Send Quote passes its {{…}} tags):
-     *   name, phone, email — card text;  photo — img src ('' = no photo row);
+     *   name, phone, email — card text (phone '' = email alone; Send Quote always has one);  photo — img src ('' = no photo row);
      *   tel — digits for the tel: button ('' = no CALL button);  mailto — address for the EMAIL
      *   button ('' = none);  firstUpper — upper-cased first name ('' = CLICK TO CALL / SEND AN EMAIL).
      * label — the card's small heading, escaped.
@@ -905,7 +933,7 @@ function (serverWidget, search, record, log, url, format, email, runtime) {
             '<tr><td align="center" valign="top" style="padding:' + (rep.photo ? '14px' : '24px') + ' 20px 0 20px;">\n' +
             '<p style="margin:0 0 4px 0;' + EMAIL_FONT + 'font-size:13px;line-height:16px;letter-spacing:2px;color:#59315f;"><font face="' + EMAIL_FACE + '" color="#59315f"><b>' + label + '</b></font></p>\n' +
             '<p style="margin:0 0 6px 0;' + EMAIL_FONT + 'font-size:24px;line-height:28px;font-weight:bold;color:#000000;"><font face="' + EMAIL_FACE + '" color="#000000"><b>' + rep.name + '</b></font></p>\n' +
-            '<p style="margin:0;' + EMAIL_FONT + 'font-size:17px;line-height:23px;color:#131313;"><font face="' + EMAIL_FACE + '" color="#131313"><span class="cl-line">' + rep.phone + '</span><span class="cl-sep"> · </span><span class="cl-line">' + rep.email + '</span></font></p>\n' +
+            '<p style="margin:0;' + EMAIL_FONT + 'font-size:17px;line-height:23px;color:#131313;"><font face="' + EMAIL_FACE + '" color="#131313">' + (rep.phone ? '<span class="cl-line">' + rep.phone + '</span><span class="cl-sep"> · </span>' : '') + '<span class="cl-line">' + rep.email + '</span></font></p>\n' +
             '</td></tr>\n' +
             '<tr><td align="center" valign="top" style="padding:16px 14px 20px 14px;">\n' +
             '<table role="presentation" width="100%" align="center" cellpadding="0" cellspacing="0" border="0">\n' +
@@ -1056,6 +1084,178 @@ function (serverWidget, search, record, log, url, format, email, runtime) {
         }
     }
 
+    // ─── Sender (v1.1.0) ──────────────────────────────────────────────────────────
+
+    /**
+     * The current user's employee record, for an email sent FROM them (Update Opportunity D18):
+     * one search.lookupFields — firstname, lastname, entityid (name fallback), email, phone (the
+     * same employee field Send Quote's card reads via loadSalesRepData) and the photo link (https
+     * only, checkPhotoUrl). No Opportunity override fields. Never throws: error is set instead.
+     *
+     * @param {string} logKey - audit key (no address is ever logged)
+     * @returns {{ id, firstName, fullName, email, phone, photoUrl, error }}
+     */
+    function loadSender(logKey) {
+        var out = { id: '', firstName: '', fullName: '', email: '', phone: '', photoUrl: '', error: '' };
+        var photo = { url: '', reason: 'not read' };
+        try {
+            out.id = String(runtime.getCurrentUser().id || '');
+            var f = search.lookupFields({
+                type:    search.Type.EMPLOYEE,
+                id:      out.id,
+                columns: ['firstname', 'lastname', 'entityid', 'email', 'phone', 'custentity_employee_photo_link']
+            }) || {};
+            out.fullName  = (lookupText(f.firstname).trim() + ' ' + lookupText(f.lastname).trim()).trim() || lookupText(f.entityid).trim();
+            out.firstName = resolveFirstName(f.firstname, out.fullName);
+            out.email     = lookupText(f.email).trim();
+            out.phone     = lookupText(f.phone).trim();
+            photo         = checkPhotoUrl(f.custentity_employee_photo_link);
+            out.photoUrl  = photo.url;
+        } catch (e) {
+            out.error = (e && e.message) || String(e);
+        }
+        log.audit(logKey || 'OppUpdateLib.Sender', 'Sender employee ' + (out.id || 'none') +
+            (out.error ? ' — lookup FAILED: ' + out.error
+                : ' — email ' + (out.email ? 'present' : 'MISSING') + ', phone ' + (out.phone ? 'present' : 'missing') +
+                  (photo.url ? ', photo used' : ', photo skipped — ' + photo.reason)));
+        return out;
+    }
+
+    // ─── Recipients component (v1.1.0 — Update Opportunity only) ──────────────────
+    //
+    // Ticks for the Opportunity's contacts that have an email (value = the contact ID), a Customer
+    // tick (only if the customer has an email), "Other addresses" (, or ; separated) and "CC me".
+    // The addresses shown sit in data-email attributes for the live count only; the server rebuilds
+    // every address itself (resolveRecipients). Posted: custpage_rcpt_contacts (comma list of contact
+    // IDs), custpage_rcpt_customer (T/F), custpage_rcpt_extra (as typed), custpage_rcpt_ccme (T/F).
+
+    var RECIPIENTS_MAX = 10;
+
+    /**
+     * @param {Array<{id, name, email}>} contacts - lib.loadContacts()
+     * @param {string} customerEmail - '' hides the Customer tick
+     * @param {Object} [restore] - { contacts: [ids], customer: bool, extra: string, ccMe: bool }
+     */
+    function buildRecipientsHTML(contacts, customerEmail, restore) {
+        var r = restore || {};
+        var ticked = (r.contacts || []).map(String);
+        var h = [];
+        h.push('<div class="nsq-field nsq-rcpts"><span class="nsq-label">To <span class="nsq-req" aria-hidden="true">*</span></span>');
+        var withEmail = (contacts || []).filter(function (c) { return c.email; });
+        withEmail.forEach(function (c) {
+            h.push('<label class="nsq-tick"><input type="checkbox" class="nsq-rcpt" data-contact-id="' + escapeHtml(String(c.id)) +
+                '" data-email="' + escapeHtml(c.email) + '"' + (ticked.indexOf(String(c.id)) !== -1 ? ' checked' : '') + '> ' +
+                escapeHtml(c.name) + ' <span class="nsq-tick-addr">' + escapeHtml(c.email) + '</span></label>');
+        });
+        if (customerEmail) {
+            h.push('<label class="nsq-tick"><input type="checkbox" class="nsq-rcpt" data-customer="1" data-email="' + escapeHtml(customerEmail) + '"' +
+                (r.customer ? ' checked' : '') + '> Customer <span class="nsq-tick-addr">' + escapeHtml(customerEmail) + '</span></label>');
+        }
+        if (!withEmail.length && !customerEmail) {
+            h.push('<p class="nsq-help">No contact on this opportunity has an email address. Add one under Other addresses.</p>');
+        }
+        h.push('</div>');
+        h.push('<div class="nsq-field"><label class="nsq-label" for="nsq-rcpt-extra">Other addresses</label>' +
+            '<input type="text" class="nsq-input" id="nsq-rcpt-extra" name="custpage_rcpt_extra" autocomplete="off" placeholder="Separate addresses with commas" value="' +
+            escapeHtml(r.extra || '') + '"></div>');
+        h.push('<label class="nsq-tick"><input type="checkbox" id="nsq-rcpt-ccme"' + (r.ccMe ? ' checked' : '') + '> CC me</label>');
+        h.push('<input type="hidden" name="custpage_rcpt_contacts" id="nsq-rcpt-contacts" value="' + escapeHtml(ticked.join(',')) + '">');
+        h.push('<input type="hidden" name="custpage_rcpt_customer" id="nsq-rcpt-customer" value="' + (r.customer ? 'T' : 'F') + '">');
+        h.push('<input type="hidden" name="custpage_rcpt_ccme" id="nsq-rcpt-ccme-val" value="' + (r.ccMe ? 'T' : 'F') + '">');
+        return h.join('');
+    }
+
+    /**
+     * The recipients' part of a page script — a CONSTANT (no data). Uses the core's $, each, root
+     * and update. A page calls recipientsInit() from pageInit, recipientsProblem() from problem(),
+     * recipients().to.length for its summary and recipientsBeforeSubmit() from beforeSubmit().
+     */
+    var RECIPIENTS_SCRIPT = [
+        '  var RCPT_RE = /^[^\\s@,;<>"\']+@[^\\s@,;<>"\']+\\.[^\\s@,;<>"\']+$/;',
+        '  var RCPT_MAX = ' + RECIPIENTS_MAX + ';',
+        '  function rcptSplit(v) { return String(v || "").split(/[,;]/).map(function (s) { return s.trim(); }).filter(Boolean); }',
+        '  function recipients() {',
+        '    var to = [], seen = {}, bad = [];',
+        '    function add(a) { var k = a.toLowerCase(); if (!seen[k]) { seen[k] = true; to.push(a); } }',
+        '    each(root.querySelectorAll(".nsq-rcpt"), function (c) { if (c.checked && c.getAttribute("data-email")) add(c.getAttribute("data-email")); });',
+        '    var extra = $("nsq-rcpt-extra");',
+        '    if (extra) rcptSplit(extra.value).forEach(function (a) { if (RCPT_RE.test(a)) add(a); else bad.push(a); });',
+        '    return { to: to, bad: bad };',
+        '  }',
+        '  function recipientsProblem() {',
+        '    var r = recipients();',
+        '    if (r.bad.length) return "Check the other addresses.";',
+        '    if (!r.to.length) return "Choose at least one recipient.";',
+        '    if (r.to.length > RCPT_MAX) return "Send to " + RCPT_MAX + " addresses or fewer.";',
+        '    return "";',
+        '  }',
+        '  function recipientsInit() {',
+        '    each(root.querySelectorAll(".nsq-rcpt"), function (c) { c.addEventListener("change", update); });',
+        '    var me = $("nsq-rcpt-ccme"); if (me) me.addEventListener("change", update);',
+        '  }',
+        '  function recipientsBeforeSubmit() {',
+        '    var ids = [], cust = "F";',
+        '    each(root.querySelectorAll(".nsq-rcpt"), function (c) {',
+        '      if (!c.checked) return;',
+        '      if (c.getAttribute("data-customer") === "1") cust = "T"; else ids.push(c.getAttribute("data-contact-id"));',
+        '    });',
+        '    $("nsq-rcpt-contacts").value = ids.join(",");',
+        '    $("nsq-rcpt-customer").value = cust;',
+        '    $("nsq-rcpt-ccme-val").value = $("nsq-rcpt-ccme").checked ? "T" : "F";',
+        '  }'
+    ].join('\n') + '\n';
+
+    /** What the page posted for the recipients — for restoring the page after a failed save. */
+    function readPostedRecipients(params) {
+        params = params || {};
+        return {
+            contacts: String(params.custpage_rcpt_contacts || '').split(',').map(function (v) { return v.trim(); }).filter(function (v) { return v; }),
+            customer: params.custpage_rcpt_customer === 'T',
+            extra:    String(params.custpage_rcpt_extra || ''),
+            ccMe:     params.custpage_rcpt_ccme === 'T'
+        };
+    }
+
+    /**
+     * Rebuilds the To list on the server (D20): ticked contact IDs must be among `contacts` and have
+     * an email; the customer's email comes from the caller's lookup; only the extras are taken as
+     * typed (EMAIL_RE). De-duplicated case-insensitively, first occurrence kept. 1 to 10 addresses.
+     *
+     * @param {Object} params - request.parameters
+     * @param {Array<{id, name, email}>} contacts - lib.loadContacts() for this Opportunity
+     * @param {string} customerEmail - the customer's email from a lookup ('' = none)
+     * @returns {{ error: string, to: string[], ccMe: boolean }}
+     */
+    function resolveRecipients(params, contacts, customerEmail) {
+        var posted = readPostedRecipients(params);
+        var out = { error: '', to: [], ccMe: posted.ccMe };
+        var seen = {};
+        function add(a) {
+            var k = a.toLowerCase();
+            if (!seen[k]) { seen[k] = true; out.to.push(a); }
+        }
+        var byId = {};
+        (contacts || []).forEach(function (c) { byId[String(c.id)] = c; });
+        for (var i = 0; i < posted.contacts.length; i++) {
+            var c = /^\d{1,12}$/.test(posted.contacts[i]) ? byId[posted.contacts[i]] : null;
+            if (!c) { out.error = 'A chosen contact is not on this opportunity.'; return out; }
+            if (!c.email || !EMAIL_RE.test(String(c.email).trim())) { out.error = 'A chosen contact has no valid email address.'; return out; }
+            add(String(c.email).trim());
+        }
+        if (posted.customer) {
+            var ce = String(customerEmail || '').trim();
+            if (!ce || !EMAIL_RE.test(ce)) { out.error = 'The customer has no valid email address.'; return out; }
+            add(ce);
+        }
+        var extras = posted.extra.split(/[,;]/).map(function (a) { return a.trim(); }).filter(function (a) { return a; });
+        var bad = extras.filter(function (a) { return !EMAIL_RE.test(a); });
+        if (bad.length) { out.error = 'These addresses are not valid: ' + bad.join(', '); return out; }
+        extras.forEach(add);
+        if (!out.to.length) { out.error = 'Choose at least one recipient.'; return out; }
+        if (out.to.length > RECIPIENTS_MAX) { out.error = 'Send to ' + RECIPIENTS_MAX + ' addresses or fewer (' + out.to.length + ' chosen).'; return out; }
+        return out;
+    }
+
     return {
         LIB_VERSION:            LIB_VERSION,
         FIELDS:                 OPP_UPDATE_FIELDS,
@@ -1105,7 +1305,14 @@ function (serverWidget, search, record, log, url, format, email, runtime) {
         emailButton:            emailButton,
         emailRepCard:           emailRepCard,
         emailShell:             emailShell,
-        sendEmail:              sendEmail
+        sendEmail:              sendEmail,
+        loadSender:             loadSender,
+        pendingChanges:         pendingChanges,
+        RECIPIENTS_MAX:         RECIPIENTS_MAX,
+        RECIPIENTS_SCRIPT:      RECIPIENTS_SCRIPT,
+        buildRecipientsHTML:    buildRecipientsHTML,
+        readPostedRecipients:   readPostedRecipients,
+        resolveRecipients:      resolveRecipients
     };
 
 });

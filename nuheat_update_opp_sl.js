@@ -4,35 +4,53 @@
  * @NModuleScope SameAccount
  *
  * @name        Nu-Heat Update Opportunity Suitelet
- * @description "Update opportunity" page, opened from the Opportunity (VIEW) button: 1 Log the call →
- *              2 Update the opportunity → 3 Log any objections. Saves a completed Phone Call, one
+ * @description "Update opportunity" page, opened from the Opportunity (VIEW) button: 1 Log the call
+ *              (switch, on) → 2 Send an email (switch, off) → 3 Update the opportunity → 4 Log any
+ *              objections. Saves a completed Phone Call, sends a bespoke email from the user, saves one
  *              Customer Objection per ticked type, then the Opportunity fields LAST, and returns to the
  *              Opportunity with the result banner (nuheat_opportunity_ue.js, nsqs=upd).
- * @version     1.0.0
+ * @version     1.1.0
  * @author      Nu-Heat Development
  *
  * Script ID:      customscript_nuheat_update_opp_sl
  * Deployment ID:  customdeploy_nuheat_update_opp_sl
  *
- * ⚠️ DEPLOYMENT: nuheat_opp_update_lib.js must be uploaded to SuiteScripts/NuHeat/2026 Quote/ BEFORE
- *    this script, or it fails at load time.
+ * ⚠️ DEPLOYMENT: nuheat_opp_update_lib.js (1.1.0) must be uploaded to SuiteScripts/NuHeat/2026 Quote/
+ *    BEFORE this script, or it fails at load time.
+ *
+ * CHANGELOG v1.1.0 (optional call, bespoke email, save guard — pending test):
+ *   - D15: "Log a phone call" switch (on). Off → section 1 collapses, its inputs are disabled (not
+ *     posted, not validated), no Phone Call, no nsqc. custpage_call_on: 'T' on, 'F' off, missing = on.
+ *   - D16–D20: "Send an email" switch (off; custpage_email_on, missing = off). Bespoke only: subject
+ *     = headline (≤ 120, pre-filled "An update on <tranid>"), message (≤ 10,000, plain text), sent
+ *     FROM the current user inside the library's email shell with the user's employee contact card.
+ *     Recipients: contact ticks (IDs), Customer, other addresses, CC me — rebuilt on the server, 1–10.
+ *   - D9 amended: phone call → email → objections → Opportunity fields LAST.
+ *   - D21: objection notes always get a context line (call notes / "Email sent (…)" / "Logged via
+ *     Update opportunity (…)"); the per-objection note stays optional.
+ *   - D22: with the call off, raised on = the browser's today (custpage_today) if within [server
+ *     today, server today + 1], else server today.
+ *   - D23: Save needs a call, an email, an objection or a changed field (lib.pendingChanges).
+ *   - D24: email failure → continue, amber banner (nsqe=fail). Never retried.
+ *   - D25: one-time save token (N/cache, PRIVATE, 1 hour) — a resubmitted page saves nothing
+ *     (nsq=dup). Freed when the call fails; never consumed by a validation failure.
+ *   - New audit keys UpdateOppSL.Email and UpdateOppSL.Guard; the summary line gains email and call.
+ *   - The D3 message now says "Set it in step 3" (the update section moved from 2 to 3).
  *
  * DECISIONS (see AI_AGENT_CONTEXT — do not reverse without Steve):
  *   - Never touches forecast flags (includeinforecast) and never writes custbody_opportunity_sub_status.
- *   - Validate everything BEFORE any write. If the phone call fails, stop: nothing else is written and
- *     the page re-renders ("Nothing was saved"). Objection and field failures do not stop later steps;
- *     they give an amber banner.
- *   - Save order: phone call → objections → Opportunity fields LAST (the 2.0.1 rule).
- *   - Next contact is required: the Opportunity must END UP with one — checked on the client and on
- *     the server against the record (lib.validateRequired), never against posted originals.
- *   - Objection notes: "<per-objection note>\n\nCall notes (<call date>): <call notes>", or just the
- *     "Call notes (…): …" line. Raised on = the call date.
+ *   - Validate everything BEFORE any write. If the phone call fails, stop: nothing is sent or written
+ *     and the page re-renders ("Nothing was saved"). Email, objection and field failures do not stop
+ *     later steps; they give an amber banner.
+ *   - Save order: phone call → email → objections → Opportunity fields LAST (the 2.0.1 rule).
+ *   - Next contact is required on EVERY save: the Opportunity must END UP with one — checked on the
+ *     client and on the server against the record (lib.validateRequired), never against posted originals.
  *   - Lists and records are read at runtime by script ID — no internal IDs in code. Call Titles and
  *     Objection Types display in internal-ID order (types grouped by group internal ID).
- *   - The call date may not be in the future. The page takes "today" from the BROWSER (the server
- *     runs on NetSuite's own clock and can be a day behind a UK user in the morning); the server
- *     accepts up to its own today + 1 day.
- *   - Redirect parameters are codes only (nsqs=upd, nsq, nsqt, nsqf/nsqff, nsqc, nsqo, nsqof).
+ *   - Dates: the page takes "today" from the BROWSER (the server runs on NetSuite's own clock and can
+ *     be a day behind a UK user in the morning); the server accepts up to its own today + 1 day.
+ *   - No record or user data inside the <script>; user text never passes through a merge-tag pass.
+ *   - Redirect parameters are codes only (nsqs=upd, nsq, nsqt, nsqf/nsqff, nsqc, nsqo, nsqof, nsqe, nsqen).
  */
 
 define([
@@ -43,12 +61,13 @@ define([
     'N/redirect',
     'N/runtime',
     'N/format',
+    'N/cache',
     './nuheat_opp_update_lib'
-], function (serverWidget, search, record, log, redirect, runtime, format, lib) {
+], function (serverWidget, search, record, log, redirect, runtime, format, cache, lib) {
 
     'use strict';
 
-    var SCRIPT_VERSION = '1.0.0';
+    var SCRIPT_VERSION = '1.1.0';
 
     /** Page rules for the shared update fields: Next contact must end up set. */
     var RULES = { required: ['next_contact'], logKey: 'UpdateOppSL.OppUpdate' };
@@ -97,6 +116,31 @@ define([
     var OBJ_NOTE_MAX   = 300;
 
     var escapeHtml = lib.escapeHtml;
+
+    // ─── Email (v1.1.0) ───────────────────────────────────────────────────────────
+
+    var EMAIL_SUBJECT_MAX = 120;
+    var EMAIL_MESSAGE_MAX = 10000;
+
+    /**
+     * D19: the bespoke email's fixed copy. Steve may reword these — keep them in this one block.
+     * The sign-off adds the sender's full name; the footer adds the sender's first name if known.
+     */
+    var EMAIL_COPY = {
+        headerLabel:  'A MESSAGE FROM NU-HEAT',
+        subjectStart: 'An update on ',                  // + the Opportunity's tranid (D17)
+        signOff:      'Best wishes,',
+        cardLabel:    'YOUR NU-HEAT CONTACT',
+        footer:       'Any questions at all, just reply to this email – it comes straight to me.',
+        nameFallback: 'Nu-Heat',                        // only if the employee record has no name at all
+        pageNote:     'Sent from you, with your contact details. Replies come to you.'
+    };
+
+    // ─── Save guard (v1.1.0, D25) ─────────────────────────────────────────────────
+
+    var GUARD_CACHE = 'nh_update_opp_save_guard';
+    var GUARD_TTL   = 3600;   // seconds
+    var TOKEN_RE    = /^[A-Za-z0-9_-]{8,80}$/;
 
     // ─── Entry point ──────────────────────────────────────────────────────────────
 
@@ -210,7 +254,8 @@ define([
     // ─── GET ──────────────────────────────────────────────────────────────────────
 
     function renderPage(context, opportunityId, restore, error) {
-        var page = lib.loadOppPageBase(opportunityId, { logPrefix: 'UpdateOppSL', customerEmail: false });
+        // v1.1.0: customerEmail: true — the Customer recipient tick (one lookupFields)
+        var page = lib.loadOppPageBase(opportunityId, { logPrefix: 'UpdateOppSL', customerEmail: true });
         if (page.loadError) {
             showErrorPage(context, page.loadError);
             return;
@@ -220,6 +265,8 @@ define([
         page.callTitles   = loadCallTitles();
         page.types        = loadObjectionTypes();
         page.estimates    = loadEstimates(opportunityId);
+        // D25: a re-rendered page keeps its token (a validation failure never consumes it)
+        page.saveToken    = (restore && TOKEN_RE.test(restore.token || '')) ? restore.token : newSaveToken();
 
         var form = serverWidget.createForm({ title: 'Update opportunity' });
         var body = form.addField({ id: 'custpage_page', type: serverWidget.FieldType.INLINEHTML, label: ' ' });
@@ -232,8 +279,27 @@ define([
         return lib.toIsoDate(new Date());
     }
 
+    /** D25: unique, not secret — the user, the time and a random part. */
+    function newSaveToken() {
+        var user = String(runtime.getCurrentUser().id || '0').replace(/[^A-Za-z0-9_-]/g, '');
+        return 'u' + user + '-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 12);
+    }
+
+    /** D17: "An update on <tranid>". */
+    function defaultSubject(page) {
+        return EMAIL_COPY.subjectStart + (page.tranId || '');
+    }
+
+    /** A section header switch: the checkbox (not posted; its value goes in a hidden field) and "Off". */
+    function switchHTML(id, label, on, offId) {
+        return '<label class="nsq-switch"><input type="checkbox" id="' + id + '"' + (on ? ' checked' : '') + '> ' + escapeHtml(label) + '</label>' +
+            '<span class="nsq-off" id="' + offId + '"' + (on ? ' hidden' : '') + '>Off</span>';
+    }
+
     function buildPageHTML(page, restore, error) {
         var r = restore || {};
+        var callOn  = restore ? r.callOn !== false : true;    // D15: on by default
+        var emailOn = restore ? r.emailOn === true : false;   // D16: off by default
         var h = [];
         h.push(lib.baseCss() + PAGE_CSS);
         h.push('<div id="nsq-root" class="nsq" data-opp-url="' + escapeHtml(page.oppUrl) + '">');
@@ -243,11 +309,17 @@ define([
 
         h.push('<input type="hidden" name="custpage_opportunity_id" value="' + escapeHtml(page.opportunityId) + '">');
         h.push('<input type="hidden" name="custpage_obj_sel" id="nsq-obj-sel" value="">');
+        h.push('<input type="hidden" name="custpage_call_on" id="nsq-call-on-val" value="' + (callOn ? 'T' : 'F') + '">');
+        h.push('<input type="hidden" name="custpage_email_on" id="nsq-email-on-val" value="' + (emailOn ? 'T' : 'F') + '">');
+        h.push('<input type="hidden" name="custpage_today" id="nsq-today" value="' + escapeHtml(serverToday()) + '">');
+        h.push('<input type="hidden" name="custpage_save_token" value="' + escapeHtml(page.saveToken) + '">');
 
         // ── 1 Log the call ──
         var today = serverToday();
         var dateValue = restore ? (r.date || '') : today;
-        h.push('<section class="nsq-card"><h2 class="nsq-h2"><span class="nsq-num">1</span>Log the call</h2>');
+        h.push('<section class="nsq-card"><h2 class="nsq-h2"><span class="nsq-num">1</span>Log the call' +
+            switchHTML('nsq-call-on', 'Log a phone call', callOn, 'nsq-call-off') + '</h2>');
+        h.push('<div id="nsq-call-body"' + (callOn ? '' : ' hidden') + '>');
         h.push('<div class="nsq-call-grid">');
         h.push('<div class="nsq-field"><label class="nsq-label" for="nsq-std-title">Standard title</label>' +
             '<select id="nsq-std-title" name="custpage_call_std" class="nsq-input"><option value=""></option>' +
@@ -270,15 +342,30 @@ define([
         h.push('<div class="nsq-field"><label class="nsq-label" for="nsq-call-notes">What was discussed <span class="nsq-req" aria-hidden="true">*</span></label>' +
             '<textarea class="nsq-input nsq-textarea" id="nsq-call-notes" name="custpage_call_notes" rows="5" maxlength="' + CALL_NOTES_MAX + '">' +
             escapeHtml(r.notes || '') + '</textarea></div>');
-        h.push('</section>');
+        h.push('</div></section>');
 
-        // ── 2 Update the opportunity ──
-        h.push(lib.buildUpdateSectionHTML(page.updateFields, restore ? { upd: r.upd || {} } : null, 2));
+        // ── 2 Send an email (v1.1.0) ──
+        var subject = restore ? (r.subject || '') : defaultSubject(page);
+        h.push('<section class="nsq-card"><h2 class="nsq-h2"><span class="nsq-num">2</span>Send an email' +
+            switchHTML('nsq-email-on', 'Send an email', emailOn, 'nsq-email-off') + '</h2>');
+        h.push('<div id="nsq-email-body"' + (emailOn ? '' : ' hidden') + '>');
+        h.push('<div class="nsq-field"><label class="nsq-label" for="nsq-email-subject">Subject and headline <span class="nsq-req" aria-hidden="true">*</span></label>' +
+            '<input type="text" class="nsq-input" id="nsq-email-subject" name="custpage_email_subject" maxlength="' + EMAIL_SUBJECT_MAX +
+            '" autocomplete="off" value="' + escapeHtml(subject) + '"></div>');
+        h.push('<div class="nsq-field"><label class="nsq-label" for="nsq-email-message">Message <span class="nsq-req" aria-hidden="true">*</span></label>' +
+            '<textarea class="nsq-input nsq-textarea" id="nsq-email-message" name="custpage_email_message" rows="8" maxlength="' + EMAIL_MESSAGE_MAX + '">' +
+            escapeHtml(r.message || '') + '</textarea></div>');
+        h.push(lib.buildRecipientsHTML(page.contacts, page.customerEmail, restore ? r.rcpt : null));
+        h.push('<p class="nsq-help nsq-email-note">' + escapeHtml(EMAIL_COPY.pageNote) + '</p>');
+        h.push('</div></section>');
 
-        // ── 3 Log any objections ──
+        // ── 3 Update the opportunity ──
+        h.push(lib.buildUpdateSectionHTML(page.updateFields, restore ? { upd: r.upd || {} } : null, 3));
+
+        // ── 4 Log any objections ──
         var ticked = r.objSel || [];
-        h.push('<section class="nsq-card"><h2 class="nsq-h2"><span class="nsq-num">3</span>Log any objections <span class="nsq-opt">(optional)</span></h2>');
-        h.push('<p class="nsq-help">Tick every objection the customer raised. Each objection also stores the call notes from step 1.</p>');
+        h.push('<section class="nsq-card"><h2 class="nsq-h2"><span class="nsq-num">4</span>Log any objections <span class="nsq-opt">(optional)</span></h2>');
+        h.push('<p class="nsq-help">Optional. Add a note to any objection if it helps.</p>');
         if (!page.types.length) {
             h.push('<p class="nsq-help">Objection types could not be loaded.</p>');
         }
@@ -322,7 +409,7 @@ define([
         h.push('</div></div>');
 
         h.push('</div>'); // #nsq-root
-        h.push('<script>' + lib.pageScript(PAGE_PART) + '</script>');
+        h.push('<script>' + lib.pageScript(lib.RECIPIENTS_SCRIPT + PAGE_PART) + '</script>');
         return h.join('');
     }
 
@@ -337,11 +424,20 @@ define([
         '.nsq-chip[aria-pressed="true"]{background:' + lib.PAGE_COLORS.accent + ';border-color:' + lib.PAGE_COLORS.accent + ';color:#fff;font-weight:600;}' +
         '.nsq-obj-notes{margin-top:16px;}' +
         '.nsq-about{margin-top:12px;max-width:560px;}' +
+        // v1.1.0: section switches and the recipients
+        '.nsq-switch{margin-left:auto;display:inline-flex;align-items:center;gap:6px;font-size:14px;font-weight:400;cursor:pointer;}' +
+        '.nsq-switch input{width:18px;height:18px;}' +
+        '.nsq-off{font-size:13px;font-weight:600;color:' + lib.PAGE_COLORS.muted + ';}' +
+        '.nsq-tick{display:flex;align-items:center;gap:8px;min-height:36px;font-size:14px;cursor:pointer;}' +
+        '.nsq-tick input{width:18px;height:18px;}' +
+        '.nsq-tick-addr{color:' + lib.PAGE_COLORS.muted + ';}' +
+        '.nsq-email-note{margin-top:12px;}' +
         '</style>';
 
     /**
-     * This page's part of the inline script (hook contract: lib header). STATIC — reads maxlength,
-     * data-type-id and data-default from the page; nothing is interpolated.
+     * This page's part of the inline script (hook contract: lib header), after the library's
+     * RECIPIENTS_SCRIPT. STATIC — reads maxlength, data-type-id, data-default and data-email from the
+     * page; nothing is interpolated.
      */
     var PAGE_PART = [
         '  function pad(n) { return (n < 10 ? "0" : "") + n; }',
@@ -351,6 +447,15 @@ define([
         '    return ids;',
         '  }',
         '  function showNote(id, on) { var n = $("nsq-obj-note-" + id); if (n) n.hidden = !on; }',
+        '  function callOn() { return $("nsq-call-on").checked; }',
+        '  function emailOn() { return $("nsq-email-on").checked; }',
+        '  function setSection(sw, bodyId, offId, valId) {',
+        '    var on = sw.checked, body = $(bodyId);',
+        '    body.hidden = !on;',
+        '    each(body.querySelectorAll("input, select, textarea"), function (el) { el.disabled = !on; });',
+        '    $(offId).hidden = on;',
+        '    $(valId).value = on ? "T" : "F";',
+        '  }',
         '  function pageInit() {',
         '    var std = $("nsq-std-title"), title = $("nsq-call-title"), lastStd = std.value;',
         '    std.addEventListener("change", function () {',
@@ -365,6 +470,7 @@ define([
         '    date.max = today;',
         '    if (date.getAttribute("data-default") === "1") date.value = today;',
         '    date.addEventListener("change", update);',
+        '    $("nsq-today").value = today;',
         '    each(root.querySelectorAll(".nsq-chip"), function (chip) {',
         '      chip.addEventListener("click", function () {',
         '        var on = chip.getAttribute("aria-pressed") !== "true";',
@@ -373,23 +479,49 @@ define([
         '        update();',
         '      });',
         '    });',
+        '    $("nsq-email-message").addEventListener("input", update);',
+        '    recipientsInit();',
+        '    [["nsq-call-on", "nsq-call-body", "nsq-call-off", "nsq-call-on-val"],',
+        '     ["nsq-email-on", "nsq-email-body", "nsq-email-off", "nsq-email-on-val"]].forEach(function (s) {',
+        '      var sw = $(s[0]);',
+        '      setSection(sw, s[1], s[2], s[3]);',
+        '      sw.addEventListener("change", function () { setSection(sw, s[1], s[2], s[3]); update(); });',
+        '    });',
         '    $("nsq-send").addEventListener("click", function () { submitForm("Saving…"); });',
         '  }',
         '  function problem() {',
-        '    var title = $("nsq-call-title"), notes = $("nsq-call-notes"), date = $("nsq-call-date");',
-        '    if (!title.value.trim()) return "Enter a call title.";',
-        '    if (title.value.trim().length > title.maxLength) return "The call title is too long.";',
-        '    if (!notes.value.trim()) return "Enter what was discussed.";',
-        '    if (notes.value.trim().length > notes.maxLength) return "The call notes are too long.";',
-        '    if (!/^\\d{4}-\\d{2}-\\d{2}$/.test(date.value)) return "Choose the call date.";',
-        '    if (date.max && date.value > date.max) return "The call date can’t be in the future.";',
+        '    if (callOn()) {',
+        '      var title = $("nsq-call-title"), notes = $("nsq-call-notes"), date = $("nsq-call-date");',
+        '      if (!title.value.trim()) return "Enter a call title.";',
+        '      if (title.value.trim().length > title.maxLength) return "The call title is too long.";',
+        '      if (!notes.value.trim()) return "Enter what was discussed.";',
+        '      if (notes.value.trim().length > notes.maxLength) return "The call notes are too long.";',
+        '      if (!/^\\d{4}-\\d{2}-\\d{2}$/.test(date.value)) return "Choose the call date.";',
+        '      if (date.max && date.value > date.max) return "The call date can’t be in the future.";',
+        '    }',
+        '    if (emailOn()) {',
+        '      var subj = $("nsq-email-subject"), msg = $("nsq-email-message");',
+        '      if (!subj.value.trim()) return "Enter a subject.";',
+        '      if (subj.value.trim().length > subj.maxLength) return "The subject is too long.";',
+        '      if (!msg.value.trim()) return "Write the message.";',
+        '      if (msg.value.trim().length > msg.maxLength) return "The message is too long.";',
+        '      var rp = recipientsProblem();',
+        '      if (rp) return rp;',
+        '    }',
+        '    if (!callOn() && !emailOn() && !ticked().length && !updChanges().length) return "Log a call, send an email, tick an objection or change a field.";',
         '    return "";',
         '  }',
         '  function summary() {',
-        '    var t = $("nsq-call-title").value.trim(), k = ticked().length;',
-        '    return "Call: " + (t || "(no title yet)") + " · " + k + " objection" + (k === 1 ? "" : "s");',
+        '    var parts = [], k = ticked().length;',
+        '    if (callOn()) parts.push("Call: " + ($("nsq-call-title").value.trim() || "(no title yet)"));',
+        '    if (emailOn()) parts.push("Email to " + recipients().to.length);',
+        '    parts.push(k + " objection" + (k === 1 ? "" : "s"));',
+        '    return parts.join(" · ");',
         '  }',
-        '  function beforeSubmit() { $("nsq-obj-sel").value = JSON.stringify(ticked()); }'
+        '  function beforeSubmit() {',
+        '    $("nsq-obj-sel").value = JSON.stringify(ticked());',
+        '    if (emailOn()) recipientsBeforeSubmit();',
+        '  }'
     ].join('\n');
 
     // ─── POST ─────────────────────────────────────────────────────────────────────
@@ -402,15 +534,21 @@ define([
             objNotes[id] = String(params['custpage_obj_note_' + id] || '');
         });
         return {
+            callOn:   params.custpage_call_on !== 'F',
+            emailOn:  params.custpage_email_on === 'T',
             std:      String(params.custpage_call_std || ''),
             title:    String(params.custpage_call_title || ''),
             date:     String(params.custpage_call_date || ''),
             contact:  String(params.custpage_call_contact || ''),
             notes:    String(params.custpage_call_notes || ''),
+            subject:  String(params.custpage_email_subject || ''),
+            message:  String(params.custpage_email_message || ''),
+            rcpt:     lib.readPostedRecipients(params),
             objSel:   sel.ids,
             objNotes: objNotes,
             quote:    String(params.custpage_obj_quote || ''),
-            upd:      lib.readPostedUpdateValues(params)
+            upd:      lib.readPostedUpdateValues(params),
+            token:    String(params.custpage_save_token || '')
         };
     }
 
@@ -427,15 +565,141 @@ define([
         }
     }
 
-    /** D11: "<note>\n\nCall notes (<date>): <notes>", or just the call-notes line. */
-    function objectionNotes(note, callDateText, callNotes) {
-        var line = 'Call notes (' + callDateText + '): ' + callNotes;
-        return note ? note + '\n\n' + line : line;
+    /**
+     * D11 / D21: "<note>\n\n<context line>", or just the context line — never empty
+     * (custrecord_nhobj_notes is mandatory on the record).
+     */
+    function objectionNotes(note, contextLine) {
+        return note ? note + '\n\n' + contextLine : contextLine;
     }
 
     /**
-     * Validates everything (no writes), then: phone call → objections → Opportunity fields LAST →
-     * redirect to the Opportunity with code-only parameters.
+     * D21: the context line, in priority order — the call, an email that was actually sent, or a
+     * plain "logged via" line. Never "Email sent" for a failed email.
+     */
+    function objectionContextLine(callOn, callDateText, callNotes, emailSent, todayText, subject) {
+        if (callOn) return 'Call notes (' + callDateText + '): ' + callNotes;
+        if (emailSent) return 'Email sent (' + todayText + '): ' + subject;
+        return 'Logged via Update opportunity (' + todayText + ')';
+    }
+
+    /**
+     * D22: "today" for a save without a call — the browser's date (custpage_today, yyyy-mm-dd from
+     * local date parts) if it is a real date within [server today, server today + 1]; else the
+     * server's today. The server clock runs behind the UK (pitfall 26).
+     */
+    function requestToday(params) {
+        var now = new Date();
+        var serverDay = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+        var latest = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
+        var posted = lib.parseIsoDate(String(params.custpage_today || '').trim());
+        return (posted && posted >= serverDay && posted <= latest) ? posted : serverDay;
+    }
+
+    // ─── Bespoke email (D17–D19) ──────────────────────────────────────────────────
+
+    /** User/record text for the email: escaped, and "{{" neutralised (no merge pass runs anyway). */
+    function emailText(s) {
+        return escapeHtml(s).replace(/\{\{/g, '&#123;&#123;');
+    }
+
+    /** Plain-text message → paragraphs: a blank line starts a new paragraph, a single newline is <br>. */
+    function messageParagraphs(message) {
+        var font = lib.EMAIL_FONT, face = lib.EMAIL_FACE;
+        return String(message || '').replace(/\r\n?/g, '\n').split(/\n[ \t]*\n\s*/)
+            .map(function (p) { return p.replace(/^\n+|\n+$/g, ''); })
+            .filter(function (p) { return p.trim(); })
+            .map(function (p) {
+                return '<p style="margin:0 0 16px 0;' + font + 'font-size:18px;line-height:26px;color:#131313;text-align:left;">' +
+                    '<font face="' + face + '" color="#131313">' + p.split('\n').map(emailText).join('<br>') + '</font></p>\n';
+            }).join('');
+    }
+
+    /**
+     * The bespoke email: the library's shell with this page's copy (EMAIL_COPY), the message, the
+     * sign-off and the SENDER's contact card (D18: employee record only — no Opportunity overrides).
+     * No merge-tag substitution runs over any of it (pitfall 28).
+     *
+     * @param {string} subject - the subject, also the headline
+     * @param {string} message - plain text as typed
+     * @param {Object} sender - lib.loadSender()
+     */
+    function buildBespokeEmail(subject, message, sender) {
+        var font = lib.EMAIL_FONT, face = lib.EMAIL_FACE;
+        var name  = sender.fullName || EMAIL_COPY.nameFallback;
+        var first = String(sender.firstName || '').trim();
+        var phone = String(sender.phone || '');
+        var preheader = String(message || '').replace(/\s+/g, ' ').trim().substring(0, 90);
+
+        var rows = '' +
+            '<tr><td align="left" valign="top" style="padding:28px 30px 4px 30px;text-align:left;">\n' +
+            messageParagraphs(message) +
+            '<p style="margin:8px 0 0 0;' + font + 'font-size:18px;line-height:26px;color:#131313;text-align:left;">' +
+            '<font face="' + face + '" color="#131313">' + emailText(EMAIL_COPY.signOff) + '<br>' + emailText(name) + '</font></p>\n' +
+            '</td></tr>\n';
+
+        var card = lib.emailRepCard({
+            name:       emailText(name),
+            phone:      emailText(phone),
+            email:      emailText(sender.email),
+            photo:      sender.photoUrl ? escapeHtml(sender.photoUrl) : '',
+            tel:        escapeHtml(phone.replace(/[^\d+]/g, '')),
+            mailto:     escapeHtml(sender.email),
+            firstUpper: emailText(first.toUpperCase())
+        }, emailText(EMAIL_COPY.cardLabel));
+
+        return lib.emailShell({
+            title:       emailText(subject),
+            preheader:   emailText(preheader),
+            headerLabel: emailText(EMAIL_COPY.headerLabel),
+            headerH1:    emailText(subject),
+            headerSub:   '',
+            rows:        rows,
+            card:        { intro: '', html: card },
+            footerLine:  emailText(EMAIL_COPY.footer + (first ? ' ' + first : ''))
+        });
+    }
+
+    // ─── Save guard (D25) ─────────────────────────────────────────────────────────
+
+    /**
+     * Claims the page's one-time token. { dup: true } if it was already used (nothing may be
+     * written); { key } when claimed; { key: null } when there is no usable token or no cache (an
+     * in-flight 1.0 page, or N/cache unavailable) — the save goes ahead without the guard, logged.
+     */
+    function claimToken(token, opportunityId) {
+        if (!TOKEN_RE.test(token)) {
+            log.audit('UpdateOppSL.Guard', 'Opportunity ' + opportunityId + ' — no save token (a page from before 1.1.0?); saved without the guard');
+            return { dup: false, key: null };
+        }
+        try {
+            var c = cache.getCache({ name: GUARD_CACHE, scope: cache.Scope.PRIVATE });
+            if (c.get({ key: token })) {
+                log.audit('UpdateOppSL.Guard', 'Opportunity ' + opportunityId + ' — duplicate save (token already used); nothing written');
+                return { dup: true, key: null };
+            }
+            c.put({ key: token, value: String(opportunityId), ttl: GUARD_TTL });
+            return { dup: false, key: token };
+        } catch (e) {
+            log.error('UpdateOppSL.Guard', 'Opportunity ' + opportunityId + ' — cache unavailable (' + e.message + '); saved without the guard');
+            return { dup: false, key: null };
+        }
+    }
+
+    /** Frees a claimed token (the call failed and nothing was saved — the rep may retry). */
+    function releaseToken(key, opportunityId) {
+        if (!key) return;
+        try {
+            cache.getCache({ name: GUARD_CACHE, scope: cache.Scope.PRIVATE }).remove({ key: key });
+            log.audit('UpdateOppSL.Guard', 'Opportunity ' + opportunityId + ' — token released (nothing was saved)');
+        } catch (e) {
+            log.error('UpdateOppSL.Guard', 'Opportunity ' + opportunityId + ' — token could not be released: ' + e.message);
+        }
+    }
+
+    /**
+     * Validates everything (no writes), claims the save token, then: phone call → email →
+     * objections → Opportunity fields LAST → redirect to the Opportunity with code-only parameters.
      */
     function handleSave(context) {
         var params = context.request.parameters || {};
@@ -453,23 +717,88 @@ define([
             fail('Not saved.', message);
         }
 
+        var callOn  = params.custpage_call_on !== 'F';    // D15: missing = on (a 1.0 page)
+        var emailOn = params.custpage_email_on === 'T';   // D16: missing = off
+
+        // Read once, on demand
+        var contacts = null;
+        function opportunityContacts() {
+            if (!contacts) contacts = lib.loadContacts(opportunityId, 'UpdateOppSL');
+            return contacts;
+        }
+        var customerId = null;
+        function opportunityCustomer() {
+            if (customerId !== null) return customerId;
+            customerId = '';
+            try {
+                var opp = search.lookupFields({ type: search.Type.OPPORTUNITY, id: opportunityId, columns: ['entity'] });
+                customerId = (opp.entity && opp.entity[0]) ? opp.entity[0].value : '';
+            } catch (e) {
+                log.error('UpdateOppSL.Call', 'Opportunity ' + opportunityId + ' — customer lookup failed: ' + e.message);
+            }
+            return customerId;
+        }
+
         // ── Validation — nothing is written until all of this passes ─────────────
-        var title = String(params.custpage_call_title || '').trim();
-        if (!title) return invalid('Enter a call title.');
-        if (title.length > CALL_TITLE_MAX) return invalid('The call title is longer than ' + CALL_TITLE_MAX + ' characters.');
+        var title = '', notes = '', callDate = null;
+        if (callOn) {
+            title = String(params.custpage_call_title || '').trim();
+            if (!title) return invalid('Enter a call title.');
+            if (title.length > CALL_TITLE_MAX) return invalid('The call title is longer than ' + CALL_TITLE_MAX + ' characters.');
 
-        var notes = String(params.custpage_call_notes || '').trim();
-        if (!notes) return invalid('Enter what was discussed.');
-        if (notes.length > CALL_NOTES_MAX) return invalid('The call notes are longer than ' + CALL_NOTES_MAX + ' characters.');
+            notes = String(params.custpage_call_notes || '').trim();
+            if (!notes) return invalid('Enter what was discussed.');
+            if (notes.length > CALL_NOTES_MAX) return invalid('The call notes are longer than ' + CALL_NOTES_MAX + ' characters.');
 
-        var callDate = lib.parseIsoDate(String(params.custpage_call_date || '').trim());
-        if (!callDate) return invalid('Choose a valid call date.');
-        var latest = new Date();
-        latest = new Date(latest.getFullYear(), latest.getMonth(), latest.getDate() + 1);   // server today + 1 (time zones)
-        if (callDate > latest) return invalid('The call date can’t be in the future.');
+            callDate = lib.parseIsoDate(String(params.custpage_call_date || '').trim());
+            if (!callDate) return invalid('Choose a valid call date.');
+            var latest = new Date();
+            latest = new Date(latest.getFullYear(), latest.getMonth(), latest.getDate() + 1);   // server today + 1 (time zones)
+            if (callDate > latest) return invalid('The call date can’t be in the future.');
+        }
+
+        var subject = '', message = '', rcpt = null, sender = null;
+        if (emailOn) {
+            subject = String(params.custpage_email_subject || '').trim();
+            if (!subject) return invalid('Enter a subject for the email.');
+            if (subject.length > EMAIL_SUBJECT_MAX) return invalid('The subject is longer than ' + EMAIL_SUBJECT_MAX + ' characters.');
+
+            message = String(params.custpage_email_message || '').trim();
+            if (!message) return invalid('Write the email message.');
+            if (message.length > EMAIL_MESSAGE_MAX) return invalid('The message is longer than ' + EMAIL_MESSAGE_MAX + ' characters.');
+
+            var customerEmail = '';
+            if (params.custpage_rcpt_customer === 'T' && opportunityCustomer()) {
+                try {
+                    customerEmail = String(search.lookupFields({ type: search.Type.CUSTOMER, id: opportunityCustomer(), columns: ['email'] }).email || '');
+                } catch (e) {
+                    log.error('UpdateOppSL.Email', 'Opportunity ' + opportunityId + ' — customer email lookup failed: ' + e.message);
+                }
+            }
+            rcpt = lib.resolveRecipients(params, opportunityContacts(), customerEmail);
+            if (rcpt.error) return invalid(rcpt.error);
+
+            sender = lib.loadSender('UpdateOppSL.Email');
+            if (sender.error) return invalid('Your employee record could not be read, so the email can’t be sent from you.');
+            if (!sender.email || !lib.EMAIL_RE.test(sender.email)) {
+                return invalid('Your employee record has no email address, so the email can’t be sent from you.');
+            }
+        }
 
         var sel = parseObjSel(params.custpage_obj_sel);
         if (sel.invalid) return invalid('The objection selection could not be read. Please try again.');
+
+        // D23: something to save
+        if (!callOn && !emailOn && !sel.ids.length && !lib.pendingChanges(params).changed.length) {
+            return invalid('Log a call, send an email, tick an objection or change a field.');
+        }
+
+        // D3: on every save
+        var req = lib.validateRequired(opportunityId, params, RULES);
+        if (!req.ok) {
+            return invalid(req.missing.join(', ') + ' is required — the opportunity has none. Set it in step 3.');
+        }
+
         var typeById = {};
         if (sel.ids.length) {
             loadObjectionTypes().forEach(function (t) { typeById[t.id] = t; });
@@ -490,49 +819,73 @@ define([
             return invalid('The chosen quote is not on this opportunity.');
         }
 
-        var contactId = String(params.custpage_call_contact || '').trim();
-        if (contactId && !lib.loadContacts(opportunityId, 'UpdateOppSL').some(function (c) { return String(c.id) === contactId; })) {
+        var contactId = callOn ? String(params.custpage_call_contact || '').trim() : '';
+        if (contactId && !opportunityContacts().some(function (c) { return String(c.id) === contactId; })) {
             return invalid('The chosen contact is not on this opportunity.');
         }
 
-        var req = lib.validateRequired(opportunityId, params, RULES);
-        if (!req.ok) {
-            return invalid(req.missing.join(', ') + ' is required — the opportunity has none. Set it in step 2.');
-        }
-
-        var customerId = '';
-        try {
-            var opp = search.lookupFields({ type: search.Type.OPPORTUNITY, id: opportunityId, columns: ['entity'] });
-            customerId = (opp.entity && opp.entity[0]) ? opp.entity[0].value : '';
-        } catch (e) {
-            log.error('UpdateOppSL.Call', 'Opportunity ' + opportunityId + ' — customer lookup failed: ' + e.message);
-        }
-
+        var today = requestToday(params);   // D22
+        var custId = opportunityCustomer();
         var userId = runtime.getCurrentUser().id;
 
-        // ── 1. Phone call — if this fails, nothing else is written ───────────────
-        var callId;
-        try {
-            var call = record.create({ type: record.Type.PHONE_CALL });
-            call.setValue({ fieldId: CALL.title, value: title });
-            call.setValue({ fieldId: CALL.message, value: notes });
-            call.setValue({ fieldId: CALL.startDate, value: callDate });
-            call.setValue({ fieldId: CALL.status, value: CALL.completed });
-            if (customerId) call.setValue({ fieldId: CALL.company, value: customerId });
-            call.setValue({ fieldId: CALL.transaction, value: opportunityId });
-            call.setValue({ fieldId: CALL.assigned, value: userId });
-            if (contactId) call.setValue({ fieldId: CALL.contact, value: contactId });
-            callId = call.save();
-            log.audit('UpdateOppSL.Call', 'Opportunity ' + opportunityId + ' — phone call ' + callId + ' created: "' + title + '"');
-        } catch (e) {
-            log.error('UpdateOppSL.Call', 'Opportunity ' + opportunityId + ' — phone call FAILED: ' + e.message);
-            log.audit('UpdateOppSL.Summary', 'Opportunity ' + opportunityId + ' — call failed; nothing saved');
-            fail('Nothing was saved:', e.message);
+        // ── Save guard (D25) — before the first write ─────────────────────────────
+        var guard = claimToken(restore.token, opportunityId);
+        if (guard.dup) {
+            var dp = { nsqs: 'upd', nsq: 'dup', nsqt: String(Math.floor(Date.now() / 1000)) };
+            log.audit('UpdateOppSL.Redirect', 'Opportunity ' + opportunityId + ' — ' + JSON.stringify(dp));
+            redirect.toRecord({ type: record.Type.OPPORTUNITY, id: opportunityId, isEditMode: false, parameters: dp });
             return;
         }
 
-        // ── 2. Objections — each in its own try/catch ────────────────────────────
-        var callDateText = format.format({ value: callDate, type: format.Type.DATE });
+        // ── 1. Phone call — if this fails, nothing else is sent or written ──────
+        var callId = '';
+        if (callOn) {
+            try {
+                var call = record.create({ type: record.Type.PHONE_CALL });
+                call.setValue({ fieldId: CALL.title, value: title });
+                call.setValue({ fieldId: CALL.message, value: notes });
+                call.setValue({ fieldId: CALL.startDate, value: callDate });
+                call.setValue({ fieldId: CALL.status, value: CALL.completed });
+                if (custId) call.setValue({ fieldId: CALL.company, value: custId });
+                call.setValue({ fieldId: CALL.transaction, value: opportunityId });
+                call.setValue({ fieldId: CALL.assigned, value: userId });
+                if (contactId) call.setValue({ fieldId: CALL.contact, value: contactId });
+                callId = String(call.save());
+                log.audit('UpdateOppSL.Call', 'Opportunity ' + opportunityId + ' — phone call ' + callId + ' created: "' + title + '"');
+            } catch (e) {
+                log.error('UpdateOppSL.Call', 'Opportunity ' + opportunityId + ' — phone call FAILED: ' + e.message);
+                log.audit('UpdateOppSL.Summary', 'Opportunity ' + opportunityId + ' — call failed; nothing saved');
+                releaseToken(guard.key, opportunityId);
+                fail('Nothing was saved:', e.message);
+                return;
+            }
+        }
+
+        // ── 2. Email — a failure does not stop the rest (D24); never retried ─────
+        var emailState = 'off';
+        var emailCount = 0;
+        if (emailOn) {
+            var cc = [];
+            var me = sender.email.toLowerCase();
+            if (rcpt.ccMe && !rcpt.to.some(function (a) { return a.toLowerCase() === me; })) cc.push(sender.email);
+            var sent = lib.sendEmail({
+                author:     userId,
+                to:         rcpt.to,
+                cc:         cc,
+                subject:    subject,
+                body:       buildBespokeEmail(subject, message, sender),
+                customerId: custId,
+                oppId:      opportunityId,
+                logKey:     'UpdateOppSL.Email'
+            });
+            emailState = sent.ok ? 'sent' : 'fail';
+            emailCount = rcpt.to.length;   // To + CC excluding CC me (CC only ever holds the sender)
+        }
+
+        // ── 3. Objections — each in its own try/catch ────────────────────────────
+        var callDateText = callOn ? format.format({ value: callDate, type: format.Type.DATE }) : '';
+        var todayText = format.format({ value: today, type: format.Type.DATE });
+        var contextLine = objectionContextLine(callOn, callDateText, notes, emailState === 'sent', todayText, subject);
         var created = [];
         var failedTypes = [];
         sel.ids.forEach(function (typeId) {
@@ -541,9 +894,9 @@ define([
                 o.setValue({ fieldId: OBJ.opportunity, value: opportunityId });
                 o.setValue({ fieldId: OBJ.type, value: typeId });
                 if (quoteId) o.setValue({ fieldId: OBJ.quote, value: quoteId });
-                o.setValue({ fieldId: OBJ.notes, value: objectionNotes(String(params['custpage_obj_note_' + typeId] || '').trim(), callDateText, notes) });
+                o.setValue({ fieldId: OBJ.notes, value: objectionNotes(String(params['custpage_obj_note_' + typeId] || '').trim(), contextLine) });
                 o.setValue({ fieldId: OBJ.raisedBy, value: userId });
-                o.setValue({ fieldId: OBJ.raisedOn, value: callDate });
+                o.setValue({ fieldId: OBJ.raisedOn, value: callOn ? callDate : today });   // D10 / D22
                 var oid = o.save();
                 created.push(oid);
                 log.audit('UpdateOppSL.Objection', 'Opportunity ' + opportunityId + ' — objection ' + oid + ' created (type ' + typeId + ')');
@@ -553,22 +906,30 @@ define([
             }
         });
 
-        // ── 3. Opportunity fields — LAST ─────────────────────────────────────────
+        // ── 4. Opportunity fields — LAST ─────────────────────────────────────────
         var oppUpdate = lib.updateFields(opportunityId, params, RULES);
 
-        // ── 4. Back to the Opportunity with codes only ───────────────────────────
+        // ── 5. Back to the Opportunity with codes only ───────────────────────────
         var p = lib.fieldRedirectParams(oppUpdate);
         p.nsqs = 'upd';
-        p.nsqc = String(callId);
+        if (callId) p.nsqc = callId;
         p.nsqo = String(created.length);
         if (failedTypes.length) {
             p.nsq = 'warn';
             p.nsqof = failedTypes.join(',');
         }
-        log.audit('UpdateOppSL.Summary', 'Opportunity ' + opportunityId + ' — call ' + callId + '; objections created ' + created.length +
+        if (emailState === 'sent') {
+            p.nsqe = 'sent';
+            p.nsqen = String(emailCount);
+        } else if (emailState === 'fail') {
+            p.nsqe = 'fail';
+            p.nsq = 'warn';
+        }
+        log.audit('UpdateOppSL.Summary', 'Opportunity ' + opportunityId + ' — call ' + (callId || 'off') + '; objections created ' + created.length +
             ', failed ' + (failedTypes.join(',') || 'none') + '; fields changed ' +
             ((oppUpdate.error ? '' : oppUpdate.changed.map(function (c) { return c.key; }).join(',')) || 'none') +
-            ', failed ' + ((oppUpdate.error ? oppUpdate.changed.map(function (c) { return c.key; }).join(',') : '') || 'none'));
+            ', failed ' + ((oppUpdate.error ? oppUpdate.changed.map(function (c) { return c.key; }).join(',') : '') || 'none') +
+            '; email ' + emailState + (emailOn ? ' (' + emailCount + ' recipient' + (emailCount === 1 ? '' : 's') + ')' : ''));
         log.audit('UpdateOppSL.Redirect', 'Opportunity ' + opportunityId + ' — ' + JSON.stringify(p));
 
         redirect.toRecord({
