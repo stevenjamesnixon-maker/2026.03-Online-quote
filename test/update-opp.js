@@ -83,8 +83,7 @@ function resetState() {
         // v1.1.0
         emails: [], emailThrows: null, cache: {}, cacheThrows: null,
         customerEmail: 'cust@example.com',
-        employee: { firstname: 'Sam', lastname: 'Taylor', entityid: 'Sam Taylor', email: 'sam.taylor@nu-heat.co.uk', officephone: '01404 549 770',   // amendment 3: Office Phone (was phone)
-                    
+        employee: { firstname: 'Sam', lastname: 'Taylor', entityid: 'Sam Taylor', email: 'sam.taylor@nu-heat.co.uk', phone: '01404 549 770',
                     custentity_employee_photo_link: 'https://1234567.app.netsuite.com/core/media/media.nl?id=5&c=1234567&h=ab' },
         employeeThrows: null
     };
@@ -661,13 +660,13 @@ ok(paras28.length === 2 && /Para two &#123;&#123;PROPOSAL_URL\}\}<\/font><\/p>$/
 ok(/<font [^>]*>Best wishes,<br>Sam Taylor<\/font><\/p>/.test(b28) && b28.indexOf('Best wishes,') > b28.indexOf('Para two'), 'sign-off directly under the body: Best wishes, Sam Taylor');
 ok(/<b>A MESSAGE FROM NU-HEAT<\/b>/.test(b28) && /<b>YOUR NU-HEAT CONTACT<\/b>/.test(b28) && !/YOUR ACCOUNT MANAGER|YOUR QUOTE IS READY|requested a quote/.test(b28), 'labels: A MESSAGE FROM NU-HEAT, YOUR NU-HEAT CONTACT; no proposal copy');
 ok(/<b>CALL SAM<\/b>/.test(b28) && /<b>EMAIL SAM<\/b>/.test(b28) && b28.indexOf('href="tel:01404549770"') !== -1 && b28.indexOf('href="mailto:sam.taylor@nu-heat.co.uk"') !== -1, 'CALL SAM → tel:, EMAIL SAM → mailto: (the sender)');
-ok(b28.indexOf('<span class="cl-line">01404 549 770</span><span class="cl-sep"> · </span><span class="cl-line">sam.taylor@nu-heat.co.uk</span>') !== -1, 'card: the sender\'s phone (Office Phone) and email');
+ok(b28.indexOf('<span class="cl-line">01404 549 770</span><span class="cl-sep"> · </span><span class="cl-line">sam.taylor@nu-heat.co.uk</span>') !== -1, 'card: the sender\'s phone (employee phone) and email');
 ok(/<img src="https:\/\/1234567\.app\.netsuite\.com\/core\/media\/media\.nl\?id=5&amp;c=1234567&amp;h=ab" width="96"[^>]* alt="Sam Taylor"/.test(b28), 'card: the sender\'s photo');
 ok(b28.indexOf('Any questions at all, just reply to this email – it comes straight to me. Sam</font></p>') !== -1, 'footer from the sender, with the first name');
 var pre28 = (/<span style="display:none;[^"]*">([^<]*)<\/span>/.exec(b28) || [])[1];
 ok(MSG28.replace(/\s+/g, ' ').trim().length > 90 && pre28 === LIB.escapeHtml(MSG28.replace(/\s+/g, ' ').trim().substring(0, 90)).replace(/\{\{/g, '&#123;&#123;'),
    'preheader: the first 90 characters of the message, plain text, escaped');
-ok(state.calls.indexOf('lookupFields:employee:firstname,lastname,entityid,email,officephone,isinactive,custentity_employee_photo_link') !== -1 &&   // changed in amendment 3: officephone + isinactive (was phone)
+ok(state.calls.indexOf('lookupFields:employee:firstname,lastname,entityid,email,phone,isinactive,custentity_employee_photo_link') !== -1 &&   // changed in amendment 3: + isinactive
    !state.calls.some(function (c) { return /custbody_sales_rep_phone/.test(c); }) &&
    state.calls.filter(function (c) { return /^lookupFields:opportunity:/.test(c) && !/custbody_next_contact/.test(c); }).join() === 'lookupFields:opportunity:entity,salesrep,custbody_pe',
    'one employee lookup (the current user); no opportunity phone override read');   // changed in amendment 2: the opportunity lookup now reads salesrep / custbody_pe for "From" (was: no salesrep anywhere)
@@ -675,7 +674,7 @@ var w28 = b28.match(/<[a-z]+[^>]*style="[^"]*display:\s*none[^"]*"[^>]*>/gi) || 
 ok(w28.length === 1 && /^<span/.test(w28[0]) && (b28.match(/<!--\[if !mso\]><!-- -->/g) || []).length === 2, 'pitfall 25: only the preheader is display:none; one [if !mso]/[if mso] pair per button');
 ok(/<table role="presentation" class="width600 main-container" width="600" align="center"/.test(b28), 'container width="600" (attribute)');
 resetState();
-state.employee.firstname = ''; state.employee.lastname = ''; state.employee.entityid = ''; state.employee.officephone = ''; state.employee.custentity_employee_photo_link = '';
+state.employee.firstname = ''; state.employee.lastname = ''; state.employee.entityid = ''; state.employee.phone = ''; state.employee.custentity_employee_photo_link = '';
 emailPost({});
 var b28b = state.emails[0] ? String(state.emails[0].body) : '';
 ok(/<b>SEND AN EMAIL<\/b>/.test(b28b) && !/CALL|tel:/.test(b28b.replace(/CLICK TO CALL/g, '')), 'no first name, no phone → SEND AN EMAIL only, no tel:');
@@ -859,8 +858,8 @@ function withTeam() {
     state.oppValues.custbody_pe = '82';
     state.oppTexts = { salesrep: 'Rob <Rep>', custbody_pe: 'Pat & PE' };
     state.employees = {
-        '81': { firstname: 'Rob', lastname: 'Rep', entityid: 'Rob Rep', email: 'rob.rep@nu-heat.co.uk', officephone: '01404 111 222', custentity_employee_photo_link: 'https://x.example/rob.jpg' },
-        '82': { firstname: 'Pat', lastname: 'Engineer', entityid: 'Pat Engineer', email: 'pat.pe@nu-heat.co.uk', officephone: '01404 333 444', custentity_employee_photo_link: 'https://x.example/pat.jpg' }
+        '81': { firstname: 'Rob', lastname: 'Rep', entityid: 'Rob Rep', email: 'rob.rep@nu-heat.co.uk', phone: '01404 111 222', custentity_employee_photo_link: 'https://x.example/rob.jpg' },
+        '82': { firstname: 'Pat', lastname: 'Engineer', entityid: 'Pat Engineer', email: 'pat.pe@nu-heat.co.uk', phone: '01404 333 444', custentity_employee_photo_link: 'https://x.example/pat.jpg' }
     };
 }
 function fromOptions(h) { var out = []; h.replace(/<option value="(me|rep|pe)"( selected)?>([^<]*)<\/option>/g, function (m, c, sel, label) { out.push(c + (sel ? '*' : '') + '=' + label); }); return out; }
@@ -924,7 +923,7 @@ ok(b42.indexOf('pat.pe@') === -1, 'the PE\'s own address appears nowhere in the 
 
 console.log('T43. POST from=pe, the PE has no phone');
 resetState(); withTeam();
-state.employees['82'].officephone = '';
+state.employees['82'].phone = '';
 emailPost({ custpage_email_from: 'pe' });
 var b43 = state.emails[0] ? String(state.emails[0].body) : '';
 ok(b43 && b43.indexOf('tel:') === -1 && !/CALL PAT|CLICK TO CALL/.test(b43) && b43.indexOf('01404 540604') === -1 && b43.indexOf('<span class="cl-sep">') === -1,
@@ -974,32 +973,34 @@ state.units = 0;
 runGet();
 ok(state.units <= 60, 'page load used ' + state.units + ' units (two email checks added)');
 
-// ─── T47–T51: amendment 3 — Office Phone, inactive senders ────────────────────
+// ─── T47–T51: amendment 3 — the phone field confirmed, inactive senders ────────────────────
 
-console.log('T47. The card phone is Office Phone');
-resetState(); withTeam();
-state.employee.phone = '07777 000 111';   // a `phone` value too — must never be used
-emailPost({ custpage_rcpt_ccme: 'F' });
-var b47 = state.emails[0] ? String(state.emails[0].body) : '';
-var emp47 = state.calls.filter(function (c) { return /^lookupFields:employee:/.test(c); });
-ok(emp47.length === 1 && emp47[0] === 'lookupFields:employee:firstname,lastname,entityid,email,officephone,isinactive,custentity_employee_photo_link',
-   'loadSender columns: officephone and isinactive; never phone (' + emp47.join(' | ') + ')');
-ok(b47.indexOf('href="tel:01404549770"') !== -1 && b47.indexOf('07777') === -1, 'card phone = Office Phone; the phone value is not used');
-resetState(); withTeam();
-state.employees['81'].phone = '07777 222 333';
-emailPost({ custpage_email_from: 'rep' });
-ok(state.emails[0] && String(state.emails[0].body).indexOf('href="tel:01404111222"') !== -1 && String(state.emails[0].body).indexOf('07777') === -1, 'same for the rep');
+console.log('T47. The card phone is the employee phone field, for every sender');
+[['me', '01404549770'], ['rep', '01404111222'], ['pe', '01404333444']].forEach(function (c) {
+    resetState(); withTeam();
+    state.employee.officephone = '07777 000 111';   // officephone set too — must never be read
+    state.employees['81'].officephone = '07777 000 111';
+    state.employees['82'].officephone = '07777 000 111';
+    state.oppValues.custbody_sales_rep_phone = '07888 999 000';
+    emailPost({ custpage_email_from: c[0] });
+    var b = state.emails[0] ? String(state.emails[0].body) : '';
+    var cols = state.calls.filter(function (x) { return /^lookupFields:/.test(x); });
+    ok(cols.indexOf('lookupFields:employee:firstname,lastname,entityid,email,phone,isinactive,custentity_employee_photo_link') !== -1 &&
+       !cols.some(function (x) { return /officephone|custbody_sales_rep_phone/.test(x); }),
+       c[0] + ': loadSender reads phone (+ isinactive); officephone and custbody_sales_rep_phone never read');
+    ok(b.indexOf('href="tel:' + c[1] + '"') !== -1 && b.indexOf('07777') === -1 && b.indexOf('07888') === -1, c[0] + ': card phone = the employee phone (tel:' + c[1] + ')');
+});
 
-console.log('T48. Office Phone blank, phone set');
-[['me', function () { state.employee.officephone = ''; state.employee.phone = '07777 444 555'; }],
- ['rep', function () { state.employees['81'].officephone = ''; state.employees['81'].phone = '07777 444 555'; }],
- ['pe', function () { state.employees['82'].officephone = ''; state.employees['82'].phone = '07777 444 555'; }]
+console.log('T48. phone blank, officephone set');
+[['me', function () { state.employee.phone = ''; state.employee.officephone = '07777 444 555'; }],
+ ['rep', function () { state.employees['81'].phone = ''; state.employees['81'].officephone = '07777 444 555'; }],
+ ['pe', function () { state.employees['82'].phone = ''; state.employees['82'].officephone = '07777 444 555'; }]
 ].forEach(function (c) {
     resetState(); withTeam(); c[1]();
     emailPost({ custpage_email_from: c[0] });
     var b = state.emails[0] ? String(state.emails[0].body) : '';
     ok(b && b.indexOf('tel:') === -1 && !/CALL [A-Z]|CLICK TO CALL/.test(b) && b.indexOf('07777') === -1 && b.indexOf('01404 540604') === -1 && b.indexOf('<span class="cl-sep">') === -1,
-       c[0] + ': no CALL button, the phone value appears nowhere, no switchboard, email-only line');
+       c[0] + ': no CALL button, the officephone value appears nowhere, no switchboard, email-only line');
 });
 
 console.log('T49. GET: the PE is inactive');
