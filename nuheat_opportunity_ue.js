@@ -14,7 +14,7 @@
  * Applies To:     Opportunity
  * Event Types:    Before Load
  *
- * CHANGELOG v1.4.0 (Update Opportunity SL 1.1.0 — pending test):
+ * CHANGELOG v1.4.0 (Update Opportunity SL 1.1.0 — in Production, 1 Oct 2026):
  *   - ADDED (nsqs=upd only; a Send Quote banner ignores all of these):
  *       - nsqe = 'sent' | 'fail' (whitelisted; anything else ignored) and nsqen (a count):
  *         "Email sent to <n> recipient(s)" / warning "The email was not sent.";

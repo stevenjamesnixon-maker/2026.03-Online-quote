@@ -14,7 +14,7 @@
  *    SuiteScripts/NuHeat/2026 Quote/ BEFORE either Suitelet is redeployed; both define() it as
  *    './nuheat_opp_update_lib' and fail at load time without it.
  *
- * CHANGELOG v1.1.0 (pending test):
+ * CHANGELOG v1.1.0 (in Production, 1 Oct 2026):
  *   - ADDED (moved from Send Quote SL 2.3.0, unchanged bytes): the email shell emailShell(slots),
  *     the contact card emailRepCard(rep, label), emailButton, lookupText / resolveFirstName /
  *     checkPhotoUrl, GENERIC_REP_NAME, EMAIL_IMG / EMAIL_FONT / EMAIL_FACE / SOCIAL_LINKS, EMAIL_RE,

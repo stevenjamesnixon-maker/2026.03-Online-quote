@@ -1,5 +1,21 @@
+## Docs: Production deploys recorded (29 Sep and 1 Oct 2026)
+**Status:** ✅ Docs only
+
+- **In Production (1 Oct 2026)**, uploaded library first: `nuheat_opp_update_lib.js` 1.1.0, then
+  `nuheat_send_quote_sl.js` 2.3.1 (email byte-identical to 2.3.0), `nuheat_update_opp_sl.js` 1.1.0 and
+  `nuheat_opportunity_ue.js` 1.4.0. `nuheat_opportunity_cs.js` 1.2.0 unchanged since 29 Sep.
+- **Production results (1 Oct):** Update Opportunity U11–U23 passed, including amendments 1–3. Email
+  sending confirmed: sent as Me, the sales rep and the project engineer, each arrives from that person and
+  replies go to them; the PE card shows design@nu-heat.co.uk; messages are logged under the opportunity's
+  Communication › Messages; the "Already saved" guard works. The subject pre-fill reads "An update on QR…".
+- Status markers and version tables now read "in Production"; the stale "live: v1.x" parentheses are gone
+  (this file and VERSION_HISTORY keep the history). The only `.js` changes are status words in header
+  comments — no logic, no version constants.
+- #33's 29 Sep additions are renumbered to follow #34: the permissions pitfall is §9 **29** (26–28 are
+  1.1.0's) and the non-admin test is **U24** (U11–U23 are 1.1.0's).
+
 ## [Update Opportunity SL v1.1.0, library v1.1.0, Send Quote SL v2.3.1, Opportunity UE v1.4.0] — 1 October 2026
-**Status:** ⏳ Pending test (U11–U19; U1–U10 still apply)
+**Status:** ✅ In Production (1 Oct 2026) — U11–U23 passed, including amendments 1–3
 **Components:** `nuheat_opp_update_lib.js`, `nuheat_send_quote_sl.js` (extraction only),
 `nuheat_update_opp_sl.js`, `nuheat_opportunity_ue.js`, `test/update-opp.js`, `test/send-quote-opp-update.js`
 
@@ -86,6 +102,32 @@ send a short personal email from the same page. 1.0.0 forced a call on every sav
 ### Deployment
 - Upload **`nuheat_opp_update_lib.js` first**, then `nuheat_send_quote_sl.js` and `nuheat_update_opp_sl.js`,
   then `nuheat_opportunity_ue.js`. No new script parameters or records.
+
+---
+
+## Docs: Production deploy recorded (29 Sep 2026) — PR #33, first commit
+**Status:** ✅ Docs only
+
+- **In Production (29 Sep 2026)**, uploaded in this order: `nuheat_opp_update_lib.js` 1.0.0, then
+  `nuheat_send_quote_sl.js` 2.3.0 (includes 2.2.0 and 2.2.1), `nuheat_update_opp_sl.js` 1.0.0,
+  `nuheat_opportunity_ue.js` 1.3.0, `nuheat_opportunity_cs.js` 1.2.0. `nuheat_send_quote_cs.js` v1.4.0 stays
+  **detached** (not attached; kept for reference).
+- **Sandbox results:** Update Opportunity U1–U10 passed; Send Quote R13–R19 passed. **R4 (forecast
+  flags) CLOSED** (29 Sep, Production): Main → `includeinforecast` true, the others false.
+- **Confirmed:** the Phone Call field IDs (U3); §9 pitfall 20 (an Estimate save re-syncs its Status onto
+  the Opportunity — Estimates first, the Opportunity last); `custentity_employee_photo_link` works with an
+  absolute `https://` URL (R18 E1) — its field type is still ⚠️ unconfirmed.
+- **Reworded:** `CALL_TITLE_MAX = 99` is a deliberate cap, not a proven NetSuite limit.
+- **Added:** DEPLOYMENT_CHECKLIST "Roles and permissions" (Released deployments; Custom Lists: View;
+  View on Objection Type; Create/Edit on Customer Objection; Create on Phone Call; Edit on Opportunity
+  and Estimate), the objection-config prerequisite and the Released / Audience / Log Level step;
+  AI_AGENT_CONTEXT §9 pitfall 29 (a missing permission shows as an empty list — check the Execution Log
+  for Permission Violation); TESTING_GUIDE U24 (as a non-admin sales role); USER_GUIDE the "In forecast"
+  card tags; FIELD_REFERENCE a note on the repeated card label when there is no sales rep.
+- **Updated:** version lines and status tables in README, TECHNICAL_DOCUMENTATION, DEPLOYMENT_CHECKLIST
+  and AI_AGENT_CONTEXT (Send Quote SL 2.3.0, all in Production).
+- No script version bumps; the only `.js` change is the status wording (now "in Production") in the v2.3.0
+  and v2.2.1 comment headers of `nuheat_send_quote_sl.js`.
 
 ---
 

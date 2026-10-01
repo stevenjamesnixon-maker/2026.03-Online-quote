@@ -10,7 +10,8 @@
 > **Before testing:**
 > - Create the script record `customscript_nuheat_update_opp_sl` and deployment
 >   `customdeploy_nuheat_update_opp_sl`: **execute as the current role**, audience the sales roles,
->   **Log Level Audit**. The role needs Create on Phone Call and Customer Objection.
+>   **Log Level Audit**, status **Released** (Testing runs only for its owner). The roles need the permissions in
+>   DEPLOYMENT_CHECKLIST › Roles and permissions.
 > - Upload **`nuheat_opp_update_lib.js` first**, then `nuheat_send_quote_sl.js`, `nuheat_update_opp_sl.js`,
 >   `nuheat_opportunity_ue.js` and `nuheat_opportunity_cs.js` to `SuiteScripts/NuHeat/2026 Quote/`.
 > - Read back every version header: library 1.0.0, Send Quote SL 2.1.0, Update Opportunity SL 1.0.0,
@@ -20,35 +21,38 @@
 ### Automated (before uploading)
 
 ```bash
-node test/send-quote-opp-update.js   # must end "228 passed, 0 failed" (or more) — includes G1, Send Quote byte-identical to 2.0.4
-node test/update-opp.js              # must end "93 passed, 0 failed" (or more)
+node test/send-quote-opp-update.js   # must end "400 passed, 0 failed" — includes G1, Send Quote byte-identical to 2.0.4, and H1
+node test/update-opp.js              # must end "293 passed, 0 failed"
 for f in nuheat_opp_update_lib.js nuheat_send_quote_sl.js nuheat_update_opp_sl.js nuheat_opportunity_ue.js nuheat_opportunity_cs.js; do node --check "$f"; done
 ```
 
-### Sandbox scenarios
+### Sandbox scenarios — ✅ U1–U10 passed (29 Sep 2026)
 
 | # | Test | Expected |
 |---|---|---|
-| U1 | The opportunity in view | Two buttons, **Send Quote** then **Update opportunity**; Update opens in the same tab |
-| U2 | Pick a standard title → Title; type over it; change the standard title again | Typing is never overwritten |
-| U3 | Save a call only (no objections), with Next contact set | The call appears under the opportunity's **Communication › Activities**: title, notes, date, completed, customer, you as assigned. **Confirms the phone-call field IDs** (`title`, `message`, `startdate`, `status`, `company`, `transaction`, `assigned`, `contact`) and the 99-character title limit |
-| U4 | Next contact empty on the record and left blank | Save blocked (client), with the reason shown |
-| U5 | Two objections, one with a note, plus an About quote | Two objection records on the Communication subtab: correct type and group, the quote, notes per the format (note, blank line, "Call notes (<date>): …"), raised on = the call date |
-| U6 | Status + Next contact changed | Opportunity updated; Probability follows; banner "Opportunity updated · Call logged: … · 2 objections logged · Status → …" |
-| U7 | Check the opportunity's **system notes** after U6 | Status and Next contact written once each and **not reverted** (the write-back check) |
-| U8 | Send Quote after the refactor | Unchanged — run **R3** and **R16** again |
-| U9 | A role without create rights on Customer Objection | The call and fields save; amber banner names the objections not saved |
-| U10 | Refresh 6 minutes later | No banner |
+| U1 | The opportunity in view | Two buttons, **Send Quote** then **Update opportunity**; Update opens in the same tab ✅ Passed (29 Sep 2026) |
+| U2 | Pick a standard title → Title; type over it; change the standard title again | Typing is never overwritten ✅ Passed (29 Sep 2026) |
+| U3 | Save a call only (no objections), with Next contact set | The call appears under the opportunity's **Communication › Activities**: title, notes, date, completed, customer, you as assigned. **Confirms the phone-call field IDs** (`title`, `message`, `startdate`, `status`, `company`, `transaction`, `assigned`, `contact`) — confirmed. The 99-character title limit is our deliberate cap (`CALL_TITLE_MAX`), not a proven NetSuite limit ✅ Passed (29 Sep 2026) |
+| U4 | Next contact empty on the record and left blank | Save blocked (client), with the reason shown ✅ Passed (29 Sep 2026) |
+| U5 | Two objections, one with a note, plus an About quote | Two objection records on the Communication subtab: correct type and group, the quote, notes per the format (note, blank line, "Call notes (<date>): …"), raised on = the call date ✅ Passed (29 Sep 2026) |
+| U6 | Status + Next contact changed | Opportunity updated; Probability follows; banner "Opportunity updated · Call logged: … · 2 objections logged · Status → …" ✅ Passed (29 Sep 2026) |
+| U7 | Check the opportunity's **system notes** after U6 | Status and Next contact written once each and **not reverted** (the write-back check) ✅ Passed (29 Sep 2026) |
+| U8 | Send Quote after the refactor | Unchanged — run **R3** and **R16** again ✅ Passed (29 Sep 2026) |
+| U9 | A role without create rights on Customer Objection | The call and fields save; amber banner names the objections not saved ✅ Passed (29 Sep 2026) |
+| U10 | Refresh 6 minutes later | No banner ✅ Passed (29 Sep 2026) |
 
 ## Update Opportunity 1.1 (Update Opportunity SL 1.1.0 / library 1.1.0 / Send Quote SL 2.3.1 / Opportunity UE 1.4.0) — optional call, bespoke email, save guard
 
+> **Status: ✅ U11–U23 passed in Production (1 Oct 2026); U24 passed (29 Sep 2026).**
+>
 > **Before testing — as an NH Account Manager role, not Administrator:**
 > - Upload **`nuheat_opp_update_lib.js` first**, then `nuheat_send_quote_sl.js` and `nuheat_update_opp_sl.js`,
 >   then `nuheat_opportunity_ue.js`. Read back every version header: library 1.1.0, Send Quote SL 2.3.1,
 >   Update Opportunity SL 1.1.0, Opportunity UE 1.4.0 (Opportunity CS stays 1.2.0).
 > - No new script parameters or records are needed.
-> - **Where to test:** the objection configuration exists **only in Production**. Either build it in
->   Sandbox first, or test in Production on a test opportunity whose contacts are your own addresses.
+> - **Where to test:** the objection configuration was built directly in **Production**, so Sandbox needs a
+>   **refresh** before any Sandbox testing. 1.1 was tested in Production (1 Oct 2026) on a test opportunity
+>   whose contacts were our own addresses.
 >   Sandbox may also redirect outgoing email, which hides real-recipient bugs.
 > - **Account checks first:** no workflow or user event script runs on **Message** records; every rep's
 >   employee record has an email address and a phone number.
@@ -65,23 +69,24 @@ for f in nuheat_opp_update_lib.js nuheat_send_quote_sl.js nuheat_update_opp_sl.j
 
 | # | Test | Expected |
 |---|---|---|
-| U11 | Call off, Next contact changed only | Saves; no phone call under Activities; banner without a call line |
-| U12 | Email only (call off), to yourself as a contact, plus CC me | You receive it from the rep: subject/headline `An update on QR…`, your message, sign-off, contact block with the sender's photo and number, the friendly footer. It appears under the opportunity's **Communication › Messages**. Banner: **Email sent** |
-| U13 | Reply to the email | The reply goes to the sender |
-| U14 | Open the logged message in NetSuite (pitfall 25 view) | No duplicated buttons; readable with styles stripped |
-| U15 | Call + email + 2 objections (one with a note) + Status change | All saved in order. The objection notes show the call line. Banner lists call, email, objections and status |
-| U16 | Call off, email on, 1 objection, no note | The objection note reads `Email sent (<today>): <subject>`; raised on = today |
-| U17 | Press Save, then browser Back and Save again | The second save shows **Already saved**; no second call or email |
-| U18 | Outlook desktop and a phone mail app | The card renders as Send Quote's does |
-| U19 | Send Quote after the update | Unchanged: send one proposal (as R3) and compare the email |
-| U20 | *(amendment 2)* Send as the sales rep (not yourself), to yourself as the recipient | It arrives from the rep, with the rep's card and sign-off. Reply → it goes to the rep. The rep gets no copy. Logged under Communication › Messages |
-| U21 | Send as the PE | It arrives from the PE: the PE's name and phone, but the email line and button say design@nu-heat.co.uk. Reply → it goes to the PE |
-| U22 | An opportunity with no PE | No PE option |
-| U23 | You are the sales rep | Only "Me" appears |
+| U11 | Call off, Next contact changed only | Saves; no phone call under Activities; banner without a call line ✅ Passed (1 Oct 2026) |
+| U12 | Email only (call off), to yourself as a contact, plus CC me | You receive it from the rep: subject/headline `An update on QR…`, your message, sign-off, contact block with the sender's photo and number, the friendly footer. It appears under the opportunity's **Communication › Messages**. Banner: **Email sent** ✅ Passed (1 Oct 2026) |
+| U13 | Reply to the email | The reply goes to the sender ✅ Passed (1 Oct 2026) |
+| U14 | Open the logged message in NetSuite (pitfall 25 view) | No duplicated buttons; readable with styles stripped ✅ Passed (1 Oct 2026) |
+| U15 | Call + email + 2 objections (one with a note) + Status change | All saved in order. The objection notes show the call line. Banner lists call, email, objections and status ✅ Passed (1 Oct 2026) |
+| U16 | Call off, email on, 1 objection, no note | The objection note reads `Email sent (<today>): <subject>`; raised on = today ✅ Passed (1 Oct 2026) |
+| U17 | Press Save, then browser Back and Save again | The second save shows **Already saved**; no second call or email ✅ Passed (1 Oct 2026) |
+| U18 | Outlook desktop and a phone mail app | The card renders as Send Quote's does ✅ Passed (1 Oct 2026) |
+| U19 | Send Quote after the update | Unchanged: send one proposal (as R3) and compare the email ✅ Passed (1 Oct 2026) |
+| U20 | *(amendment 2)* Send as the sales rep (not yourself), to yourself as the recipient | It arrives from the rep, with the rep's card and sign-off. Reply → it goes to the rep. The rep gets no copy. Logged under Communication › Messages ✅ Passed (1 Oct 2026) |
+| U21 | Send as the PE | It arrives from the PE: the PE's name and phone, but the email line and button say design@nu-heat.co.uk. Reply → it goes to the PE ✅ Passed (1 Oct 2026) |
+| U22 | An opportunity with no PE | No PE option ✅ Passed (1 Oct 2026) |
+| U23 | You are the sales rep | Only "Me" appears ✅ Passed (1 Oct 2026) |
+| U24 | **As a non-admin sales role** (e.g. NH Account Manager — not Administrator): open Update opportunity, pick a title, tick objections, save | The page opens (deployment **Released**); the **Call Title dropdown is populated**; the **objection types are listed**; the save works — call, fields and objections all saved, green banner. An empty dropdown or picker means a missing role permission: see DEPLOYMENT_CHECKLIST › Roles and permissions and look for Permission Violation in the Execution Log ✅ Passed (29 Sep 2026) |
 
 > Also worth a look: (a) with the call off and nothing else, Save stays disabled with "Log a call, send an
-> email, tick an objection or change a field."; (b) the subject's tranid — Steve expects `QR…`; if the
-> pre-filled subject shows something else, report it (the code uses the opportunity's `tranid`).
+> email, tick an objection or change a field."; (b) the subject's tranid — confirmed 1 Oct: the pre-fill
+> reads "An update on QR…" (the opportunity's `tranid`).
 
 
 Also worth a look: an objection type or quote with HTML in its name shows clean text; a call date of
@@ -104,7 +109,7 @@ today works first thing in the morning (UK); the Execution Log shows `UpdateOppS
 
 > 2.0.0 in Sandbox (28 Sep): send and banner OK; **Status reverted** → 2.0.1 reorders the writes (R13). Dates now use a picker (R14).
 > 2.0.1 in Sandbox (28 Sep): **the reorder fixed the revert.** 2.0.2 adds Expected close (R15 ✅ passed 28 Sep).
-> 2.0.3 fixes the quote card text (R16). Forecast flags (R4) are ⚠️ open — parked for a later session.
+> 2.0.3 fixes the quote card text (R16). Forecast flags (R4) ✅ **closed** 29 Sep 2026 in Production.
 
 > **Upload** `nuheat_send_quote_sl.js`, `nuheat_opportunity_ue.js` and `nuheat_opportunity_cs.js` to
 > `SuiteScripts/NuHeat/2026 Quote/`. `nuheat_send_quote_cs.js` is detached and needs no upload.
@@ -129,7 +134,7 @@ for f in nuheat_send_quote_sl.js nuheat_opportunity_ue.js nuheat_opportunity_cs.
 | R1 | From the Opportunity (view), click **Send Quote** | Opens in the **same tab**; the page matches the design (screen 1) inside NetSuite's header and menu |
 | R2 | Segmented control, To tags (add, remove, invalid shows red), contact picker, + Add CC / BCC, "Changed · was …" markers, live total | Behave as designed. Send stays disabled with a reason until there is a Main quote and a valid To |
 | R3 | Send with one Main, one Additional, one Leave out; change Status and Next contact | Lands on the Opportunity with a green banner: "Opportunity updated: Status → … · Next contact → …" and "Forecast: 1 quote included, 2 excluded", plus "View proposal" |
-| R4 | The Opportunity's Estimates subtab | **Include in Forecast** ticked only on the Main quote. (This also confirms the assumed `includeinforecast` ID — if nothing changed, read `SendQuoteSL.Forecast` in the log) ⚠️ Open — behaviour not as expected in Sandbox, 28 Sep; to be investigated. |
+| R4 | The Opportunity's Estimates subtab | **Include in Forecast** ticked only on the Main quote. (This also confirms the assumed `includeinforecast` ID — if nothing changed, read `SendQuoteSL.Forecast` in the log) ✅ Closed (29 Sep 2026, Production): Main → `includeinforecast` true, the others false |
 | R5 | **Probability** after R3 | Follows the new Status |
 | R6 | Refresh the Opportunity 6 minutes later | No banner |
 | R7 | Make one field read-only for the role, then send | Amber banner naming the field; proposal sent |
@@ -138,13 +143,13 @@ for f in nuheat_send_quote_sl.js nuheat_opportunity_ue.js nuheat_opportunity_cs.
 | R10 | An Estimate after a forecast write | Online quote **not** regenerated; margin fields unchanged (checks the legacy SS1 margin script on XEDIT) |
 | R11 | Read the Execution Log | `SendQuoteSL.Forecast`, `SendQuoteSL.OppUpdate` and `SendQuoteSL.Redirect` lines present |
 | R12 | Upload check | Version header read back off every uploaded file: SL **2.0.3**, UE **1.2.1**, Opportunity CS 1.1.0 (2.0.2 until amendment 5) |
-| R13 | **2.0.1:** change Status in a send where **at least one forecast flag also changes** (e.g. make a different quote Main) | Status sticks; Probability follows it. **Read the Opportunity's system notes** for the send: the order and source of the Status changes is the evidence for §9 pitfall 20 (and whether `enableSourcing` is involved). Also try a Status change with **no** forecast change — if that reverts too, the Estimate re-sync is not the cause |
-| R14 | **2.0.1:** pick Next contact and Est. delivery date with the picker | The saved dates match what was picked, no day shift. Note the picker's display order (it follows the browser's language, not NetSuite's date preference) |
-| R15 | **2.0.2:** change **Expected close** with the picker (the section now shows Status, Build stage, Expected close, Next contact, Est. delivery date) | Saves with no day shift; the green banner shows "Expected close → <date>"; the "Changed · was …" marker and the footer summary include it |
-| R16 | **2.0.3:** look at the quote cards | Card shows ref · description, then Created / type / BUS facts; no raw `&lt;`. Line 1 wraps to two lines at most, full text on hover |
-| R19 | **2.3.0 faster send, forecast tags.** (1) **Before uploading:** on 2.2.0 — or 2.2.1, the timing-only commit, which adds `SendQuoteSL.Timing` lines with no other change — send once on a **multi-quote** opportunity (leave some quotes out) and once on a **single-quote** one; note the send time and screenshot the Execution Log. (2) Upload 2.3.0 (read back **2.3.0**), repeat both sends, compare the `SendQuoteSL.Timing` lines. (3) Check the forecast ticks on the Estimates subtab after the send, against the card tags before it. (4) Compare the proposal's prices, VAT and BUS with the 2.2.0 send | (2) POST `rebuild` drops roughly in proportion to the quotes left out; `quotes= selected= forecastWrites=` match the send; one `SendQuoteSL.BUS` line per **selected** quote only. (3) Main quotes ticked, all others unticked; each card's tag said "→ will be included / excluded" exactly where the tick changed. (4) Identical figures |
-| R18 | **2.2.0 email redesign.** Upload `nuheat_send_quote_sl.js` and read back **2.2.0** from the header, then send proposals to yourself (reference renders: `docs/samples/send-quote-email-2.2.0.html` and `-stripped.html`). **E1** NetSuite message view · **E2** Outlook desktop · **E3** Gmail web and phone · **E4** an account manager with no photo (or clear `custentity_employee_photo_link` temporarily) · **E5** click CALL / EMAIL, VIEW YOUR QUOTE, T&C and the social links · **E6** a long project name | **E1** centred, one of each button, photo shown · **E2** centred, buttons styled, one of each · **E3** 2 × 2 grid on the web, stacked on the phone; buttons full width on the phone · **E4** card without a photo, no broken image; Execution Log `SendQuoteSL.RepPhoto` says "photo skipped — …" · **E5** dials, opens mail, opens the proposal; links work · **E6** the name wraps neatly, "· OPP…" stays together on its line. Note the `SendQuoteSL.RepPhoto` line for E1 — it confirms the photo field's type/URL form |
-| R17 | **2.1.1:** send a proposal to yourself; open it in the **NetSuite message view** (the opportunity's Communication › Messages), **Outlook** and **Gmail**. (A reference render is in `docs/samples/send-quote-email-2.1.1.html`.) | CLICK TO CALL, SEND AN EMAIL and VIEW YOUR QUOTE(S) HERE each appear **once**, and the email is **centred** (header, images and button in a 600 px column), in all three |
+| R13 | **2.0.1:** change Status in a send where **at least one forecast flag also changes** (e.g. make a different quote Main) | Status sticks; Probability follows it. **Read the Opportunity's system notes** for the send: the order and source of the Status changes is the evidence for §9 pitfall 20 (and whether `enableSourcing` is involved). Also try a Status change with **no** forecast change — if that reverts too, the Estimate re-sync is not the cause ✅ Passed (Sandbox, Sep 2026) |
+| R14 | **2.0.1:** pick Next contact and Est. delivery date with the picker | The saved dates match what was picked, no day shift. Note the picker's display order (it follows the browser's language, not NetSuite's date preference) ✅ Passed (Sandbox, Sep 2026) |
+| R15 | **2.0.2:** change **Expected close** with the picker (the section now shows Status, Build stage, Expected close, Next contact, Est. delivery date) | Saves with no day shift; the green banner shows "Expected close → <date>"; the "Changed · was …" marker and the footer summary include it ✅ Passed (Sandbox, Sep 2026) |
+| R16 | **2.0.3:** look at the quote cards | Card shows ref · description, then Created / type / BUS facts; no raw `&lt;`. Line 1 wraps to two lines at most, full text on hover ✅ Passed (Sandbox, Sep 2026) |
+| R19 | **2.3.0 faster send, forecast tags.** (1) **Before uploading:** on 2.2.0 — or 2.2.1, the timing-only commit, which adds `SendQuoteSL.Timing` lines with no other change — send once on a **multi-quote** opportunity (leave some quotes out) and once on a **single-quote** one; note the send time and screenshot the Execution Log. (2) Upload 2.3.0 (read back **2.3.0**), repeat both sends, compare the `SendQuoteSL.Timing` lines. (3) Check the forecast ticks on the Estimates subtab after the send, against the card tags before it. (4) Compare the proposal's prices, VAT and BUS with the 2.2.0 send | (2) POST `rebuild` drops roughly in proportion to the quotes left out; `quotes= selected= forecastWrites=` match the send; one `SendQuoteSL.BUS` line per **selected** quote only. (3) Main quotes ticked, all others unticked; each card's tag said "→ will be included / excluded" exactly where the tick changed. (4) Identical figures ✅ Passed (Sandbox, Sep 2026) |
+| R18 | **2.2.0 email redesign.** Upload `nuheat_send_quote_sl.js` and read back **2.2.0** from the header, then send proposals to yourself (reference renders: `docs/samples/send-quote-email-2.2.0.html` and `-stripped.html`). **E1** NetSuite message view · **E2** Outlook desktop · **E3** Gmail web and phone · **E4** an account manager with no photo (or clear `custentity_employee_photo_link` temporarily) · **E5** click CALL / EMAIL, VIEW YOUR QUOTE, T&C and the social links · **E6** a long project name | **E1** centred, one of each button, photo shown · **E2** centred, buttons styled, one of each · **E3** 2 × 2 grid on the web, stacked on the phone; buttons full width on the phone · **E4** card without a photo, no broken image; Execution Log `SendQuoteSL.RepPhoto` says "photo skipped — …" · **E5** dials, opens mail, opens the proposal; links work · **E6** the name wraps neatly, "· OPP…" stays together on its line. Note the `SendQuoteSL.RepPhoto` line for E1 — it confirms the photo field's type/URL form ✅ Passed (Sandbox, Sep 2026) |
+| R17 | **2.1.1:** send a proposal to yourself; open it in the **NetSuite message view** (the opportunity's Communication › Messages), **Outlook** and **Gmail**. (A reference render is in `docs/samples/send-quote-email-2.1.1.html`.) | CLICK TO CALL, SEND AN EMAIL and VIEW YOUR QUOTE(S) HERE each appear **once**, and the email is **centred** (header, images and button in a 600 px column), in all three ✅ Passed (Sandbox, Sep 2026) |
 
 Also worth a look: the banner's "View proposal" link renders as a link (not as literal HTML), and a
 single-quote Opportunity starts with that quote at **Main**.

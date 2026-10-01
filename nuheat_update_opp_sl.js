@@ -18,7 +18,7 @@
  * ⚠️ DEPLOYMENT: nuheat_opp_update_lib.js (1.1.0) must be uploaded to SuiteScripts/NuHeat/2026 Quote/
  *    BEFORE this script, or it fails at load time.
  *
- * CHANGELOG v1.1.0 (optional call, bespoke email, save guard — pending test):
+ * CHANGELOG v1.1.0 (optional call, bespoke email, save guard — in Production, 1 Oct 2026):
  *   - D15: "Log a phone call" switch (on). Off → section 1 collapses, its inputs are disabled (not
  *     posted, not validated), no Phone Call, no nsqc. custpage_call_on: 'T' on, 'F' off, missing = on.
  *   - D16–D20: "Send an email" switch (off; custpage_email_on, missing = off). Bespoke only: subject

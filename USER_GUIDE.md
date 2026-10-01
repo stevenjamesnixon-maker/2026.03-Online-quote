@@ -151,6 +151,12 @@ The page lists every Estimate on this Opportunity that has an online quote, grou
 
 Use **View** to open a quote's online page. You need at least one Main quote.
 
+Under each quote's price a small tag shows whether the quote is currently in the forecast: **In
+forecast** or **Not in forecast**. When your choice will change that, the tag says so — for example
+**"Not in forecast → will be included"** when you make a quote Main, or **"In forecast → will be
+excluded"** when you set a forecast quote to Additional or Leave out. Only Main quotes are included in
+the forecast when you send. (No tag is shown if the forecast field is not available.)
+
 ### Step 3: Send to
 
 The **To** box starts with the customer's email. Type an address and press Enter to add it, click ×

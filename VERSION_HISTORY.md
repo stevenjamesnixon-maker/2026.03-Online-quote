@@ -361,7 +361,7 @@
 
 ## Send Quote Suitelet (`nuheat_send_quote_sl.js`) & Client Script (`nuheat_send_quote_cs.js`)
 
-### Update Opportunity SL v1.1.0 / Opportunity Update Library v1.1.0 / Send Quote SL v2.3.1 / Opportunity UE v1.4.0 — 1 October 2026 ⏳ Pending test
+### Update Opportunity SL v1.1.0 / Opportunity Update Library v1.1.0 / Send Quote SL v2.3.1 / Opportunity UE v1.4.0 — 1 October 2026 ✅ In Production (1 Oct 2026; U11–U23 passed, amendments 1–3 included)
 
 - CHANGED (Send Quote 2.3.1): the email layout moved to the library (`emailShell`, `emailRepCard`,
   `emailButton`); the proposal email is byte-identical to 2.3.0 (test H1). No behaviour change.
@@ -371,6 +371,35 @@
   notes always carry a context line. Something-to-save rule. One-time save token (`N/cache`).
 - ADDED (library 1.1.0): `sendEmail`, `loadSender`, the recipients component, `pendingChanges`.
 - ADDED (UE 1.4.0): banner codes `nsqe` / `nsqen` and `nsq=dup`.
+
+### Docs: Production deploy recorded (29 Sep 2026)
+
+- **In Production (29 Sep 2026)**, uploaded in this order: `nuheat_opp_update_lib.js` 1.0.0, then
+  `nuheat_send_quote_sl.js` 2.3.0 (includes 2.2.0 and 2.2.1), `nuheat_update_opp_sl.js` 1.0.0,
+  `nuheat_opportunity_ue.js` 1.3.0, `nuheat_opportunity_cs.js` 1.2.0. `nuheat_send_quote_cs.js` v1.4.0 stays
+  **detached** (not attached; kept for reference).
+- **Sandbox results:** Update Opportunity U1–U10 passed; Send Quote R13–R19 passed. **R4 (forecast
+  flags) CLOSED** (29 Sep, Production): Main → `includeinforecast` true, the others false.
+- **Confirmed:** the Phone Call field IDs (U3); §9 pitfall 20 (an Estimate save re-syncs its Status onto
+  the Opportunity — Estimates first, the Opportunity last); `custentity_employee_photo_link` works with an
+  absolute `https://` URL (R18 E1) — its field type is still ⚠️ unconfirmed.
+- **Reworded:** `CALL_TITLE_MAX = 99` is a deliberate cap, not a proven NetSuite limit.
+- **Added:** DEPLOYMENT_CHECKLIST "Roles and permissions" (Released deployments; Custom Lists: View;
+  View on Objection Type; Create/Edit on Customer Objection; Create on Phone Call; Edit on Opportunity
+  and Estimate), the objection-config prerequisite and the Released / Audience / Log Level step;
+  AI_AGENT_CONTEXT §9 pitfall 29 (a missing permission shows as an empty list — check the Execution Log
+  for Permission Violation); TESTING_GUIDE U24 (as a non-admin sales role); USER_GUIDE the "In forecast"
+  card tags; FIELD_REFERENCE a note on the repeated card label when there is no sales rep.
+- **Updated:** version lines and status tables in README, TECHNICAL_DOCUMENTATION, DEPLOYMENT_CHECKLIST
+  and AI_AGENT_CONTEXT (Send Quote SL 2.3.0, all in Production).
+- No script version bumps; the only `.js` change is the status wording (now "in Production") in the v2.3.0
+  and v2.2.1 comment headers of `nuheat_send_quote_sl.js`.
+
+### Send Quote SL v2.3.0 / v2.2.1 / v2.2.0 — 29 September 2026 ✅ Live in Production (29 Sep 2026)
+
+- 2.3.0: Send fully loads only the selected quotes; "In forecast" card tags (R19 passed).
+- 2.2.1: `SendQuoteSL.Timing` audit line (measurement only).
+- 2.2.0: proposal email redesign with the account manager card (R18 passed).
 
 ### Send Quote SL v2.1.1 — 29 September 2026 ⏳ Pending Sandbox testing
 
