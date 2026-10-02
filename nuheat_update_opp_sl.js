@@ -9,14 +9,33 @@
  *              objections. Saves a completed Phone Call, sends a bespoke email from the user, saves one
  *              Customer Objection per ticked type, then the Opportunity fields LAST, and returns to the
  *              Opportunity with the result banner (nuheat_opportunity_ue.js, nsqs=upd).
- * @version     1.1.1
+ * @version     1.2.0
  * @author      Nu-Heat Development
  *
  * Script ID:      customscript_nuheat_update_opp_sl
  * Deployment ID:  customdeploy_nuheat_update_opp_sl
  *
- * ⚠️ DEPLOYMENT: nuheat_opp_update_lib.js (1.2.0) must be uploaded to SuiteScripts/NuHeat/2026 Quote/
+ * ⚠️ DEPLOYMENT: nuheat_opp_update_lib.js (1.3.0) must be uploaded to SuiteScripts/NuHeat/2026 Quote/
  *    BEFORE this script, or it fails at load time.
+ *
+ * CHANGELOG v1.2.0 ("Request an update" part B — a "Give us an update" button in the email, 2 Oct 2026):
+ *   - Section 2 gains a tick box under the message, "Add a 'Give us an update' button" (off;
+ *     custpage_email_updbtn = 'T' when ticked). Offered only when the customer is active and
+ *     custentity_cdb_link's t payload names this customer at custentity_cdb_link_version
+ *     (lib.cdbLinkMatches — the signature is not checked; the dashboard does that). Otherwise shown
+ *     disabled with the reason (logged at debug). Needs the dashboard's part A (it fills the link).
+ *   - The customer lookup the page already makes also reads custentity_cdb_link,
+ *     custentity_cdb_link_version, isinactive and custentity_cdb_dashboard_contact; one contact lookup
+ *     for the dashboard contact's email when it is set (only when the button is offered).
+ *   - With the tick on, To may only be the customer's email, the dashboard contact (a "Dashboard
+ *     contact" tick when that contact is not already on the opportunity) and opportunity contacts whose
+ *     company is this customer. "Other addresses" is disabled on the page and refused on the server,
+ *     as is any other company's contact (UPDBTN_COPY.refusal). CC me stays allowed. All rechecked on
+ *     the server before the save token is claimed; a refusal re-renders with every entry restored.
+ *   - The email gains one line (EMAIL_COPY.updateLine) and the GIVE US AN UPDATE button between the
+ *     message and the sign-off: <stored link>&a=update&opp=<id>. Tick off → the email is byte-identical.
+ *   - UpdateOppSL.Email's "from" line gains | {"updateButton":true,"opp":"<id>"} when ticked. The link
+ *     is never logged. Objection context lines, the phone call and the redirect codes are unchanged.
  *
  * CHANGELOG v1.1.1 (Release 2.1 part A — no behaviour change):
  *   - The objection loop moved to the library as lib.createObjections (with OBJ and objectionNotes);
@@ -77,7 +96,7 @@ define([
 
     'use strict';
 
-    var SCRIPT_VERSION = '1.1.1';
+    var SCRIPT_VERSION = '1.2.0';
 
     /** Page rules for the shared update fields: Next contact must end up set. */
     var RULES = { required: ['next_contact'], logKey: 'UpdateOppSL.OppUpdate' };
@@ -137,7 +156,37 @@ define([
         pageNoteOtherEnd:   ', with their contact details. Replies go to them.',
         // The project engineer's card shows the design team's address, not the PE's own — Send Design's
         // rule (NS-Design-Email dsn_sl_send_design.js, senderEmailForBody). Replies still go to the PE.
-        peCardEmail:  'design@nu-heat.co.uk'
+        peCardEmail:  'design@nu-heat.co.uk',
+        // v1.2.0: the "Give us an update" button — the line before it and its label
+        updateLine:   'When you have a moment, let us know where your project is up to. It only takes a minute, and it helps us be ready when you need us.',
+        updateButton: 'GIVE US AN UPDATE'
+    };
+
+    // ─── "Give us an update" button (v1.2.0) ──────────────────────────────────────
+
+    /**
+     * The customer dashboard's fields (dashboard repo, "Request an update" part A). custentity_cdb_link
+     * holds the customer's signed BASE link; this page appends &a=update&opp=<id>. No dashboard file is
+     * required and the API Secret is never read: the link is used as stored.
+     */
+    var CDB = {
+        link:    'custentity_cdb_link',
+        version: 'custentity_cdb_link_version',
+        contact: 'custentity_cdb_dashboard_contact'
+    };
+    var CDB_CUSTOMER_COLUMNS = [CDB.link, CDB.version, 'isinactive', CDB.contact];
+
+    /** The page's copy for the tick box. Steve may reword these. */
+    var UPDBTN_COPY = {
+        label:      'Add a ‘Give us an update’ button',
+        hint:       'Sends the customer their personal link to update this project’s stage, timing and details. It can only go to the customer and their own contacts.',
+        noLink:     'No dashboard link for this customer yet.',
+        inactive:   'Customer is inactive.',
+        stale:      'The customer’s link is out of date. Ask an administrator to run the link backfill.',
+        notOwn:     'Not this customer’s contact',
+        extraNote:  'Other addresses are off while the update button is ticked: it opens the customer’s whole project page.',
+        dashLabel:  'Dashboard contact',
+        refusal:    'The update button opens the customer’s whole project page, so it can only go to the customer and their own contacts. Untick it, or remove: '
     };
 
     /**
@@ -268,7 +317,8 @@ define([
 
     function renderPage(context, opportunityId, restore, error) {
         // v1.1.0: customerEmail: true — the Customer recipient tick (one lookupFields)
-        var page = lib.loadOppPageBase(opportunityId, { logPrefix: 'UpdateOppSL', customerEmail: true });
+        // v1.2.0: + the dashboard columns in the same customer lookup (the update button)
+        var page = lib.loadOppPageBase(opportunityId, { logPrefix: 'UpdateOppSL', customerEmail: true, customerColumns: CDB_CUSTOMER_COLUMNS });
         if (page.loadError) {
             showErrorPage(context, page.loadError);
             return;
@@ -279,6 +329,12 @@ define([
         page.types        = loadObjectionTypes();
         page.estimates    = loadEstimates(opportunityId);
         page.senders      = senderOptions(page.oppRecord);   // D18a
+        page.updBtn       = updateButtonState(page.customerId, page.customerFields);   // v1.2.0
+        if (page.updBtn.ok) {
+            page.updBtn.own = ownContacts(page.contacts, page.customerId, page.updBtn.dashContactId, dashContactEmail(page.updBtn.dashContactId));
+        } else {
+            log.debug('UpdateOppSL.UpdateButton', 'Opportunity ' + opportunityId + ' — update button not offered: ' + page.updBtn.reason);
+        }
         // D25: a re-rendered page keeps its token (a validation failure never consumes it)
         page.saveToken    = (restore && TOKEN_RE.test(restore.token || '')) ? restore.token : newSaveToken();
 
@@ -343,6 +399,55 @@ define([
     function senderNote(opt) {
         return (!opt || opt.code === 'me') ? EMAIL_COPY.pageNote
             : EMAIL_COPY.pageNoteOtherStart + opt.label + EMAIL_COPY.pageNoteOtherEnd;
+    }
+
+    /**
+     * v1.2.0: can the update button be offered? From the customer lookup (lib.loadOppPageBase's
+     * customerFields, or the POST's own lookup) — never from anything the page posted.
+     * @param {string} customerId
+     * @param {Object} f - lookupFields result with CDB_CUSTOMER_COLUMNS
+     * @returns {{ ok: boolean, reason: string, link: string, dashContactId: string }}
+     */
+    function updateButtonState(customerId, f) {
+        f = f || {};
+        var link = lib.lookupText(f[CDB.link]).trim();
+        var c = f[CDB.contact];
+        var dashContactId = String((Array.isArray(c) ? (c[0] && c[0].value) : c) || '');
+        var out = { ok: false, reason: '', link: '', dashContactId: dashContactId };
+        if (f.isinactive === true || f.isinactive === 'T' || f.isinactive === 'true') out.reason = UPDBTN_COPY.inactive;
+        else if (!link) out.reason = UPDBTN_COPY.noLink;
+        else if (!lib.cdbLinkMatches(link, customerId, lib.lookupText(f[CDB.version]))) out.reason = UPDBTN_COPY.stale;
+        else { out.ok = true; out.link = link; }
+        return out;
+    }
+
+    /** v1.2.0: the dashboard contact's email ('' if none, or on any error — logged at debug). */
+    function dashContactEmail(contactId) {
+        if (!contactId) return '';
+        try {
+            var e = lib.lookupText(search.lookupFields({ type: search.Type.CONTACT, id: contactId, columns: ['email'] }).email).trim();
+            return lib.EMAIL_RE.test(e) ? e : '';
+        } catch (err) {
+            log.debug('UpdateOppSL.UpdateButton', 'Dashboard contact ' + contactId + ' email lookup failed: ' + err.message);
+            return '';
+        }
+    }
+
+    /**
+     * v1.2.0: the contacts the update button may go to — the opportunity's contacts whose company is
+     * this customer, plus the dashboard contact. Returns their IDs and, when the dashboard contact is
+     * not already on the opportunity, that contact as an extra { id, name, email, company }.
+     */
+    function ownContacts(contacts, customerId, dashId, dashEmail) {
+        var ids = [], extra = null;
+        (contacts || []).forEach(function (c) {
+            if ((customerId && String(c.company || '') === String(customerId)) || (dashId && String(c.id) === dashId)) ids.push(String(c.id));
+        });
+        if (dashId && dashEmail && !(contacts || []).some(function (c) { return String(c.id) === dashId; })) {
+            extra = { id: dashId, name: UPDBTN_COPY.dashLabel, email: dashEmail, company: String(customerId || '') };
+            ids.push(dashId);
+        }
+        return { ids: ids, extra: extra };
     }
 
     /** D17: "An update on <tranid>". */
@@ -428,7 +533,18 @@ define([
         h.push('<div class="nsq-field"><label class="nsq-label" for="nsq-email-message">Message <span class="nsq-req" aria-hidden="true">*</span></label>' +
             '<textarea class="nsq-input nsq-textarea" id="nsq-email-message" name="custpage_email_message" rows="8" maxlength="' + EMAIL_MESSAGE_MAX + '">' +
             escapeHtml(emailFresh ? '' : (r.message || '')) + '</textarea></div>');
-        h.push(lib.buildRecipientsHTML(page.contacts, page.customerEmail, emailFresh ? null : r.rcpt));
+        // v1.2.0: the "Give us an update" button — offered, or disabled with the reason
+        var ub = page.updBtn;
+        h.push('<div class="nsq-field nsq-updbtn"><label class="nsq-tick"><input type="checkbox" id="nsq-updbtn" name="custpage_email_updbtn" value="T"' +
+            (ub.ok ? ((!emailFresh && r.updBtn) ? ' checked' : '') : ' disabled data-blocked="1"') + '> ' + escapeHtml(UPDBTN_COPY.label) + '</label>' +
+            '<p class="nsq-help">' + escapeHtml(UPDBTN_COPY.hint) + '</p>' +
+            (ub.ok ? '' : '<p class="nsq-help nsq-updbtn-why" id="nsq-updbtn-why">' + escapeHtml(ub.reason) + '</p>') + '</div>');
+        h.push(lib.buildRecipientsHTML(page.contacts, page.customerEmail, emailFresh ? null : r.rcpt, ub.ok ? {
+            ownIds:        ub.own.ids,
+            extraContacts: ub.own.extra ? [{ id: ub.own.extra.id, label: UPDBTN_COPY.dashLabel, email: ub.own.extra.email }] : [],
+            notOwnNote:    UPDBTN_COPY.notOwn,
+            extraNote:     UPDBTN_COPY.extraNote
+        } : null));
         h.push('<p class="nsq-help nsq-email-note" id="nsq-email-note" data-note-me="' + escapeHtml(EMAIL_COPY.pageNote) +
             '" data-note-pre="' + escapeHtml(EMAIL_COPY.pageNoteOtherStart) + '" data-note-post="' + escapeHtml(EMAIL_COPY.pageNoteOtherEnd) + '">' +
             escapeHtml(senderNote(fromOpt)) + '</p>');
@@ -507,7 +623,44 @@ define([
         '.nsq-tick input{width:18px;height:18px;}' +
         '.nsq-tick-addr{color:' + lib.PAGE_COLORS.muted + ';}' +
         '.nsq-email-note{margin-top:12px;}' +
+        // v1.2.0: the update button tick box
+        '.nsq-updbtn .nsq-help{margin:0 0 4px 26px;}' +
+        '.nsq-updbtn-why{color:#a4262c;}' +
+        '.nsq-rcpt-not{font-size:13px;color:' + lib.PAGE_COLORS.muted + ';font-style:italic;}' +
         '</style>';
+
+    /**
+     * v1.2.0: the update button's part of the page script — STATIC, nothing interpolated. With the
+     * tick on (and the email on): contacts that aren't this customer's (data-own="0") are unticked,
+     * disabled and labelled; the Dashboard contact tick shows; Other addresses is emptied (kept aside,
+     * put back when the tick goes off), disabled and explained. A blocked tick (data-blocked) stays
+     * disabled even after the email switch re-enables its section. The server rechecks all of it.
+     */
+    var UPDBTN_PART = [
+        '  var updStash = null;',
+        '  function applyUpdBtn() {',
+        '    var u = $("nsq-updbtn"), em = $("nsq-email-on").checked;',
+        '    if (!u) return;',
+        '    if (u.getAttribute("data-blocked") === "1") { u.disabled = true; u.checked = false; }',
+        '    var on = em && u.checked && !u.disabled;',
+        '    each(root.querySelectorAll(".nsq-rcpt[data-own]"), function (c) {',
+        '      var dash = c.className.indexOf("nsq-rcpt-dash") !== -1;',
+        '      var off = dash ? !on : (on && c.getAttribute("data-own") !== "1");',
+        '      if (off) c.checked = false;',
+        '      c.disabled = off || !em;',
+        '      if (dash) c.parentNode.hidden = !on;',
+        '      var n = c.parentNode.querySelector(".nsq-rcpt-not");',
+        '      if (n) n.hidden = !(on && !dash && c.getAttribute("data-own") !== "1");',
+        '    });',
+        '    var x = $("nsq-rcpt-extra"), note = $("nsq-rcpt-extra-note");',
+        '    if (x) {',
+        '      if (on && updStash === null) { updStash = x.value; x.value = ""; }',
+        '      else if (!on && updStash !== null) { x.value = updStash; updStash = null; }',
+        '      x.disabled = on || !em;',
+        '    }',
+        '    if (note) note.hidden = !on;',
+        '  }'
+    ].join('\n');
 
     /**
      * This page's part of the inline script (hook contract: lib header), after the library's
@@ -569,6 +722,9 @@ define([
         '      setSection(sw, s[1], s[2], s[3]);',
         '      sw.addEventListener("change", function () { setSection(sw, s[1], s[2], s[3]); update(); });',
         '    });',
+        '    $("nsq-updbtn").addEventListener("change", function () { applyUpdBtn(); update(); });',
+        '    $("nsq-email-on").addEventListener("change", applyUpdBtn);',   // after setSection (registered first)
+        '    applyUpdBtn();',
         '    $("nsq-send").addEventListener("click", function () { submitForm("Saving…"); });',
         '  }',
         '  function problem() {',
@@ -604,7 +760,7 @@ define([
         '    $("nsq-obj-sel").value = JSON.stringify(ticked());',
         '    if (emailOn()) recipientsBeforeSubmit();',
         '  }'
-    ].join('\n');
+    ].join('\n') + '\n' + UPDBTN_PART;
 
     // ─── POST ─────────────────────────────────────────────────────────────────────
 
@@ -626,6 +782,7 @@ define([
             from:     String(params.custpage_email_from || ''),
             subject:  String(params.custpage_email_subject || ''),
             message:  String(params.custpage_email_message || ''),
+            updBtn:   params.custpage_email_updbtn === 'T',   // v1.2.0
             rcpt:     lib.readPostedRecipients(params),
             objSel:   sel.ids,
             objNotes: objNotes,
@@ -702,8 +859,10 @@ define([
      * @param {Object} sender - lib.loadSender() — the chosen sender (D18a: me, the sales rep or the PE)
      * @param {string} cardEmail - the card's email line and EMAIL button: the sender's own address, or
      *                             EMAIL_COPY.peCardEmail when sending as the project engineer
+     * @param {string} [updateLink] - v1.2.0: the "Give us an update" URL (unescaped); omitted → the
+     *                             email is byte-identical to 1.1.1
      */
-    function buildBespokeEmail(subject, message, sender, cardEmail) {
+    function buildBespokeEmail(subject, message, sender, cardEmail, updateLink) {
         var font = lib.EMAIL_FONT, face = lib.EMAIL_FACE;
         var name  = sender.fullName || EMAIL_COPY.nameFallback;
         var first = String(sender.firstName || '').trim();
@@ -713,6 +872,7 @@ define([
         var rows = '' +
             '<tr><td align="left" valign="top" style="padding:28px 30px 4px 30px;text-align:left;">\n' +
             messageParagraphs(message) +
+            (updateLink ? updateButtonHtml(updateLink) : '') +
             '<p style="margin:8px 0 0 0;' + font + 'font-size:18px;line-height:26px;color:#131313;text-align:left;">' +
             '<font face="' + face + '" color="#131313">' + emailText(EMAIL_COPY.signOff) + '<br>' + emailText(name) + '</font></p>\n' +
             '</td></tr>\n';
@@ -737,6 +897,16 @@ define([
             card:        { intro: '', html: card },
             footerLine:  emailText(EMAIL_COPY.footer + (first ? ' ' + first : ''))
         });
+    }
+
+    /** v1.2.0: the line and the button, between the message and the sign-off. */
+    function updateButtonHtml(link) {
+        var font = lib.EMAIL_FONT, face = lib.EMAIL_FACE;
+        return '<p style="margin:0 0 16px 0;' + font + 'font-size:18px;line-height:26px;color:#131313;text-align:left;">' +
+            '<font face="' + face + '" color="#131313">' + emailText(EMAIL_COPY.updateLine) + '</font></p>\n' +
+            '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr><td align="center" style="padding:0 0 20px 0;">\n' +
+            lib.emailButton(escapeHtml(link), EMAIL_COPY.updateButton) +
+            '</td></tr></table>\n';
     }
 
     // ─── Save guard (D25) ─────────────────────────────────────────────────────────
@@ -840,6 +1010,8 @@ define([
         }
 
         var subject = '', message = '', rcpt = null, sender = null, fromCode = '', ccMeEmail = '';
+        var updBtnOn = emailOn && params.custpage_email_updbtn === 'T';   // v1.2.0
+        var updateLink = '';                                              // v1.2.0: never logged
         if (emailOn) {
             subject = String(params.custpage_email_subject || '').trim();
             if (!subject) return invalid('Enter a subject for the email.');
@@ -850,14 +1022,42 @@ define([
             if (message.length > EMAIL_MESSAGE_MAX) return invalid('The message is longer than ' + EMAIL_MESSAGE_MAX + ' characters.');
 
             var customerEmail = '';
-            if (params.custpage_rcpt_customer === 'T' && opportunityCustomer()) {
+            var rcptContacts = opportunityContacts();
+            if (updBtnOn) {
+                // v1.2.0: recheck everything on the server — one customer lookup (email + the
+                // dashboard columns); nothing the page posted is trusted.
+                var custF = null;
+                if (opportunityCustomer()) {
+                    try {
+                        custF = search.lookupFields({ type: search.Type.CUSTOMER, id: opportunityCustomer(), columns: ['email'].concat(CDB_CUSTOMER_COLUMNS) });
+                    } catch (e) {
+                        log.error('UpdateOppSL.Email', 'Opportunity ' + opportunityId + ' — customer lookup failed: ' + e.message);
+                    }
+                }
+                if (!custF) return invalid(UPDBTN_COPY.noLink);
+                var ubs = updateButtonState(opportunityCustomer(), custF);
+                if (!ubs.ok) return invalid(ubs.reason);
+                if (params.custpage_rcpt_customer === 'T') customerEmail = lib.lookupText(custF.email);
+                var own = ownContacts(rcptContacts, opportunityCustomer(), ubs.dashContactId, dashContactEmail(ubs.dashContactId));
+                if (own.extra) rcptContacts = rcptContacts.concat([own.extra]);
+                // Only the customer's own people: no typed address at all, no other company's contact
+                var postedR = lib.readPostedRecipients(params);
+                var refused = postedR.extra.split(/[,;]/).map(function (a) { return a.trim(); }).filter(function (a) { return a; });
+                postedR.contacts.forEach(function (id) {
+                    if (own.ids.indexOf(id) !== -1) return;
+                    var c = rcptContacts.filter(function (x) { return String(x.id) === id; })[0];
+                    if (c) refused.push(String(c.email || '').trim() || c.name);
+                });
+                if (refused.length) return invalid(UPDBTN_COPY.refusal + refused.join(', '));
+                updateLink = ubs.link + '&a=update&opp=' + encodeURIComponent(opportunityId);
+            } else if (params.custpage_rcpt_customer === 'T' && opportunityCustomer()) {
                 try {
                     customerEmail = String(search.lookupFields({ type: search.Type.CUSTOMER, id: opportunityCustomer(), columns: ['email'] }).email || '');
                 } catch (e) {
                     log.error('UpdateOppSL.Email', 'Opportunity ' + opportunityId + ' — customer email lookup failed: ' + e.message);
                 }
             }
-            rcpt = lib.resolveRecipients(params, opportunityContacts(), customerEmail);
+            rcpt = lib.resolveRecipients(params, rcptContacts, customerEmail);
             if (rcpt.error) return invalid(rcpt.error);
 
             // D18a: who it is from — a whitelisted code; the server finds the employee itself
@@ -977,11 +1177,12 @@ define([
             var cc = [];
             var me = ccMeEmail.toLowerCase();
             if (rcpt.ccMe && !rcpt.to.some(function (a) { return a.toLowerCase() === me; })) cc.push(ccMeEmail);
-            log.audit('UpdateOppSL.Email', 'Opportunity ' + opportunityId + ' — from ' + fromCode + ' (employee ' + sender.id + ')');
+            log.audit('UpdateOppSL.Email', 'Opportunity ' + opportunityId + ' — from ' + fromCode + ' (employee ' + sender.id + ')' +
+                (updBtnOn ? ' | ' + JSON.stringify({ updateButton: true, opp: String(opportunityId) }) : ''));   // v1.2.0 — never the link
             // Built in its own try: a failure here is an email failure (D24), never a stop.
             var body = null;
             try {
-                body = buildBespokeEmail(subject, message, sender, fromCode === 'pe' ? EMAIL_COPY.peCardEmail : sender.email);
+                body = buildBespokeEmail(subject, message, sender, fromCode === 'pe' ? EMAIL_COPY.peCardEmail : sender.email, updateLink);   // '' when off
             } catch (e) {
                 log.error('UpdateOppSL.Email', 'Opportunity ' + opportunityId + ' — email body could not be built; not sent: ' + ((e && e.message) || String(e)));
             }

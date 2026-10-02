@@ -1,7 +1,35 @@
 # Testing Guide
 
-**Last Updated:** 1 October 2026
+**Last Updated:** 2 October 2026
 **Environment:** Sandbox (472052_SB1)
+
+---
+
+## "Give us an update" button (Update Opportunity SL 1.2.0 / library 1.3.0) — "Request an update" part B
+
+> Needs the dashboard's part A deployed (its customer UE fills `custentity_cdb_link` when a customer is
+> saved). Test at **Testing** (deployment owner only); keep it off for reps until the dashboard goes live.
+
+### Automated (before uploading)
+
+```
+node test/update-opp.js              # must end "396 passed, 0 failed" — T1–T51 as before (+ the T41 nsqt flake fix), T52–T62 new
+node test/send-quote-opp-update.js   # must end "400 passed, 0 failed" — unedited
+node test/opp-lib-customer.js        # must end "72 passed, 0 failed" — version and the update-opp count updated
+```
+
+### Sandbox / Testing (library first, then the Suitelet)
+
+- **G1** A customer with a link (save the customer once so the UE writes it): the tick box is enabled.
+  Tick it, send to the customer and CC me → the email has the line and **GIVE US AN UPDATE**; the button
+  opens the dashboard's update page for this opportunity.
+- **G2** A customer with no link / inactive / with `custentity_cdb_link_version` bumped by hand without a
+  save: the tick box is disabled with the matching reason.
+- **G3** Tick on: Other addresses greys out with its note; an architect contact on the opportunity is
+  unticked and greyed "Not this customer's contact"; untick → typed addresses come back.
+- **G4** Tick on, with the dashboard contact not on the opportunity: a "Dashboard contact" tick appears.
+- **G5** Tick off: the email is exactly as before (compare with a 1.1.1 email).
+- **G6** Execution Log: `UpdateOppSL.Email` shows `{"updateButton":true,"opp":"<id>"}` and no URL.
 
 ---
 

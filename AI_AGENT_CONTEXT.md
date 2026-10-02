@@ -2,7 +2,7 @@
 
 **Purpose:** Comprehensive context for AI agents (Claude, etc.) to efficiently continue development on this project without extensive re-reading of source files. Load this document at the start of every new AI session.
 
-**Last Updated:** 1 October 2026 (Update Opportunity 1.1 in Production)
+**Last Updated:** 2 October 2026 (Update Opportunity 1.2.0 "Give us an update" button in review)
 
 ---
 
@@ -294,8 +294,8 @@ that something has regressed at source. See §6.
 | Master Proposal | v1.8.3 | `nuheat_master_proposal.js` | ✅ Live in Production |
 | Send Quote SL | 2.3.1 | `nuheat_send_quote_sl.js` | ✅ In Production (1 Oct 2026); email byte-identical to 2.3.0 |
 | Send Quote CS | v1.4.0 — detached | `nuheat_send_quote_cs.js` | Detached, kept for reference (the Send Quote SL has its own inline script) |
-| Update Opportunity SL | 1.1.1 | `nuheat_update_opp_sl.js` | 🔶 1.1.1 in review (objection loop moved to the library; no behaviour change). 1.1.0 in Production (1 Oct 2026); U11–U23 passed, including amendments 1–3 |
-| Opportunity Update Library | 1.2.0 | `nuheat_opp_update_lib.js` | 🔶 1.2.0 in review (customer-safe functions for the customer dashboard). 1.1.0 in Production (1 Oct 2026; upload first) |
+| Update Opportunity SL | 1.2.0 | `nuheat_update_opp_sl.js` | 🔶 1.2.0 in review ("Give us an update" button). 1.1.1 merged, not deployed (objection loop moved to the library; no behaviour change). 1.1.0 in Production (1 Oct 2026); U11–U23 passed, including amendments 1–3 |
+| Opportunity Update Library | 1.3.0 | `nuheat_opp_update_lib.js` | 🔶 1.3.0 in review (dashboard link decode, contact company — additive). 1.2.0 merged, not deployed (customer-safe functions for the customer dashboard). 1.1.0 in Production (1 Oct 2026; upload first) |
 | Opportunity UE | 1.4.0 | `nuheat_opportunity_ue.js` | ✅ In Production (1 Oct 2026) |
 | Opportunity CS | 1.2.0 | `nuheat_opportunity_cs.js` | ✅ In Production (29 Sep 2026) |
 | Analytics Suitelet | v1.0.1 | `nuheat_analytics_sl.js` | ✅ Live in Production |
@@ -601,6 +601,31 @@ the code** (`OPPLIB_*`) — no `N/error`, so `define()` is unchanged.
   type ids and the quote** (the Suitelet does against the record; the dashboard must too). 6 units per
   objection.
 
+### "Give us an update" button (Update Opportunity SL 1.2.0, library 1.3.0 — "Request an update" part B)
+
+The dashboard (`NS-Customer-Dashboard`, part A) keeps each customer's signed BASE link in
+`custentity_cdb_link`. Update Opportunity reads it and appends `&a=update&opp=<id>`. **No code dependency
+on the dashboard repo: no dashboard file is required and the API Secret is never read.**
+
+- **Offered** only when the customer is active and the stored link's `t` payload (`c<customerId>.v<version>`,
+  base64url, empty version = 0) names this customer at `custentity_cdb_link_version` —
+  `lib.cdbLinkMatches`, a pure copy of the dashboard's `linkMatches`. **The signature is deliberately not
+  checked** — the dashboard verifies it when the link is opened. If the dashboard changes its token format
+  or the `t` name, change `cdbLinkMatches` too (the dashboard's token file says so).
+- **Recipients with the tick on (Steve, 2 Oct): the customer's own people only, no free typing.** To ∈ the
+  customer's email, the dashboard contact's email (`custentity_cdb_dashboard_contact`), opportunity
+  contacts whose `company` is the opportunity's customer. Other addresses → refused ("The update button
+  opens the customer's whole project page, so it can only go to the customer and their own contacts.
+  Untick it, or remove: …"), as is another company's contact (an architect). CC me stays allowed.
+  **The server rechecks the link, the customer and every recipient before the save token is claimed**;
+  the page's greying out is convenience only.
+- Email: one line (`EMAIL_COPY.updateLine`) + `lib.emailButton(escapeHtml(link), 'GIVE US AN UPDATE')`
+  between the message and the sign-off. Tick off → `buildBespokeEmail` output is byte-identical to 1.1.1.
+- Never log the link. `UpdateOppSL.Email` adds `| {"updateButton":true,"opp":"<id>"}`; a reason it isn't
+  offered is logged at debug (`UpdateOppSL.UpdateButton`).
+- Governance: the four customer columns ride on the existing customer lookup; +1 unit (contact lookup)
+  only when a dashboard contact is set and the button is offered. The default page load stays 53 units.
+
 ### The Master Proposal never loads an Estimate
 
 This is the single most important architectural constraint in the system, and it is not obvious
@@ -741,7 +766,7 @@ detectable. NetSuite's original `taxtotal` is retained alongside for comparison,
 │   ├── generateQuoteCards()     # System cards with benefits
 │   └── calculateTotals()        # Aggregate pricing
 │
-├── nuheat_opp_update_lib.js    # Shared by both opportunity pages (1.2.0): fields, required gate, redirect codes, page CSS/header/sections, PAGE_SCRIPT_CORE, email; customer-safe fieldOptions / writeOppUpdate / createObjections (also required by the customer dashboard — see §4)
+├── nuheat_opp_update_lib.js    # Shared by both opportunity pages (1.3.0): fields, required gate, redirect codes, page CSS/header/sections, PAGE_SCRIPT_CORE, email; customer-safe fieldOptions / writeOppUpdate / createObjections (also required by the customer dashboard — see §4)
 ├── nuheat_update_opp_sl.js     # Update Opportunity page (1.0.0): phone call, fields, objections
 ├── nuheat_send_quote_sl.js     # ~2,500 lines (2.1.0: update-field code moved to the library)
 │   ├── onRequest()              # GET = form, POST = generate/preview/email
@@ -1381,7 +1406,8 @@ The scripts log heavily on purpose. These are the keys that answer most question
 | `UpdateOppSL.OppUpdate` | `nuheat_update_opp_sl.js` / library | the field rules at page load, the required check, and the fields written (old → new) |
 | `UpdateOppSL.Validation` | `nuheat_update_opp_sl.js` | a save rejected before any write, and why |
 | `UpdateOppSL.Summary` | `nuheat_update_opp_sl.js` | one line per save: call ID or `off`, objections created / failed, fields changed / failed, `email sent \| fail \| off` (with the recipient count) |
-| `UpdateOppSL.Email` | `nuheat_update_opp_sl.js` / library | *(1.1.0)* who it is from — `from me \| rep \| pe (employee <id>)` (amendment 2) — the sender lookup (email/phone present, photo used or skipped), the send OK with the address count, or the failure message (error level). **Never** an address or the body |
+| `UpdateOppSL.Email` | `nuheat_update_opp_sl.js` / library | *(1.1.0)* who it is from — `from me \| rep \| pe (employee <id>)` (amendment 2), plus *(1.2.0)* `\| {"updateButton":true,"opp":"<id>"}` when the button is on (never the link) — the sender lookup (email/phone present, photo used or skipped), the send OK with the address count, or the failure message (error level). **Never** an address or the body |
+| `UpdateOppSL.UpdateButton` | `nuheat_update_opp_sl.js` | *(1.2.0, debug)* why the "Give us an update" tick box wasn't offered (no link / inactive / out of date), or a failed dashboard-contact lookup |
 | `UpdateOppSL.Guard` | `nuheat_update_opp_sl.js` | *(1.1.0)* a duplicate save stopped, a missing token (a 1.0 page), a token released after a call failure, or the cache being unavailable (error level) |
 | `UpdateOppSL.Redirect` | `nuheat_update_opp_sl.js` | the exact code parameters sent back to the Opportunity |
 | `SendQuoteSL.OppUpdate` | `nuheat_send_quote_sl.js` | GET: reported field types and any update field not shown (and why). POST: fields changed old → new, "no changes", skipped because the email failed, or the failed write (error level) |

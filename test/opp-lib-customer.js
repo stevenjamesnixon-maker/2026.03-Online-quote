@@ -1,5 +1,5 @@
 /**
- * Tests for nuheat_opp_update_lib.js 1.2.0 — the customer-safe server functions (Release 2.1 part A):
+ * Tests for nuheat_opp_update_lib.js 1.2.0 (run against 1.3.0) — the customer-safe server functions (Release 2.1 part A):
  * fieldOptions, writeOppUpdate, createObjections. C1–C12 follow the brief's table; C13+ are extra
  * edge cases.
  *
@@ -177,7 +177,8 @@ var ALLOWED = { build_stage: ['3', '4'], entitystatus: ['12', '14'] };
 // ─── C0. Version and exports ──────────────────────────────────────────────────
 
 console.log('C0. Version and exports');
-ok(LIB.LIB_VERSION === '1.2.0', 'LIB_VERSION is 1.2.0 (' + LIB.LIB_VERSION + ')');
+// changed in lib 1.3.0: the version (the 1.2.0 functions are unchanged)
+ok(LIB.LIB_VERSION === '1.3.0', 'LIB_VERSION is 1.3.0 (' + LIB.LIB_VERSION + ')');
 ok(typeof LIB.fieldOptions === 'function' && typeof LIB.writeOppUpdate === 'function' && typeof LIB.createObjections === 'function', 'fieldOptions, writeOppUpdate, createObjections exported');
 ok(['updateFields', 'pendingChanges', 'prepareFields', 'validateRequired', 'parseIsoDate', 'FIELDS'].every(function (k) { return k in LIB; }), 'existing exports still there');
 ok(LIB.FIELDS.length === 5 && !LIB.FIELDS.some(function (d) { return d.fieldId === 'custbody_opportunity_sub_status'; }), 'FIELDS unchanged: five fields, no sub-status');
@@ -382,7 +383,8 @@ function suiteletLoop110(opportunityId, ids, params, contextLine, quoteId, userI
 // The Suitelet's own suite, unedited, drives the real Suitelet → library path.
 var suite = childProcess.spawnSync(process.execPath, [path.join(__dirname, 'update-opp.js')], { encoding: 'utf8' });
 var tail = (suite.stdout || '').trim().split('\n').pop();
-ok(suite.status === 0 && tail === '293 passed, 0 failed', 'test/update-opp.js unchanged and passing (' + tail + ')');
+// changed in lib 1.3.0: update-opp.js gained T52–T62 (396 checks); the 293 earlier checks are still in it
+ok(suite.status === 0 && tail === '396 passed, 0 failed', 'test/update-opp.js passing (' + tail + ')');
 
 // ─── C13+. Extra edge cases ───────────────────────────────────────────────────
 

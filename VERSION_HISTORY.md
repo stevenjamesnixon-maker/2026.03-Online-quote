@@ -361,6 +361,15 @@
 
 ## Send Quote Suitelet (`nuheat_send_quote_sl.js`) & Client Script (`nuheat_send_quote_cs.js`)
 
+### Update Opportunity SL v1.2.0 / Opportunity Update Library v1.3.0 — 2 October 2026 🔶 In review
+
+- ADDED (SL 1.2.0): "Add a ‘Give us an update’ button" in Send an email — offered when the customer is
+  active and `custentity_cdb_link` names this customer at its link version; To limited to the customer,
+  the dashboard contact and the customer's own contacts (rechecked on the server); the email gains a line
+  and the GIVE US AN UPDATE button (`<stored link>&a=update&opp=<id>`). Tick off → byte-identical email.
+- ADDED (library 1.3.0): `cdbLinkMatches` (pure copy of the dashboard's decode), `company` on contacts,
+  `loadOppPageBase` `customerColumns`, `buildRecipientsHTML` `opts` — all additive.
+
 ### Opportunity Update Library v1.2.0 / Update Opportunity SL v1.1.1 — 1 October 2026 🔶 In review
 
 - ADDED (library 1.2.0): `fieldOptions`, `writeOppUpdate`, `createObjections` — customer-safe server

@@ -7,7 +7,7 @@
  *              and Update Opportunity (nuheat_update_opp_sl.js): field rules, preparing and writing
  *              the Opportunity fields, the required-field gate, redirect codes, text cleaning, and
  *              the page building blocks (CSS, header, update section, error page, page-script core).
- * @version     1.2.0
+ * @version     1.3.0
  * @author      Nu-Heat Development
  *
  * ⚠️ EXTERNAL CONSUMER: the customer dashboard (NS-Customer-Dashboard) requires this library by
@@ -18,6 +18,20 @@
  * ⚠️ DEPLOYMENT: a shared AMD module — no script record, no deployment. Upload it to
  *    SuiteScripts/NuHeat/2026 Quote/ BEFORE either Suitelet is redeployed; both define() it as
  *    './nuheat_opp_update_lib' and fail at load time without it.
+ *
+ * CHANGELOG v1.3.0 ("Request an update" part B — Update Opportunity's "Give us an update" button; additive only):
+ *   - ADDED: cdbLinkMatches(link, customerId, version) and cdbNormaliseVersion(raw) — a pure copy of the
+ *     customer dashboard's linkMatches() (NS-Customer-Dashboard lib/cdb_lib_token.js 2.1.0, with
+ *     tokenFromLink, splitToken, parsePayload, base64ToAscii, fromBase64Url). Reads the t payload
+ *     c<customerId>.v<version> of custentity_cdb_link; the signature is NOT checked (the dashboard
+ *     verifies it when the link is opened). No dashboard file is required and no secret is read.
+ *   - loadContacts(): each contact also carries `company` (the contact's company ID, '' if none). One
+ *     more column on the same search; existing keys unchanged.
+ *   - loadOppPageBase(): opts.customerColumns — extra customer columns read in the SAME lookupFields as
+ *     the customer email (only with customerEmail: true); the raw result is page.customerFields. Without
+ *     the option the lookup and the page are unchanged.
+ *   - buildRecipientsHTML(contacts, customerEmail, restore, [opts]): opts.ownIds / extraContacts /
+ *     notOwnNote / extraNote (Update Opportunity's update button). Without opts the HTML is unchanged.
  *
  * CHANGELOG v1.2.0 (Release 2.1 part A — customer-safe server functions; additive only):
  *   - ADDED: fieldOptions(key, [oppId]) — a select field's options [{ id, text }] by prepareFields()'
@@ -77,7 +91,7 @@ function (serverWidget, search, record, log, url, format, email, runtime) {
 
     'use strict';
 
-    var LIB_VERSION = '1.2.0';
+    var LIB_VERSION = '1.3.0';
 
     // ─── Field rules ──────────────────────────────────────────────────────────────
 
@@ -652,7 +666,8 @@ function (serverWidget, search, record, log, url, format, email, runtime) {
      * email) and the Opportunity's contacts.
      *
      * @param {string} opportunityId
-     * @param {Object} opts - { logPrefix: 'SendQuoteSL', customerEmail: boolean }
+     * @param {Object} opts - { logPrefix: 'SendQuoteSL', customerEmail: boolean,
+     *                         customerColumns: [string] (v1.3.0: more columns in the same lookup) }
      * @returns {Object} page base; loadError is set (and nothing else) when the record can't load
      */
     function loadOppPageBase(opportunityId, opts) {
@@ -689,13 +704,15 @@ function (serverWidget, search, record, log, url, format, email, runtime) {
 
         // Customer email — the default To address (Send Quote only)
         page.customerEmail = '';
+        page.customerFields = {};   // v1.3.0: the raw lookup when opts.customerColumns is given
         if (opts.customerEmail && customerId) {
             try {
                 var custFields = search.lookupFields({
                     type: search.Type.CUSTOMER,
                     id: customerId,
-                    columns: ['email']
+                    columns: ['email'].concat(opts.customerColumns || [])
                 });
+                if (opts.customerColumns) page.customerFields = custFields || {};
                 page.customerEmail = custFields.email || '';
             } catch (e) {
                 log.debug(logPrefix + '.showForm', 'Could not look up customer email: ' + e.message);
@@ -712,7 +729,8 @@ function (serverWidget, search, record, log, url, format, email, runtime) {
     /**
      * v1.5.0: Contacts linked to this Opportunity via Opportunity search + contact join
      * (the contact sublist API does not work on Opportunities — §9 pitfall 11).
-     * @returns {Array<{id: string, name: string, email: string}>}
+     * v1.3.0: also `company` — the contact's company (customer) ID, '' if none.
+     * @returns {Array<{id: string, name: string, email: string, company: string}>}
      */
     function loadContacts(opportunityId, logPrefix) {
         var contacts = [];
@@ -726,7 +744,8 @@ function (serverWidget, search, record, log, url, format, email, runtime) {
                     search.createColumn({ name: 'internalid',  join: 'contact' }),
                     search.createColumn({ name: 'firstname',   join: 'contact' }),
                     search.createColumn({ name: 'lastname',    join: 'contact' }),
-                    search.createColumn({ name: 'email',       join: 'contact' })
+                    search.createColumn({ name: 'email',       join: 'contact' }),
+                    search.createColumn({ name: 'company',     join: 'contact' })   // v1.3.0
                 ]
             });
 
@@ -737,9 +756,10 @@ function (serverWidget, search, record, log, url, format, email, runtime) {
                 var lastName  = result.getValue({ name: 'lastname',   join: 'contact' }) || '';
                 var email     = result.getValue({ name: 'email',      join: 'contact' }) || '';
                 contacts.push({
-                    id:    contactId,
-                    name:  (firstName + ' ' + lastName).trim() || 'Contact ' + contactId,
-                    email: email
+                    id:      contactId,
+                    name:    (firstName + ' ' + lastName).trim() || 'Contact ' + contactId,
+                    email:   email,
+                    company: String(result.getValue({ name: 'company', join: 'contact' }) || '')   // v1.3.0
                 });
                 return true;
             });
@@ -1464,18 +1484,35 @@ function (serverWidget, search, record, log, url, format, email, runtime) {
      * @param {Array<{id, name, email}>} contacts - lib.loadContacts()
      * @param {string} customerEmail - '' hides the Customer tick
      * @param {Object} [restore] - { contacts: [ids], customer: bool, extra: string, ccMe: bool }
+     * @param {Object} [opts] - v1.3.0, Update Opportunity's update button; omitted → unchanged HTML:
+     *   ownIds: [contact IDs] — every contact tick gets data-own="1" (listed) or "0" with a hidden
+     *     .nsq-rcpt-not note (notOwnNote); extraContacts: [{ id, label, email }] — more contact ticks
+     *     (class nsq-rcpt-dash, data-own="1"), their label hidden; extraNote — a hidden note under
+     *     Other addresses (#nsq-rcpt-extra-note). The page script shows, hides and disables them.
      */
-    function buildRecipientsHTML(contacts, customerEmail, restore) {
+    function buildRecipientsHTML(contacts, customerEmail, restore, opts) {
         var r = restore || {};
+        var o = opts || null;
+        var own = o ? (o.ownIds || []).map(String) : null;
         var ticked = (r.contacts || []).map(String);
         var h = [];
         h.push('<div class="nsq-field nsq-rcpts"><span class="nsq-label">To <span class="nsq-req" aria-hidden="true">*</span></span>');
         var withEmail = (contacts || []).filter(function (c) { return c.email; });
         withEmail.forEach(function (c) {
+            var isOwn = own ? own.indexOf(String(c.id)) !== -1 : false;
             h.push('<label class="nsq-tick"><input type="checkbox" class="nsq-rcpt" data-contact-id="' + escapeHtml(String(c.id)) +
-                '" data-email="' + escapeHtml(c.email) + '"' + (ticked.indexOf(String(c.id)) !== -1 ? ' checked' : '') + '> ' +
-                escapeHtml(c.name) + ' <span class="nsq-tick-addr">' + escapeHtml(c.email) + '</span></label>');
+                '" data-email="' + escapeHtml(c.email) + '"' + (own ? ' data-own="' + (isOwn ? '1' : '0') + '"' : '') +
+                (ticked.indexOf(String(c.id)) !== -1 ? ' checked' : '') + '> ' +
+                escapeHtml(c.name) + ' <span class="nsq-tick-addr">' + escapeHtml(c.email) + '</span>' +
+                (own && !isOwn ? ' <span class="nsq-rcpt-not" hidden>' + escapeHtml(o.notOwnNote || '') + '</span>' : '') + '</label>');
         });
+        if (o) {
+            (o.extraContacts || []).forEach(function (c) {
+                h.push('<label class="nsq-tick nsq-tick-dash" hidden><input type="checkbox" class="nsq-rcpt nsq-rcpt-dash" data-contact-id="' + escapeHtml(String(c.id)) +
+                    '" data-email="' + escapeHtml(c.email) + '" data-own="1"' + (ticked.indexOf(String(c.id)) !== -1 ? ' checked' : '') + '> ' +
+                    escapeHtml(c.label) + ' <span class="nsq-tick-addr">' + escapeHtml(c.email) + '</span></label>');
+            });
+        }
         if (customerEmail) {
             h.push('<label class="nsq-tick"><input type="checkbox" class="nsq-rcpt" data-customer="1" data-email="' + escapeHtml(customerEmail) + '"' +
                 (r.customer ? ' checked' : '') + '> Customer <span class="nsq-tick-addr">' + escapeHtml(customerEmail) + '</span></label>');
@@ -1486,7 +1523,8 @@ function (serverWidget, search, record, log, url, format, email, runtime) {
         h.push('</div>');
         h.push('<div class="nsq-field"><label class="nsq-label" for="nsq-rcpt-extra">Other addresses</label>' +
             '<input type="text" class="nsq-input" id="nsq-rcpt-extra" name="custpage_rcpt_extra" autocomplete="off" placeholder="Separate addresses with commas" value="' +
-            escapeHtml(r.extra || '') + '"></div>');
+            escapeHtml(r.extra || '') + '">' +
+            (o && o.extraNote ? '<p class="nsq-help" id="nsq-rcpt-extra-note" hidden>' + escapeHtml(o.extraNote) + '</p>' : '') + '</div>');
         h.push('<label class="nsq-tick"><input type="checkbox" id="nsq-rcpt-ccme"' + (r.ccMe ? ' checked' : '') + '> CC me</label>');
         h.push('<input type="hidden" name="custpage_rcpt_contacts" id="nsq-rcpt-contacts" value="' + escapeHtml(ticked.join(',')) + '">');
         h.push('<input type="hidden" name="custpage_rcpt_customer" id="nsq-rcpt-customer" value="' + (r.customer ? 'T' : 'F') + '">');
@@ -1585,6 +1623,64 @@ function (serverWidget, search, record, log, url, format, email, runtime) {
         return out;
     }
 
+    // ─── The customer dashboard's stored link (v1.3.0) ────────────────────────────
+    //
+    // A pure COPY of NS-Customer-Dashboard lib/cdb_lib_token.js 2.1.0 linkMatches() and the helpers it
+    // uses (tokenFromLink, splitToken, parsePayload, normaliseVersion, base64ToAscii, fromBase64Url).
+    // Nothing of the dashboard is required and no secret is read. The format is fixed by the dashboard
+    // (its EXTERNAL CONSUMER note):
+    //   payload  c<customerId>.v<version>          (an empty version means 0)
+    //   token    base64url(payload) + '.' + base64url(HMAC-SHA256(payload))
+    //   link     <dashboard URL>?…&t=<token>
+    // The SIGNATURE IS NOT CHECKED here — deliberately: the dashboard verifies it when the link is
+    // opened. This only says whether the stored link names this customer at this link version.
+
+    var B64_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
+
+    /** Pure: the ASCII a base64 value encodes; null when not valid base64 or not ASCII. */
+    function cdbBase64ToAscii(b64) {
+        var clean = String(b64), out = '', n = [], i, j;
+        if (!/^[A-Za-z0-9+/]*={0,2}$/.test(clean) || clean.length % 4 !== 0) return null;
+        for (i = 0; i < clean.length; i += 4) {
+            for (j = 0; j < 4; j++) n[j] = clean.charAt(i + j) === '=' ? -1 : B64_ALPHABET.indexOf(clean.charAt(i + j));
+            out += String.fromCharCode((n[0] << 2) | (n[1] >> 4));
+            if (n[2] >= 0) out += String.fromCharCode(((n[1] & 15) << 4) | (n[2] >> 2));
+            if (n[3] >= 0) out += String.fromCharCode(((n[2] & 3) << 6) | n[3]);
+        }
+        for (i = 0; i < out.length; i++) if (out.charCodeAt(i) > 127) return null;
+        return out;
+    }
+
+    /** Pure: empty, null or not a whole number → 0 (the dashboard's normaliseVersion). */
+    function cdbNormaliseVersion(raw) {
+        var text = String(raw === null || raw === undefined ? '' : raw).replace(/^\s+|\s+$/g, '');
+        return /^\d+$/.test(text) ? parseInt(text, 10) : 0;
+    }
+
+    /** Pure: the decoded payload of a link's t parameter, { customerId, version } or null. */
+    function cdbLinkPayload(link) {
+        var m = /[?&]t=([^&#]*)/.exec(String(link === null || link === undefined ? '' : link));
+        var token = '';
+        try { token = m ? decodeURIComponent(m[1]) : ''; } catch (e) { token = ''; }
+        var parts = token.split('.');
+        if (parts.length !== 2 || !/^[A-Za-z0-9_-]+$/.test(parts[0]) || !/^[A-Za-z0-9_-]+$/.test(parts[1])) return null;
+        var b64 = parts[0].replace(/-/g, '+').replace(/_/g, '/');
+        while (b64.length % 4 !== 0) b64 += '=';
+        var p = /^c(\d+)\.v(\d+)$/.exec(cdbBase64ToAscii(b64) || '');
+        return p ? { customerId: String(parseInt(p[1], 10)), version: parseInt(p[2], 10) } : null;
+    }
+
+    /**
+     * Pure: true only when the link's token names this customer at this version (the dashboard's
+     * linkMatches). Extra parameters (&a=update&opp=…) do not matter. The signature is NOT checked.
+     */
+    function cdbLinkMatches(link, customerId, version) {
+        var parsed = cdbLinkPayload(link);
+        var id = String(customerId === null || customerId === undefined ? '' : customerId).replace(/^\s+|\s+$/g, '');
+        if (!parsed || !/^\d+$/.test(id)) return false;
+        return parsed.customerId === String(parseInt(id, 10)) && parsed.version === cdbNormaliseVersion(version);
+    }
+
     return {
         LIB_VERSION:            LIB_VERSION,
         FIELDS:                 OPP_UPDATE_FIELDS,
@@ -1647,7 +1743,11 @@ function (serverWidget, search, record, log, url, format, email, runtime) {
         writeOppUpdate:         writeOppUpdate,
         createObjections:       createObjections,
         OBJECTION_FIELDS:       OBJ,
-        objectionNotes:         objectionNotes
+        objectionNotes:         objectionNotes,
+        // v1.3.0: the customer dashboard's stored link (pure copy of its linkMatches)
+        cdbLinkPayload:         cdbLinkPayload,
+        cdbLinkMatches:         cdbLinkMatches,
+        cdbNormaliseVersion:    cdbNormaliseVersion
     };
 
 });

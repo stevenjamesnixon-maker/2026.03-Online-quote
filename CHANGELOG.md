@@ -1,3 +1,35 @@
+## [Update Opportunity SL v1.2.0, Opportunity Update Library v1.3.0] — 2 October 2026 ("Request an update" part B)
+**Status:** 🔶 In review — not deployed. Steve tests at **Testing**; off for reps until the dashboard goes live.
+**Prerequisite:** the dashboard's part A deployed (its customer UE fills `custentity_cdb_link`; the backfill
+is held until go-live). Without a link the tick box simply isn't offered.
+**Components:** `nuheat_update_opp_sl.js`, `nuheat_opp_update_lib.js`, `test/update-opp.js`, `test/opp-lib-customer.js`
+
+**Why (Steve, 2 Oct):** reps send a customer their personal "Give us an update" link from Update
+Opportunity's email, without another button on the opportunity.
+
+- ADDED (SL): under the message, **"Add a ‘Give us an update’ button"** (off) with its hint. Offered only
+  when the customer is active and `custentity_cdb_link`'s `t` payload names this customer at
+  `custentity_cdb_link_version`; otherwise disabled with "No dashboard link for this customer yet." /
+  "Customer is inactive." / "The customer's link is out of date. Ask an administrator to run the link
+  backfill." (logged at debug, `UpdateOppSL.UpdateButton`).
+- ADDED (SL): with the tick on, To may only be the customer, the dashboard contact
+  (`custentity_cdb_dashboard_contact`; a "Dashboard contact" tick when not already on the opportunity)
+  and opportunity contacts whose company is this customer. Other addresses are disabled on the page and
+  refused on the server, as are other companies' contacts; CC me stays allowed. All rechecked on the
+  server before the save token is claimed.
+- ADDED (SL): the email gets one line and **GIVE US AN UPDATE** (`<stored link>&a=update&opp=<id>`)
+  between the message and the sign-off. Subject, sender, card and shell unchanged; **tick off → the email
+  is byte-identical** (SHA-256 checked against 1.1.1). `UpdateOppSL.Email` adds
+  `{"updateButton":true,"opp":"<id>"}`; the link is never logged.
+- ADDED (library 1.3.0, additive): `cdbLinkMatches` / `cdbLinkPayload` / `cdbNormaliseVersion` — a pure
+  copy of the dashboard's `linkMatches` decode (no dashboard file required, no secret read);
+  `loadContacts` also returns `company`; `loadOppPageBase` takes `customerColumns`; `buildRecipientsHTML`
+  takes optional `opts`. Without the new options every output is unchanged (Send Quote's 400 pass unedited).
+- FIXED (test only): `update-opp.js` T41's "no 81 in the redirect" check also scanned `nsqt` (a Unix
+  time), so it failed whenever the clock contained "81". `nsqt` is now left out of that check.
+- Upload order: library 1.3.0 first, then the Suitelet 1.2.0. The dashboard's library version check
+  (`>= 1.2.0`) is satisfied.
+
 ## [Opportunity Update Library v1.2.0, Update Opportunity SL v1.1.1] — 1 October 2026 (Release 2.1 part A)
 **Status:** 🔶 In review — not deployed
 **Components:** `nuheat_opp_update_lib.js`, `nuheat_update_opp_sl.js`, `test/opp-lib-customer.js` (new)

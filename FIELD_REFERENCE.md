@@ -162,6 +162,21 @@ All values are HTML-escaped; tags are substituted in one pass.
 | Sender card | **Employee** (one `search.lookupFields` on the chosen sender): `firstname`, `lastname`, `entityid` (name if both are empty), `email` (required), **`phone`** (the card phone for every sender — the same field Send Quote's card reads for the rep, Steve 1 Oct; no fallback, no switchboard), `isinactive` (rep / PE inactive → blocked), `custentity_employee_photo_link` (https only). No opportunity override — `custbody_sales_rep_phone` is **not** read. As the PE, the card's email line and EMAIL button show `design@nu-heat.co.uk` (Send Design's rule). ⚠️ **Send Design reads `officephone`** for the PE — a known difference, left as is |
 | "From" options (GET) | per offered rep / PE, one `search.lookupFields` on the Employee: `email`, `isinactive` — offered only if active (`isinactive` true / `'T'` / `'true'` = inactive) and with an email |
 
+### "Give us an update" button (Update Opportunity SL 1.2.0 / library 1.3.0) — no new fields here
+
+Fields owned by the customer dashboard (`NS-Customer-Dashboard`, "Request an update" part A). Read only.
+
+| Field | Record | Use |
+|---|---|---|
+| `custentity_cdb_link` | Customer | the customer's signed BASE dashboard link (written by the dashboard's customer UE / backfill). The email's button = this + `&a=update&opp=<opportunity ID>`. Its `t` payload `c<customerId>.v<version>` must name this customer at this version (`lib.cdbLinkMatches`, signature not checked) |
+| `custentity_cdb_link_version` | Customer | the link version; empty = 0. A link of another version is "out of date" |
+| `isinactive` | Customer | inactive → not offered (true / `'T'` / `'true'`) |
+| `custentity_cdb_dashboard_contact` | Customer | the dashboard contact (Contact): an allowed recipient with the button on; its `email` read with one `search.lookupFields` on the contact |
+| `company` | Contact (join from the Opportunity's contact search, `lib.loadContacts`) | an opportunity contact is "the customer's own" only when its company is the opportunity's customer |
+
+All four customer columns ride on the page's existing customer `lookupFields` (with `email`); the POST
+repeats the lookup only when the tick is on. Posted: `custpage_email_updbtn` = `T` (missing = off).
+
 ### Page fields posted (1.1.0)
 
 | Field | Meaning |
@@ -173,6 +188,7 @@ All values are HTML-escaped; tags are substituted in one pass.
 | `custpage_rcpt_contacts` | comma list of contact IDs |
 | `custpage_rcpt_customer`, `custpage_rcpt_ccme` | `T` / `F` |
 | `custpage_rcpt_extra` | other addresses, as typed |
+| `custpage_email_updbtn` | *(1.2.0)* `T` = add the "Give us an update" button; missing = off. Rechecked on the server |
 | `custpage_today` | the browser's date, `yyyy-mm-dd` |
 | `custpage_save_token` | the one-time save token (`N/cache`, PRIVATE, cache `nh_update_opp_save_guard`, 1 hour) |
 

@@ -2,6 +2,7 @@
  * Tests for Update Opportunity SL 1.1.0 (+ nuheat_opp_update_lib.js 1.1.0, Opportunity UE 1.4.0).
  * T1–T17 from 1.0.0 (T1 and T3 adjusted for the new section numbering — marked "changed in 1.1.0"),
  * T18–T51 for 1.1.0 (T36–T37: amendment 1; T38–T46: amendment 2; T47–T51: amendment 3).
+ * T52–T62 for 1.2.0 ("Request an update" part B: the "Give us an update" button; lib 1.3.0).
  *
  * Same style as send-quote-opp-update.js: `define` is stubbed, the real Suitelet, library and UE are
  * loaded under stubbed N/* modules, every scenario is checked with ok(), non-zero exit on failure.
@@ -185,7 +186,7 @@ function result(vals, texts) {
 }
 
 var searchStub = {
-    Type: { CUSTOMER: 'customer', OPPORTUNITY: 'opportunity', ESTIMATE: 'estimate', PHONE_CALL: 'phonecall', EMPLOYEE: 'employee' },
+    Type: { CUSTOMER: 'customer', OPPORTUNITY: 'opportunity', ESTIMATE: 'estimate', PHONE_CALL: 'phonecall', EMPLOYEE: 'employee', CONTACT: 'contact' },
     Sort: { DESC: 'DESC', ASC: 'ASC' },
     createColumn: function (o) { return o; },
     lookupFields: function (o) {
@@ -207,7 +208,15 @@ var searchStub = {
             if (!pc) throw new Error('no phone call ' + o.id);
             return { title: pc.title, transaction: [{ value: pc.transaction, text: 'Opportunity' }] };
         }
-        if (o.type === 'customer') return { email: state.customerEmail };   // v1.1.0
+        if (o.type === 'customer') {   // v1.1.0: email; v1.2.0: + the dashboard columns (state.customer)
+            var cu = { email: state.customerEmail };
+            o.columns.forEach(function (c) { if (c !== 'email') cu[c] = (state.customer || {})[c] === undefined ? '' : state.customer[c]; });
+            return cu;
+        }
+        if (o.type === 'contact') {    // v1.2.0: the dashboard contact's email
+            if (!(state.dashContacts || {})[String(o.id)]) throw new Error('no contact ' + o.id);
+            return { email: state.dashContacts[String(o.id)].email };
+        }
         if (o.type === 'employee') {                                        // v1.1.0: the sender
             if (state.employeeThrows) throw new Error(state.employeeThrows);
             var emp = {};
@@ -233,7 +242,7 @@ var searchStub = {
             rows = state.estimates.filter(function (e) { return e.opp === opp && (!eids || eids.indexOf(e.id) !== -1); })
                 .map(function (e) { return result({ internalid: e.id, tranid: e.tranid, title: e.title, custbody_quote_description: e.desc }); });
         } else if (o.type === 'opportunity') {
-            rows = state.contacts.map(function (c) { return result({ internalid: c.id, firstname: c.first, lastname: c.last, email: c.email }); });
+            rows = state.contacts.map(function (c) { return result({ internalid: c.id, firstname: c.first, lastname: c.last, email: c.email, company: c.company || '' }); });
         }
         return {
             run: function () {
@@ -906,7 +915,9 @@ ok(JSON.stringify(e41.cc) === JSON.stringify(['sam.taylor@nu-heat.co.uk']) && !e
 ok(audit('UpdateOppSL.Email').some(function (l) { return /from rep \(employee 81\)/.test(l.details); }) && audit('UpdateOppSL.Email').every(function (l) { return !/@/.test(l.details); }),
    'UpdateOppSL.Email: "from rep (employee 81)", never an address');
 ok(state.calls.filter(function (c) { return /^lookupFields:opportunity:entity,salesrep,custbody_pe$/.test(c); }).length === 1, 'one opportunity lookup reads entity, salesrep and custbody_pe');
-ok(!/rob|Rob|81/.test(JSON.stringify(rparams())) && rparams().nsqe === 'sent', 'banner codes unchanged: no name, code or ID in the URL');
+// changed in 1.2.0: nsqt (a Unix time) is left out of the check — it contains "81" at some times of day (a flake, not a leak)
+var p41 = {}; Object.keys(rparams()).forEach(function (k) { if (k !== 'nsqt') p41[k] = rparams()[k]; });
+ok(!/rob|Rob|81/.test(JSON.stringify(p41)) && /^\d+$/.test(rparams().nsqt) && rparams().nsqe === 'sent', 'banner codes unchanged: no name, code or ID in the URL');
 resetState(); withTeam();
 emailPost({ custpage_email_from: 'rep' });
 ok(state.emails[0] && !state.emails[0].cc && !state.emails[0].bcc, 'CC me not ticked → no CC at all (the rep gets no copy)');
@@ -1043,6 +1054,270 @@ resetState(); withTeam();
 state.units = 0;
 runGet();
 ok(state.units === 53, 'page load unchanged at 53 units — got ' + state.units);
+
+// ─── T52–T62: 1.2.0 — the "Give us an update" button (lib 1.3.0) ───────────────────────────
+
+// The dashboard's token format, copied here as a FIXTURE (NS-Customer-Dashboard lib/cdb_lib_token.js
+// 2.1.0 makePayload / assembleToken / asciiToBase64 / toBase64Url) — nothing of the dashboard is required.
+var CDB_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
+function cdbAsciiToBase64(text) {
+    var out = '', i, a, b, c;
+    for (i = 0; i < text.length; i += 3) {
+        a = text.charCodeAt(i);
+        b = i + 1 < text.length ? text.charCodeAt(i + 1) : NaN;
+        c = i + 2 < text.length ? text.charCodeAt(i + 2) : NaN;
+        out += CDB_ALPHABET.charAt(a >> 2);
+        out += CDB_ALPHABET.charAt(((a & 3) << 4) | (isNaN(b) ? 0 : b >> 4));
+        out += isNaN(b) ? '=' : CDB_ALPHABET.charAt(((b & 15) << 2) | (isNaN(c) ? 0 : c >> 6));
+        out += isNaN(c) ? '=' : CDB_ALPHABET.charAt(c & 63);
+    }
+    return out;
+}
+function cdbToBase64Url(b64) { return String(b64).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, ''); }
+function cdbNormaliseVersion(raw) { var t = String(raw === null || raw === undefined ? '' : raw).trim(); return /^\d+$/.test(t) ? parseInt(t, 10) : 0; }
+function makePayload(customerId, version) { return 'c' + String(customerId) + '.v' + cdbNormaliseVersion(version); }
+function assembleToken(payload, signatureBase64) { return cdbToBase64Url(cdbAsciiToBase64(payload)) + '.' + cdbToBase64Url(signatureBase64); }
+function cdbSign(customerId, version) {
+    var payload = makePayload(customerId, version);
+    return assembleToken(payload, require('crypto').createHmac('sha256', 'test-key-not-the-secret').update(payload).digest('base64'));
+}
+var CDB_BASE = 'https://1234567.extforms.netsuite.com/app/site/hosting/scriptlet.nl?script=2001&deploy=1&compid=1234567&ns-at=AAEJ7tMQ';
+function cdbLink(customerId, version) { return CDB_BASE + '&t=' + cdbSign(customerId, version); }
+var LIB = modules['./nuheat_opp_update_lib'];
+
+function withLink(extra) {
+    state.customer = { custentity_cdb_link: cdbLink(55, 2), custentity_cdb_link_version: '2', isinactive: false, custentity_cdb_dashboard_contact: '' };
+    Object.keys(extra || {}).forEach(function (k) { state.customer[k] = extra[k]; });
+}
+function updTick(h) { var m = /<input type="checkbox" id="nsq-updbtn" name="custpage_email_updbtn" value="T"([^>]*)>/.exec(h); return m ? m[1] : null; }
+function ubPost(overrides) {
+    var p = { custpage_email_updbtn: 'T', custpage_call_on: 'F' };
+    Object.keys(overrides || {}).forEach(function (k) { p[k] = overrides[k]; });
+    return emailPost(p);
+}
+var UB_REFUSAL = 'The update button opens the customer’s whole project page, so it can only go to the customer and their own contacts. Untick it, or remove: ';
+
+console.log('T52. lib.cdbLinkMatches — the dashboard\'s pure decode, test vectors');
+ok(LIB.LIB_VERSION === '1.3.0', 'LIB_VERSION 1.3.0');
+ok(makePayload(55, '') === 'c55.v0' && assembleToken('c55.v0', 'AAEC/w+=').indexOf('YzU1LnYw.') === 0 && assembleToken('c55.v0', 'AAEC/w+=') === 'YzU1LnYw.AAEC_w-',
+   'fixture: makePayload / assembleToken give c55.v0 → YzU1LnYw.<sig, base64url>');
+ok(JSON.stringify(LIB.cdbLinkPayload(CDB_BASE + '&t=YzU1LnYw.AAEC_w-')) === '{"customerId":"55","version":0}', 'payload decoded: customer 55, version 0');
+ok(LIB.cdbLinkMatches(cdbLink(55, ''), 55, '') && LIB.cdbLinkMatches(cdbLink(55, 0), '55', 0) && LIB.cdbLinkMatches(cdbLink(55, '0'), 55, null), 'empty version means 0, both sides');
+ok(LIB.cdbLinkMatches(cdbLink(55, 3), '55', '3') && !LIB.cdbLinkMatches(cdbLink(55, 3), '55', '') && !LIB.cdbLinkMatches(cdbLink(55, 3), '55', '4'), 'version must match');
+ok(!LIB.cdbLinkMatches(cdbLink(56, 0), '55', '') && !LIB.cdbLinkMatches(cdbLink(5, 0), '55', '') && !LIB.cdbLinkMatches(cdbLink(55, 0), '', ''), 'customer must match');
+ok(LIB.cdbLinkMatches(cdbLink(55, 1) + '&a=update&opp=123', 55, 1) && LIB.cdbLinkMatches('https://x/?t=' + cdbSign(55, 1) + '&script=1', 55, 1), 'extra parameters do not matter; t anywhere');
+ok(LIB.cdbLinkMatches(CDB_BASE + '&t=' + cdbToBase64Url(cdbAsciiToBase64('c0055.v1')) + '.sig', 55, 1), 'leading zeros as the dashboard reads them');
+ok(LIB.cdbLinkMatches(CDB_BASE + '&t=YzU1LnYw.wrong-signature', 55, ''), 'the signature is NOT checked (the dashboard does that)');
+var bad52 = [
+    ['empty', ''], ['null', null], ['no t', CDB_BASE], ['empty t', CDB_BASE + '&t='], ['one part', CDB_BASE + '&t=YzU1LnYw'],
+    ['three parts', CDB_BASE + '&t=YzU1LnYw.a.b'], ['bad chars', CDB_BASE + '&t=YzU1Ln+w.abc'], ['bad base64 length', CDB_BASE + '&t=YzU1L.abc'],
+    ['payload not c<id>.v<n>', CDB_BASE + '&t=' + cdbToBase64Url(cdbAsciiToBase64('c55')) + '.abc'],
+    ['payload v not numeric', CDB_BASE + '&t=' + cdbToBase64Url(cdbAsciiToBase64('c55.vx')) + '.abc'],
+    ['bad URI escape', CDB_BASE + '&t=%E0%A4%A'], ['xt= not t=', CDB_BASE + '&xt=' + cdbSign(55, 0)]
+];
+bad52.forEach(function (b) { ok(!LIB.cdbLinkMatches(b[1], 55, '') && LIB.cdbLinkPayload(b[1]) === null, 'malformed (' + b[0] + ') → no match'); });
+
+console.log('T53. GET: the tick box offered with a matching link');
+resetState(); withLink();
+state.contacts[0].company = '55';
+state.contacts.push({ id: '73', first: 'Cat', last: 'Day', email: 'cat@architects.example', company: '99' });
+state.calls = [];
+var h53 = html(runGet());
+ok(updTick(h53) === '', 'the tick box is enabled and off');
+ok(h53.indexOf('> Add a ‘Give us an update’ button</label><p class="nsq-help">Sends the customer their personal link to update this project’s stage, timing and details. It can only go to the customer and their own contacts.</p></div>') !== -1,
+   'label and hint');
+ok(h53.indexOf('id="nsq-email-message"') < h53.indexOf('id="nsq-updbtn"') && h53.indexOf('id="nsq-updbtn"') < h53.indexOf('nsq-rcpts'), 'under the message box, above To');
+ok(h53.indexOf('id="nsq-updbtn-why"') === -1, 'no reason shown');
+ok(/data-contact-id="71" data-email="ann@example\.com" data-own="1">/.test(h53) && /data-contact-id="73" data-email="cat@architects\.example" data-own="0"> Cat Day <span class="nsq-tick-addr">cat@architects\.example<\/span> <span class="nsq-rcpt-not" hidden>Not this customer’s contact<\/span>/.test(h53),
+   'own contact data-own="1"; another company\'s contact data-own="0" with its (hidden) note');
+ok(/id="nsq-rcpt-extra-note" hidden>Other addresses are off while the update button is ticked/.test(h53), 'the Other addresses explanation is on the page (hidden)');
+ok(state.calls.filter(function (c) { return c === 'lookupFields:customer:email,custentity_cdb_link,custentity_cdb_link_version,isinactive,custentity_cdb_dashboard_contact'; }).length === 1 &&
+   state.calls.filter(function (c) { return /^lookupFields:customer/.test(c); }).length === 1, 'ONE customer lookup reads email + the three columns + the dashboard contact');
+ok(h53.indexOf(cdbSign(55, 2)) === -1 && h53.indexOf('extforms') === -1, 'the link itself is not on the page');
+var s53 = scripts(h53);
+var parsed53 = true; try { new vm.Script(s53[0]); } catch (e) { parsed53 = false; console.log('     ' + e.message); }
+ok(parsed53 && s53.length === 1 && !/example|Cat|55|extforms/.test(s53[0]), 'the script parses; no record data in it');
+
+console.log('T54. GET: the tick box disabled, with the reason');
+[
+    ['no link', {}, null, 'No dashboard link for this customer yet.'],
+    ['wrong customer', { custentity_cdb_link: cdbLink(56, 2) }, null, 'The customer’s link is out of date. Ask an administrator to run the link backfill.'],
+    ['wrong version', { custentity_cdb_link_version: '3' }, null, 'The customer’s link is out of date. Ask an administrator to run the link backfill.'],
+    ['empty version vs v2 link', { custentity_cdb_link_version: '' }, null, 'The customer’s link is out of date. Ask an administrator to run the link backfill.'],
+    ['inactive', { isinactive: true }, null, 'Customer is inactive.'],
+    ['inactive (T)', { isinactive: 'T' }, null, 'Customer is inactive.'],
+    ['malformed link', { custentity_cdb_link: CDB_BASE + '&t=not-a-token' }, null, 'The customer’s link is out of date. Ask an administrator to run the link backfill.'],
+    ['customer lookup fails', {}, 'boom', 'No dashboard link for this customer yet.']
+].forEach(function (c) {
+    resetState();
+    if (c[0] === 'no link') state.customer = {}; else withLink(c[1]);
+    var throwsOrig = searchStub.lookupFields;
+    if (c[2]) searchStub.lookupFields = function (o) { if (o.type === 'customer') throw new Error(c[2]); return throwsOrig(o); };
+    var h = html(runGet());
+    searchStub.lookupFields = throwsOrig;
+    ok(updTick(h) === ' disabled data-blocked="1"' && h.indexOf('<p class="nsq-help nsq-updbtn-why" id="nsq-updbtn-why">' + c[3].replace(/&/g, '&amp;') + '</p>') !== -1,
+       c[0] + ': disabled — "' + c[3] + '"');
+    ok(state.logs.some(function (l) { return l.level === 'debug' && l.title === 'UpdateOppSL.UpdateButton' && l.details === 'Opportunity 123 — update button not offered: ' + c[3]; }), c[0] + ': reason logged at debug');
+    ok(!/data-own=|nsq-rcpt-extra-note|nsq-tick-dash/.test(h.split('<script>')[0]), c[0] + ': recipients exactly as 1.1.1 (no own marks)');
+});
+resetState(); state.customer = {};
+var h54 = html(runGet());
+ok(h54.indexOf(LIB.buildRecipientsHTML([{ id: '71', name: 'Ann Lee', email: 'ann@example.com' }], 'cust@example.com', null)) !== -1, 'not offered → the recipients block is the 1.1.1 HTML');
+
+console.log('T55. GET: the dashboard contact');
+resetState(); withLink({ custentity_cdb_dashboard_contact: [{ value: '80', text: 'Dee Dash' }] });
+state.dashContacts = { '80': { email: 'dee@home.example' } };
+var h55 = html(runGet());
+ok(/<label class="nsq-tick nsq-tick-dash" hidden><input type="checkbox" class="nsq-rcpt nsq-rcpt-dash" data-contact-id="80" data-email="dee@home\.example" data-own="1"> Dashboard contact <span class="nsq-tick-addr">dee@home\.example<\/span><\/label>/.test(h55),
+   'not on the opportunity → a (hidden) Dashboard contact tick');
+ok(state.calls.filter(function (c) { return c === 'lookupFields:contact:email'; }).length === 1, 'one contact lookup for its email');
+resetState(); withLink({ custentity_cdb_dashboard_contact: '71' });
+state.dashContacts = { '71': { email: 'ann@example.com' } };
+var h55b = html(runGet());
+ok(!/nsq-tick-dash/.test(h55b) && /data-contact-id="71" data-email="ann@example\.com" data-own="1">/.test(h55b), 'already on the opportunity → no extra tick; that contact counts as own');
+resetState(); withLink();
+runGet();
+ok(!state.calls.some(function (c) { return /^lookupFields:contact/.test(c); }), 'no dashboard contact → no contact lookup');
+resetState(); withLink({ isinactive: true, custentity_cdb_dashboard_contact: '80' });
+state.dashContacts = { '80': { email: 'dee@home.example' } };
+runGet();
+ok(!state.calls.some(function (c) { return /^lookupFields:contact/.test(c); }), 'not offered → no contact lookup');
+
+console.log('T56. POST: a typed extra address is refused');
+resetState(); withLink(); state.contacts[0].company = '55';
+var f56 = ubPost({ custpage_rcpt_extra: 'friend@example.org; ann@example.com', custpage_email_message: 'Hi Ann' });
+ok(state.emails.length === 0 && nothingWritten() && Object.keys(state.cache).length === 0 && !state.calls.some(function (c) { return /^cache/.test(c); }),
+   'nothing sent, nothing written, the token not claimed');
+ok(html(f56).indexOf('Not saved.</strong> ' + UB_REFUSAL.replace(/’/g, '’') + 'friend@example.org, ann@example.com') !== -1, 'the refusal lists the typed addresses (even one that is a contact\'s)');
+ok(updTick(html(f56)) === ' checked' && /id="nsq-rcpt-extra" name="custpage_rcpt_extra"[^>]*value="friend@example\.org; ann@example\.com"/.test(html(f56)) &&
+   /Hi Ann<\/textarea>/.test(html(f56)) && /data-contact-id="71" data-email="ann@example\.com" data-own="1" checked>/.test(html(f56)), 're-rendered with every entry restored (tick, extra, message, contact)');
+resetState(); withLink(); state.contacts[0].company = '55';
+ubPost({ custpage_rcpt_extra: 'not an address' });
+ok(state.emails.length === 0 && state.logs.some(function (l) { return l.title === 'UpdateOppSL.Validation' && l.details.indexOf(UB_REFUSAL + 'not an address') !== -1; }), 'even a malformed extra gets the same refusal');
+
+console.log('T57. POST: a contact from another company is refused');
+resetState(); withLink(); state.contacts[0].company = '55';
+state.contacts.push({ id: '73', first: 'Cat', last: 'Day', email: 'cat@architects.example', company: '99' });
+var f57 = ubPost({ custpage_rcpt_contacts: '71,73' });
+ok(state.emails.length === 0 && nothingWritten() && Object.keys(state.cache).length === 0, 'nothing sent or written; token not claimed');
+ok(html(f57).indexOf(UB_REFUSAL + 'cat@architects.example') !== -1, 'refusal names the architect\'s address');
+resetState(); withLink();   // no company on Ann at all
+ubPost({ custpage_rcpt_contacts: '71' });
+ok(state.emails.length === 0 && state.logs.some(function (l) { return l.details.indexOf(UB_REFUSAL + 'ann@example.com') !== -1; }), 'a contact with no company is not the customer\'s');
+
+console.log('T58. POST: the customer, the dashboard contact and the customer\'s own contacts are allowed; CC me too');
+resetState(); withLink({ custentity_cdb_dashboard_contact: [{ value: '80', text: 'Dee Dash' }] });
+state.dashContacts = { '80': { email: 'dee@home.example' } };
+state.contacts[0].company = '55';
+ubPost({ custpage_rcpt_contacts: '71,80', custpage_rcpt_customer: 'T', custpage_rcpt_ccme: 'T' });
+var e58 = state.emails[0] || {};
+ok(state.emails.length === 1 && JSON.stringify(e58.recipients) === JSON.stringify(['ann@example.com', 'dee@home.example', 'cust@example.com']), 'To = own contact, dashboard contact, customer (' + JSON.stringify(e58.recipients) + ')');
+ok(JSON.stringify(e58.cc) === JSON.stringify(['sam.taylor@nu-heat.co.uk']), 'CC me allowed');
+ok(rparams().nsqe === 'sent' && rparams().nsqen === '3', 'banner codes as before');
+resetState(); withLink({ custentity_cdb_dashboard_contact: '80' });
+state.dashContacts = { '80': { email: 'dee@home.example' } };
+ubPost({ custpage_rcpt_contacts: '', custpage_rcpt_customer: 'T' });
+ok(state.emails.length === 1 && JSON.stringify(state.emails[0].recipients) === '["cust@example.com"]', 'the customer alone');
+resetState(); withLink();
+ubPost({ custpage_rcpt_contacts: '', custpage_rcpt_customer: 'F', custpage_rcpt_ccme: 'T' });
+ok(state.emails.length === 0 && state.logs.some(function (l) { return l.title === 'UpdateOppSL.Validation' && /Choose at least one recipient\./.test(l.details); }), 'CC me alone is not enough: at least one To');
+resetState(); withLink();
+ubPost({ custpage_rcpt_contacts: '80' });
+ok(state.emails.length === 0 && state.logs.some(function (l) { return /A chosen contact is not on this opportunity\./.test(l.details); }), 'without a dashboard contact on the customer, ID 80 is just unknown');
+resetState(); withLink();
+emailPost({ custpage_email_updbtn: undefined, custpage_rcpt_contacts: '80', custpage_call_on: 'F' });
+ok(state.emails.length === 0, 'tick off → the dashboard contact is not a recipient');
+
+console.log('T59. POST: the server rechecks the link (a tampered or stale page)');
+[
+    ['link now stale', { custentity_cdb_link_version: '3' }, 'The customer’s link is out of date. Ask an administrator to run the link backfill.'],
+    ['another customer\'s link', { custentity_cdb_link: cdbLink(56, 2) }, 'The customer’s link is out of date. Ask an administrator to run the link backfill.'],
+    ['customer now inactive', { isinactive: true }, 'Customer is inactive.'],
+    ['no link', { custentity_cdb_link: '' }, 'No dashboard link for this customer yet.']
+].forEach(function (c) {
+    resetState(); withLink(c[1]); state.contacts[0].company = '55';
+    var f = ubPost({ custpage_rcpt_customer: 'T' });
+    ok(state.emails.length === 0 && nothingWritten() && Object.keys(state.cache).length === 0, c[0] + ': nothing sent or written; token not claimed');
+    ok(html(f).indexOf('Not saved.</strong> ' + c[2].replace(/&/g, '&amp;')) !== -1 && updTick(html(f)) === ' disabled data-blocked="1"', c[0] + ': refused, re-rendered with the tick disabled');
+});
+resetState(); withLink(); state.contacts[0].company = '55';
+emailPost({ custpage_email_on: 'F', custpage_email_updbtn: 'T' });
+ok(state.emails.length === 0 && !state.calls.some(function (c) { return /^lookupFields:customer/.test(c); }), 'email off → the tick is ignored (no lookup, no email)');
+
+console.log('T60. The email: the line and the button only when ticked');
+resetState(); withLink(); state.contacts[0].company = '55';
+ubPost({ custpage_email_message: 'Hello Ann,\n\nQuick one.' });
+var b60 = String((state.emails[0] || {}).body || '');
+var URL60 = cdbLink(55, 2) + '&a=update&opp=123';
+ok(state.emails.length === 1 && b60.indexOf('When you have a moment, let us know where your project is up to. It only takes a minute, and it helps us be ready when you need us.') !== -1, 'the fixed line');
+ok((b60.match(/<b>GIVE US AN UPDATE<\/b>/g) || []).length === 2 && b60.indexOf(LIB.emailButton(LIB.escapeHtml(URL60), 'GIVE US AN UPDATE')) !== -1, 'lib.emailButton(escapeHtml(link), \'GIVE US AN UPDATE\')');
+var hrefs60 = []; b60.replace(/href="([^"]*a=update[^"]*)"/g, function (m, h) { hrefs60.push(h); });
+ok(hrefs60.length === 2 && hrefs60.every(function (h) { return /&amp;a=update&amp;opp=123$/.test(h) && h === LIB.escapeHtml(URL60); }), 'href = the stored link + &a=update&opp=123, escaped');
+ok(b60.indexOf('Quick one.') < b60.indexOf('When you have a moment') && b60.indexOf('GIVE US AN UPDATE') < b60.indexOf('Best wishes,'), 'between the message and the sign-off');
+ok(state.emails[0].subject === 'An update on OPP123' && state.emails[0].author === '7', 'subject and sender unchanged');
+ok(JSON.stringify(state.logs).indexOf(cdbSign(55, 2)) === -1 && JSON.stringify(state.logs).indexOf('extforms') === -1, 'the link is never logged');
+ok(audit('UpdateOppSL.Email').some(function (l) { return l.details === 'Opportunity 123 — from me (employee 7) | {"updateButton":true,"opp":"123"}'; }), 'audit: updateButton: true and the opportunity ID');
+resetState(); withLink({ custentity_cdb_link: cdbLink(55, 2) + '&x="><b>bold</b>' }); state.contacts[0].company = '55';
+ubPost();
+var b60e = String((state.emails[0] || {}).body || '');
+ok(state.emails.length === 1 && b60e.indexOf('"><b>bold') === -1 && b60e.indexOf('&amp;x=&quot;&gt;&lt;b&gt;bold&lt;/b&gt;&amp;a=update&amp;opp=123"') !== -1, 'a hostile stored link is escaped');
+resetState(); withLink(); state.contacts[0].company = '55';
+emailPost({ custpage_call_on: 'F' });
+var b60off = String((state.emails[0] || {}).body || '');
+ok(b60off.indexOf('GIVE US AN UPDATE') === -1 && b60off.indexOf('When you have a moment') === -1 && b60off.indexOf('a=update') === -1, 'tick off → no line, no button');
+ok(audit('UpdateOppSL.Email').some(function (l) { return l.details === 'Opportunity 123 — from me (employee 7)'; }), 'tick off → the audit line as before');
+
+console.log('T61. Tick off → the email is byte-identical to 1.1.1');
+function sha(s) { return require('crypto').createHash('sha256').update(String(s)).digest('hex'); }
+resetState(); withLink(); state.contacts[0].company = '55';
+emailPost({ custpage_rcpt_customer: 'T', custpage_rcpt_ccme: 'T' });
+ok(sha(state.emails[0].body) === '62617470eaa91c9c4285f36cd95768ed5bae5848e5ec852c7ca20b7a16be3ff3', 'default email: same SHA-256 as 1.1.1');
+resetState();
+emailPost({ custpage_email_from: 'me', custpage_email_message: 'Line one\nline two\n\nPara <b>&amp;</b> {{x}}' });
+ok(sha(state.emails[0].body) === '0344d6cf20a86e0e5904ee35529a999e4312025dcd96adc2c0eb63a7ac156e70', 'multi-paragraph, escaped email: same SHA-256 as 1.1.1');
+
+console.log('T62. Page script: while the tick is on');
+resetState(); withLink(); state.contacts[0].company = '55';
+var s62 = scripts(html(runGet()))[0];
+var fn62 = /  var updStash = null;\n[\s\S]*?\n  }\n/.exec(s62 + '\n');
+ok(!!fn62, 'applyUpdBtn found in the page script');
+function fakeEl(o) { var e = { hidden: false, disabled: false, checked: false, value: '', attrs: {}, className: '' }; Object.keys(o || {}).forEach(function (k) { e[k] = o[k]; });
+    e.getAttribute = function (n) { return e.attrs[n] === undefined ? null : e.attrs[n]; }; return e; }
+function fakeRow(input, note) { input.parentNode = { hidden: !!input.startHidden, querySelector: function () { return note || null; } }; return input; }
+function page62(blocked) {
+    var d = {};
+    d.tick = fakeEl({ attrs: blocked ? { 'data-blocked': '1' } : {} });
+    d.email = fakeEl({ checked: true });
+    d.extra = fakeEl({ value: 'x@example.org' });
+    d.note = fakeEl({ hidden: true });
+    d.ownNote = fakeEl({ hidden: true });
+    d.own = fakeRow(fakeEl({ className: 'nsq-rcpt', attrs: { 'data-own': '1' }, checked: true }));
+    d.other = fakeRow(fakeEl({ className: 'nsq-rcpt', attrs: { 'data-own': '0' }, checked: true }), d.ownNote);
+    d.dash = fakeRow(fakeEl({ className: 'nsq-rcpt nsq-rcpt-dash', attrs: { 'data-own': '1' }, startHidden: true }));
+    var ids = { 'nsq-updbtn': d.tick, 'nsq-email-on': d.email, 'nsq-rcpt-extra': d.extra, 'nsq-rcpt-extra-note': d.note };
+    var ctx = { $: function (id) { return ids[id] || null; }, each: function (l, f) { Array.prototype.forEach.call(l, f); },
+                root: { querySelectorAll: function () { return [d.own, d.other, d.dash]; } } };
+    vm.runInNewContext(fn62[0] + '\nthis.applyUpdBtn = applyUpdBtn;', ctx);
+    d.apply = ctx.applyUpdBtn;
+    return d;
+}
+var d62 = page62(false);
+d62.apply();
+ok(!d62.extra.disabled && d62.extra.value === 'x@example.org' && d62.note.hidden && d62.dash.parentNode.hidden && d62.dash.disabled && !d62.other.disabled && d62.other.checked,
+   'tick off: nothing changed (extra enabled, dashboard tick hidden, other contact usable)');
+d62.tick.checked = true; d62.apply();
+ok(d62.extra.disabled && d62.extra.value === '' && !d62.note.hidden, 'tick on: Other addresses disabled, emptied and explained');
+ok(d62.other.disabled && !d62.other.checked && !d62.ownNote.hidden, 'tick on: another company\'s contact unticked, disabled, "Not this customer\'s contact"');
+ok(!d62.own.disabled && d62.own.checked && !d62.dash.parentNode.hidden && !d62.dash.disabled, 'tick on: own contact and the dashboard contact usable');
+d62.tick.checked = false; d62.apply();
+ok(!d62.extra.disabled && d62.extra.value === 'x@example.org' && d62.note.hidden && !d62.other.disabled && d62.ownNote.hidden && d62.dash.parentNode.hidden,
+   'tick off again: the typed addresses come back');
+d62.tick.checked = true; d62.email.checked = false; d62.apply();
+ok(d62.extra.disabled && d62.own.disabled && d62.extra.value === 'x@example.org', 'email switched off: everything disabled, nothing lost');
+var b62 = page62(true);
+b62.tick.checked = true; b62.tick.disabled = false;   // as if setSection had re-enabled it
+b62.apply();
+ok(b62.tick.disabled && !b62.tick.checked && !b62.extra.disabled && !b62.other.disabled, 'a blocked tick stays disabled and off');
 
 // ─── T14–T16 (UE 1.3.0) and T33–T34 (UE 1.4.0): Opportunity UE banner ─────────────────────────────────────
 
