@@ -15,26 +15,33 @@
 ### Automated (before uploading)
 
 ```
-node test/update-opp.js              # must end "481 passed, 0 failed" — T1–T51 as before (+ the T41 nsqt flake fix), T52–T62 (1.2.0), T63–T67 (1.2.1 mode)
+node test/update-opp.js              # must end "523 passed, 0 failed" — T1–T51 as before (+ the T41 nsqt flake fix), T52–T62 (1.2.0), T63–T67 (1.2.1 mode), T68–T73 (1.2.2 write / update)
 node test/send-quote-opp-update.js   # must end "400 passed, 0 failed" — unedited
 node test/opp-lib-customer.js        # must end "72 passed, 0 failed" — version and the update-opp count updated
 ```
 
 - **G0** *(1.2.1)* Parameter empty: as Administrator and as a sales role, Send an email looks exactly as
-  in 1.1.1 (no tick box). Set **ADMIN**: Administrator sees the tick box, a sales role (e.g. NH Account
-  Manager) still doesn't. Set **ALL**: both do. Set it back to empty afterwards.
+  in 1.1.1 (no choice). Set **ADMIN**: Administrator sees "Write an email / Request an update", a sales
+  role (e.g. NH Account Manager) still doesn't. Set **ALL**: both do. Set it back to empty afterwards.
 
 ### Sandbox / Testing (library first, then the Suitelet)
 
-- **G1** A customer with a link (save the customer once so the UE writes it): the tick box is enabled.
-  Tick it, send to the customer and CC me → the email has the line and **GIVE US AN UPDATE**; the button
-  opens the dashboard's update page for this opportunity.
+- **G1** *(1.2.2)* A customer with a link (save the customer once so the UE writes it): switch the email
+  on — "Write an email" is selected. Choose **Request an update**: the subject becomes "Could you give us a
+  quick update on QR…?", the message "Hi <first name>, …" (a company: "Hi,"). Send to the customer and
+  CC me → the email has the message, **GIVE US AN UPDATE**, then the sign-off and card; the button opens
+  the dashboard's update page for this opportunity.
+- **G1a** Request an update with the message cleared → it sends; the email has the fixed "When you have a
+  moment…" line above the button.
 - **G2** A customer with no link / inactive / with `custentity_cdb_link_version` bumped by hand without a
-  save: the tick box is disabled with the matching reason.
-- **G3** Tick on: Other addresses greys out with its note; an architect contact on the opportunity is
-  unticked and greyed "Not this customer's contact"; untick → typed addresses come back.
-- **G4** Tick on, with the dashboard contact not on the opportunity: a "Dashboard contact" tick appears.
-- **G5** Tick off: the email is exactly as before (compare with a 1.1.1 email).
+  save: "Request an update" is greyed out with the matching reason; "Write an email" stays selected.
+- **G3** Request an update: Other addresses greys out with its note; an architect contact on the
+  opportunity is unticked and greyed "Not this customer's contact"; back to Write an email → typed
+  addresses come back.
+- **G3a** Switch to Request an update and straight back: the subject is "An update on QR…" again and the
+  message is empty. Edit the prefilled message, then switch back: your text stays.
+- **G4** Request an update, with the dashboard contact not on the opportunity: a "Dashboard contact" tick appears.
+- **G5** Write an email: the email is exactly as before (compare with a 1.1.1 email); the message is required.
 - **G6** Execution Log: `UpdateOppSL.Email` shows `{"updateButton":true,"opp":"<id>"}` and no URL.
 
 ---

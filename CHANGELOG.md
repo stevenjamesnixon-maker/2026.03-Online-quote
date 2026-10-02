@@ -1,3 +1,27 @@
+## [Update Opportunity SL v1.2.2] — 2 October 2026 (PR #36 amendment 2: "Write an email" or "Request an update")
+**Status:** 🔶 In review — not deployed. Library unchanged (1.3.0); the 1.2.1 switch still applies.
+**Components:** `nuheat_update_opp_sl.js`, `test/update-opp.js`, `test/opp-lib-customer.js`
+
+**Why (Steve, 2 Oct, testing 1.2.1 as Administrator):** sending the button meant writing a full bespoke
+email, because Message was required. A quick "please update us" should be quick.
+
+- CHANGED: the "Add a ‘Give us an update’ button" tick box is replaced by a choice at the top of Send an
+  email — **Write an email** (default; exactly the 1.1.1 email) or **Request an update** — posted as
+  `custpage_email_kind` = `write` | `update` (missing / anything else = write). Shown only when the mode
+  allows it; not offerable → "Request an update" greyed with the existing reason.
+- ADDED: Request an update prefills (editable) the subject "Could you give us a quick update on <tranid>?"
+  and the message "Hi <first name>, / We’d love to know where your project is up to, … / Thanks," (first
+  name only for a person — customer `isperson`, `firstname`, read in the same lookup; a company → "Hi,").
+  A subject or message the rep already typed is kept. The message is optional: empty → the fixed
+  "When you have a moment…" line stands in above the button; otherwise that line is dropped.
+- Switching back to Write puts the recipients and set-aside addresses back, and clears the prefill only
+  where the rep didn't edit it. Recipients for an update request: the 1.2.0 rule, rechecked on the server
+  before the save guard; the refusal now ends "Choose ‘Write an email’, or remove: …".
+- FIXED (found in the Chromium check): `.nsq-tick{display:flex}` overrode `[hidden]`, so 1.2.0's
+  "Dashboard contact" row stayed visible (disabled) in write mode — `.nsq-tick[hidden]{display:none}`.
+  The Message "*" is hidden while Request an update is chosen.
+- Unchanged: D3 (Next contact), the call, objections, fields, the save guard, the mode switch.
+
 ## [Update Opportunity SL v1.2.1] — 2 October 2026 (PR #36 amendment 1: an on/off switch)
 **Status:** 🔶 In review — not deployed. **Create the script parameter before uploading** (DEPLOYMENT_CHECKLIST 2f-2).
 **Components:** `nuheat_update_opp_sl.js`, `test/update-opp.js`, `test/opp-lib-customer.js` (library unchanged, 1.3.0)

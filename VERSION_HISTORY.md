@@ -361,6 +361,13 @@
 
 ## Send Quote Suitelet (`nuheat_send_quote_sl.js`) & Client Script (`nuheat_send_quote_cs.js`)
 
+### Update Opportunity SL v1.2.2 — 2 October 2026 🔶 In review
+
+- CHANGED: the tick box became a choice, "Write an email" (default, 1.1.1) / "Request an update"
+  (`custpage_email_kind`). Request an update = prefilled, editable subject and message ("Hi <first name>"
+  for a person); message optional (empty → the fixed line above the button); the 1.2.0 recipient rule.
+- FIXED: a hidden "Dashboard contact" row was visible (`.nsq-tick[hidden]`).
+
 ### Update Opportunity SL v1.2.1 — 2 October 2026 🔶 In review
 
 - ADDED: `custscript_nuheat_updbtn_mode` — OFF (default; empty, unknown or unreadable too) / ADMIN (the

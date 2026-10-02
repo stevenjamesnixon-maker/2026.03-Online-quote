@@ -4,6 +4,9 @@
  * T18–T51 for 1.1.0 (T36–T37: amendment 1; T38–T46: amendment 2; T47–T51: amendment 3).
  * T52–T62 for 1.2.0 ("Request an update" part B: the "Give us an update" button; lib 1.3.0).
  * T63–T67 for 1.2.1 (amendment 1: custscript_nuheat_updbtn_mode — OFF / ADMIN / ALL). T52–T62 run with ALL.
+ * T68–T73 for 1.2.2 (amendment 2: "Write an email" / "Request an update", custpage_email_kind). T52–T67 updated:
+ * the tick box became the choice (custpage_email_updbtn=T → custpage_email_kind=update), and the fixed line now
+ * appears only when an update request has no message.
  *
  * Same style as send-quote-opp-update.js: `define` is stubbed, the real Suitelet, library and UE are
  * loaded under stubbed N/* modules, every scenario is checked with ok(), non-zero exit on failure.
@@ -1102,13 +1105,18 @@ function withLink(extra) {
     state.customer = { custentity_cdb_link: cdbLink(55, 2), custentity_cdb_link_version: '2', isinactive: false, custentity_cdb_dashboard_contact: '' };
     Object.keys(extra || {}).forEach(function (k) { state.customer[k] = extra[k]; });
 }
-function updTick(h) { var m = /<input type="checkbox" id="nsq-updbtn" name="custpage_email_updbtn" value="T"([^>]*)>/.exec(h); return m ? m[1] : null; }
+// v1.2.2: the "Request an update" radio — '' offered, ' checked' chosen, ' disabled data-blocked="1"' blocked, null absent
+function updTick(h) {
+    var m = /<input type="radio" name="custpage_email_kind" id="nsq-kind-update" value="update"([^>]*)>/.exec(h);
+    return m ? m[1].replace(/ data-(subject|message|write-subject)="[^"]*"/g, '') : null;
+}
+function kindAttr(h, name) { var m = new RegExp('id="nsq-kind-update"[^>]* data-' + name + '="([^"]*)"').exec(h); return m ? m[1] : null; }
 function ubPost(overrides) {
-    var p = { custpage_email_updbtn: 'T', custpage_call_on: 'F' };
+    var p = { custpage_email_kind: 'update', custpage_call_on: 'F' };
     Object.keys(overrides || {}).forEach(function (k) { p[k] = overrides[k]; });
     return emailPost(p);
 }
-var UB_REFUSAL = 'The update button opens the customer’s whole project page, so it can only go to the customer and their own contacts. Untick it, or remove: ';
+var UB_REFUSAL = 'The update button opens the customer’s whole project page, so it can only go to the customer and their own contacts. Choose ‘Write an email’, or remove: ';   // changed in 1.2.2: was "Untick it"
 
 console.log('T52. lib.cdbLinkMatches — the dashboard\'s pure decode, test vectors');
 ok(LIB.LIB_VERSION === '1.3.0', 'LIB_VERSION 1.3.0');
@@ -1130,28 +1138,29 @@ var bad52 = [
 ];
 bad52.forEach(function (b) { ok(!LIB.cdbLinkMatches(b[1], 55, '') && LIB.cdbLinkPayload(b[1]) === null, 'malformed (' + b[0] + ') → no match'); });
 
-console.log('T53. GET: the tick box offered with a matching link');
+console.log('T53. GET: "Request an update" offered with a matching link (changed in 1.2.2: was the tick box)');
 resetState(); withLink();
 state.contacts[0].company = '55';
 state.contacts.push({ id: '73', first: 'Cat', last: 'Day', email: 'cat@architects.example', company: '99' });
 state.calls = [];
 var h53 = html(runGet());
-ok(updTick(h53) === '', 'the tick box is enabled and off');
-ok(h53.indexOf('> Add a ‘Give us an update’ button</label><p class="nsq-help">Sends the customer their personal link to update this project’s stage, timing and details. It can only go to the customer and their own contacts.</p></div>') !== -1,
-   'label and hint');
-ok(h53.indexOf('id="nsq-email-message"') < h53.indexOf('id="nsq-updbtn"') && h53.indexOf('id="nsq-updbtn"') < h53.indexOf('nsq-rcpts'), 'under the message box, above To');
+ok(updTick(h53) === '' && /id="nsq-kind-write" value="write" checked>/.test(h53), '"Request an update" enabled; "Write an email" selected');
+ok(h53.indexOf('<span>Write an email</span></label>') !== -1 && h53.indexOf('<span>Request an update</span></label></div><p class="nsq-help nsq-kind-hint">Sends the customer their personal link to update this project’s stage, timing and details. It can only go to the customer and their own contacts.</p></div>') !== -1,
+   'the two options and the hint');
+ok(h53.indexOf('id="nsq-email-body"') < h53.indexOf('id="nsq-kind-write"') && h53.indexOf('id="nsq-kind-update"') < h53.indexOf('id="nsq-email-from"'), 'at the top of the section, above From');
+ok(h53.indexOf('Add a ‘Give us an update’ button') === -1 && h53.indexOf('custpage_email_updbtn') === -1, 'the 1.2.0 tick box is gone');
 ok(h53.indexOf('id="nsq-updbtn-why"') === -1, 'no reason shown');
 ok(/data-contact-id="71" data-email="ann@example\.com" data-own="1">/.test(h53) && /data-contact-id="73" data-email="cat@architects\.example" data-own="0"> Cat Day <span class="nsq-tick-addr">cat@architects\.example<\/span> <span class="nsq-rcpt-not" hidden>Not this customer’s contact<\/span>/.test(h53),
    'own contact data-own="1"; another company\'s contact data-own="0" with its (hidden) note');
-ok(/id="nsq-rcpt-extra-note" hidden>Other addresses are off while the update button is ticked/.test(h53), 'the Other addresses explanation is on the page (hidden)');
-ok(state.calls.filter(function (c) { return c === 'lookupFields:customer:email,custentity_cdb_link,custentity_cdb_link_version,isinactive,custentity_cdb_dashboard_contact'; }).length === 1 &&
-   state.calls.filter(function (c) { return /^lookupFields:customer/.test(c); }).length === 1, 'ONE customer lookup reads email + the three columns + the dashboard contact');
+ok(/id="nsq-rcpt-extra-note" hidden>Other addresses are off for an update request/.test(h53), 'the Other addresses explanation is on the page (hidden)');
+ok(state.calls.filter(function (c) { return c === 'lookupFields:customer:email,custentity_cdb_link,custentity_cdb_link_version,isinactive,custentity_cdb_dashboard_contact,isperson,firstname'; }).length === 1 &&
+   state.calls.filter(function (c) { return /^lookupFields:customer/.test(c); }).length === 1, 'ONE customer lookup reads email + the three columns + the dashboard contact (+ isperson, firstname in 1.2.2)');
 ok(h53.indexOf(cdbSign(55, 2)) === -1 && h53.indexOf('extforms') === -1, 'the link itself is not on the page');
 var s53 = scripts(h53);
 var parsed53 = true; try { new vm.Script(s53[0]); } catch (e) { parsed53 = false; console.log('     ' + e.message); }
 ok(parsed53 && s53.length === 1 && !/example|Cat|55|extforms/.test(s53[0]), 'the script parses; no record data in it');
 
-console.log('T54. GET: the tick box disabled, with the reason');
+console.log('T54. GET: "Request an update" disabled, with the reason; "Write an email" selected');
 [
     ['no link', {}, null, 'No dashboard link for this customer yet.'],
     ['wrong customer', { custentity_cdb_link: cdbLink(56, 2) }, null, 'The customer’s link is out of date. Ask an administrator to run the link backfill.'],
@@ -1168,7 +1177,8 @@ console.log('T54. GET: the tick box disabled, with the reason');
     if (c[2]) searchStub.lookupFields = function (o) { if (o.type === 'customer') throw new Error(c[2]); return throwsOrig(o); };
     var h = html(runGet());
     searchStub.lookupFields = throwsOrig;
-    ok(updTick(h) === ' disabled data-blocked="1"' && h.indexOf('<p class="nsq-help nsq-updbtn-why" id="nsq-updbtn-why">' + c[3].replace(/&/g, '&amp;') + '</p>') !== -1,
+    ok(updTick(h) === ' disabled data-blocked="1"' && /id="nsq-kind-write" value="write" checked>/.test(h) && kindAttr(h, 'subject') === null &&
+       h.indexOf('<p class="nsq-help nsq-updbtn-why" id="nsq-updbtn-why">' + c[3].replace(/&/g, '&amp;') + '</p>') !== -1,
        c[0] + ': disabled — "' + c[3] + '"');
     ok(state.logs.some(function (l) { return l.level === 'debug' && l.title === 'UpdateOppSL.UpdateButton' && l.details === 'Opportunity 123 — update button not offered: ' + c[3]; }), c[0] + ': reason logged at debug');
     ok(!/data-own=|nsq-rcpt-extra-note|nsq-tick-dash/.test(h.split('<script>')[0]), c[0] + ': recipients exactly as 1.1.1 (no own marks)');
@@ -1238,8 +1248,8 @@ resetState(); withLink();
 ubPost({ custpage_rcpt_contacts: '80' });
 ok(state.emails.length === 0 && state.logs.some(function (l) { return /A chosen contact is not on this opportunity\./.test(l.details); }), 'without a dashboard contact on the customer, ID 80 is just unknown');
 resetState(); withLink();
-emailPost({ custpage_email_updbtn: undefined, custpage_rcpt_contacts: '80', custpage_call_on: 'F' });
-ok(state.emails.length === 0, 'tick off → the dashboard contact is not a recipient');
+emailPost({ custpage_email_kind: 'write', custpage_rcpt_contacts: '80', custpage_call_on: 'F' });
+ok(state.emails.length === 0, '"Write an email" → the dashboard contact is not a recipient');
 
 console.log('T59. POST: the server rechecks the link (a tampered or stale page)');
 [
@@ -1251,23 +1261,24 @@ console.log('T59. POST: the server rechecks the link (a tampered or stale page)'
     resetState(); withLink(c[1]); state.contacts[0].company = '55';
     var f = ubPost({ custpage_rcpt_customer: 'T' });
     ok(state.emails.length === 0 && nothingWritten() && Object.keys(state.cache).length === 0, c[0] + ': nothing sent or written; token not claimed');
-    ok(html(f).indexOf('Not saved.</strong> ' + c[2].replace(/&/g, '&amp;')) !== -1 && updTick(html(f)) === ' disabled data-blocked="1"', c[0] + ': refused, re-rendered with the tick disabled');
+    ok(html(f).indexOf('Not saved.</strong> ' + c[2].replace(/&/g, '&amp;')) !== -1 && updTick(html(f)) === ' disabled data-blocked="1"' && /id="nsq-kind-write" value="write" checked>/.test(html(f)),
+       c[0] + ': refused, re-rendered with "Request an update" disabled and "Write an email" selected');
 });
 resetState(); withLink(); state.contacts[0].company = '55';
-emailPost({ custpage_email_on: 'F', custpage_email_updbtn: 'T' });
-ok(state.emails.length === 0 && !state.calls.some(function (c) { return /^lookupFields:customer/.test(c); }), 'email off → the tick is ignored (no lookup, no email)');
+emailPost({ custpage_email_on: 'F', custpage_email_kind: 'update' });
+ok(state.emails.length === 0 && !state.calls.some(function (c) { return /^lookupFields:customer/.test(c); }), 'email off → the kind is ignored (no lookup, no email)');
 
-console.log('T60. The email: the line and the button only when ticked');
+console.log('T60. The email: the button only for an update request (changed in 1.2.2: the fixed line only without a message)');
 resetState(); withLink(); state.contacts[0].company = '55';
 ubPost({ custpage_email_message: 'Hello Ann,\n\nQuick one.' });
 var b60 = String((state.emails[0] || {}).body || '');
 var URL60 = cdbLink(55, 2) + '&a=update&opp=123';
-ok(state.emails.length === 1 && b60.indexOf('When you have a moment, let us know where your project is up to. It only takes a minute, and it helps us be ready when you need us.') !== -1, 'the fixed line');
+ok(state.emails.length === 1 && b60.indexOf('When you have a moment') === -1, 'with a message, no fixed line (1.2.2)');
 ok((b60.match(/<b>GIVE US AN UPDATE<\/b>/g) || []).length === 2 && b60.indexOf(LIB.emailButton(LIB.escapeHtml(URL60), 'GIVE US AN UPDATE')) !== -1, 'lib.emailButton(escapeHtml(link), \'GIVE US AN UPDATE\')');
 var hrefs60 = []; b60.replace(/href="([^"]*a=update[^"]*)"/g, function (m, h) { hrefs60.push(h); });
 ok(hrefs60.length === 2 && hrefs60.every(function (h) { return /&amp;a=update&amp;opp=123$/.test(h) && h === LIB.escapeHtml(URL60); }), 'href = the stored link + &a=update&opp=123, escaped');
-ok(b60.indexOf('Quick one.') < b60.indexOf('When you have a moment') && b60.indexOf('GIVE US AN UPDATE') < b60.indexOf('Best wishes,'), 'between the message and the sign-off');
-ok(state.emails[0].subject === 'An update on OPP123' && state.emails[0].author === '7', 'subject and sender unchanged');
+ok(b60.indexOf('Quick one.') < b60.indexOf('GIVE US AN UPDATE') && b60.indexOf('GIVE US AN UPDATE') < b60.indexOf('Best wishes,'), 'between the message and the sign-off');
+ok(state.emails[0].subject === 'An update on OPP123' && state.emails[0].author === '7', 'the posted subject; sender unchanged');
 ok(JSON.stringify(state.logs).indexOf(cdbSign(55, 2)) === -1 && JSON.stringify(state.logs).indexOf('extforms') === -1, 'the link is never logged');
 ok(audit('UpdateOppSL.Email').some(function (l) { return l.details === 'Opportunity 123 — from me (employee 7) | {"updateButton":true,"opp":"123"}'; }), 'audit: updateButton: true and the opportunity ID');
 resetState(); withLink({ custentity_cdb_link: cdbLink(55, 2) + '&x="><b>bold</b>' }); state.contacts[0].company = '55';
@@ -1277,29 +1288,36 @@ ok(state.emails.length === 1 && b60e.indexOf('"><b>bold') === -1 && b60e.indexOf
 resetState(); withLink(); state.contacts[0].company = '55';
 emailPost({ custpage_call_on: 'F' });
 var b60off = String((state.emails[0] || {}).body || '');
-ok(b60off.indexOf('GIVE US AN UPDATE') === -1 && b60off.indexOf('When you have a moment') === -1 && b60off.indexOf('a=update') === -1, 'tick off → no line, no button');
-ok(audit('UpdateOppSL.Email').some(function (l) { return l.details === 'Opportunity 123 — from me (employee 7)'; }), 'tick off → the audit line as before');
+ok(b60off.indexOf('GIVE US AN UPDATE') === -1 && b60off.indexOf('When you have a moment') === -1 && b60off.indexOf('a=update') === -1, 'no kind (a 1.1 page) → no line, no button');
+ok(audit('UpdateOppSL.Email').some(function (l) { return l.details === 'Opportunity 123 — from me (employee 7)'; }), 'no kind → the audit line as before');
 
-console.log('T61. Tick off → the email is byte-identical to 1.1.1');
+console.log('T61. "Write an email" (or no kind) → the email is byte-identical to 1.1.1');
 function sha(s) { return require('crypto').createHash('sha256').update(String(s)).digest('hex'); }
 resetState(); withLink(); state.contacts[0].company = '55';
 emailPost({ custpage_rcpt_customer: 'T', custpage_rcpt_ccme: 'T' });
 ok(sha(state.emails[0].body) === '62617470eaa91c9c4285f36cd95768ed5bae5848e5ec852c7ca20b7a16be3ff3', 'default email: same SHA-256 as 1.1.1');
+resetState(); withLink(); state.contacts[0].company = '55';
+emailPost({ custpage_email_kind: 'write', custpage_rcpt_customer: 'T', custpage_rcpt_ccme: 'T' });
+ok(sha(state.emails[0].body) === '62617470eaa91c9c4285f36cd95768ed5bae5848e5ec852c7ca20b7a16be3ff3', 'kind=write: same SHA-256 as 1.1.1');
 resetState();
 emailPost({ custpage_email_from: 'me', custpage_email_message: 'Line one\nline two\n\nPara <b>&amp;</b> {{x}}' });
 ok(sha(state.emails[0].body) === '0344d6cf20a86e0e5904ee35529a999e4312025dcd96adc2c0eb63a7ac156e70', 'multi-paragraph, escaped email: same SHA-256 as 1.1.1');
 
-console.log('T62. Page script: while the tick is on');
+console.log('T62. Page script: while "Request an update" is chosen');
 resetState(); withLink(); state.contacts[0].company = '55';
 var s62 = scripts(html(runGet()))[0];
-var fn62 = /  var updStash = null;\n[\s\S]*?\n  }\n/.exec(s62 + '\n');
-ok(!!fn62, 'applyUpdBtn found in the page script');
+var fn62 = /  \/\/ updbtn:start\n[\s\S]*?  \/\/ updbtn:end/.exec(s62);
+ok(!!fn62, 'the update part found in the page script');
 function fakeEl(o) { var e = { hidden: false, disabled: false, checked: false, value: '', attrs: {}, className: '' }; Object.keys(o || {}).forEach(function (k) { e[k] = o[k]; });
     e.getAttribute = function (n) { return e.attrs[n] === undefined ? null : e.attrs[n]; }; return e; }
 function fakeRow(input, note) { input.parentNode = { hidden: !!input.startHidden, querySelector: function () { return note || null; } }; return input; }
 function page62(blocked) {
     var d = {};
-    d.tick = fakeEl({ attrs: blocked ? { 'data-blocked': '1' } : {} });
+    d.tick = fakeEl({ attrs: blocked ? { 'data-blocked': '1' } : { 'data-subject': 'Could you give us a quick update on OPP123?', 'data-message': 'Hi,\n\nPrefill', 'data-write-subject': 'An update on OPP123' } });
+    d.write = fakeEl({ checked: true });
+    if (blocked) d.tick.disabled = true;   // the page renders it disabled
+    d.subj = fakeEl({ value: 'An update on OPP123' });
+    d.msg = fakeEl({ value: '' });
     d.email = fakeEl({ checked: true });
     d.extra = fakeEl({ value: 'x@example.org' });
     d.note = fakeEl({ hidden: true });
@@ -1307,11 +1325,15 @@ function page62(blocked) {
     d.own = fakeRow(fakeEl({ className: 'nsq-rcpt', attrs: { 'data-own': '1' }, checked: true }));
     d.other = fakeRow(fakeEl({ className: 'nsq-rcpt', attrs: { 'data-own': '0' }, checked: true }), d.ownNote);
     d.dash = fakeRow(fakeEl({ className: 'nsq-rcpt nsq-rcpt-dash', attrs: { 'data-own': '1' }, startHidden: true }));
-    var ids = { 'nsq-updbtn': d.tick, 'nsq-email-on': d.email, 'nsq-rcpt-extra': d.extra, 'nsq-rcpt-extra-note': d.note };
+    var ids = { 'nsq-kind-update': d.tick, 'nsq-kind-write': d.write, 'nsq-email-on': d.email, 'nsq-rcpt-extra': d.extra, 'nsq-rcpt-extra-note': d.note,
+                'nsq-email-subject': d.subj, 'nsq-email-message': d.msg };
+    d.req = fakeEl({});
     var ctx = { $: function (id) { return ids[id] || null; }, each: function (l, f) { Array.prototype.forEach.call(l, f); },
-                root: { querySelectorAll: function () { return [d.own, d.other, d.dash]; } } };
-    vm.runInNewContext(fn62[0] + '\nthis.applyUpdBtn = applyUpdBtn;', ctx);
+                root: { querySelectorAll: function () { return [d.own, d.other, d.dash]; }, querySelector: function () { return d.req; } } };
+    vm.runInNewContext(fn62[0] + '\nthis.applyUpdBtn = applyUpdBtn; this.switchKind = switchKind; this.kindIsUpdate = kindIsUpdate;', ctx);
     d.apply = ctx.applyUpdBtn;
+    d.choose = function (update) { d.tick.checked = update; d.write.checked = !update; ctx.switchKind(); ctx.applyUpdBtn(); };
+    d.kindIsUpdate = ctx.kindIsUpdate;
     return d;
 }
 var d62 = page62(false);
@@ -1330,7 +1352,7 @@ ok(d62.extra.disabled && d62.own.disabled && d62.extra.value === 'x@example.org'
 var b62 = page62(true);
 b62.tick.checked = true; b62.tick.disabled = false;   // as if setSection had re-enabled it
 b62.apply();
-ok(b62.tick.disabled && !b62.tick.checked && !b62.extra.disabled && !b62.other.disabled, 'a blocked tick stays disabled and off');
+ok(b62.tick.disabled && !b62.tick.checked && b62.write.checked && !b62.extra.disabled && !b62.other.disabled, 'a blocked "Request an update" stays disabled; "Write an email" selected');
 
 
 console.log('T63. Mode OFF / empty / unknown / unreadable: the 1.1.1 email section');
@@ -1347,21 +1369,21 @@ var SECT_111 = { A: 'eae57f65e92d4940b35f221d6f5948bfd5ada4cb4d4b870e3b6b42dd65b
         state.dashContacts = { '80': { email: 'dee@home.example' } }; state.contacts[0].company = '55'; c[1](); }
     prep(); state.calls = [];
     var ha = html(runGet());
-    ok(sha(emailSection(ha)) === SECT_111.A && ha.indexOf('id="nsq-updbtn"') === -1, c[0] + ': fresh GET — email section byte-identical to 1.1.1, no tick box');
+    ok(sha(emailSection(ha)) === SECT_111.A && ha.split('<script>')[0].indexOf('custpage_email_kind') === -1, c[0] + ': fresh GET — email section byte-identical to 1.1.1, no choice');
     ok(state.calls.filter(function (x) { return /^lookupFields:customer/.test(x); }).join() === 'lookupFields:customer:email' && !state.calls.some(function (x) { return /^lookupFields:contact/.test(x); }),
        c[0] + ': the 1.1.1 customer lookup (email only), no contact lookup');
     prep(); state.contacts.push({ id: '73', first: 'Cat', last: 'Day', email: 'cat@architects.example', company: '99' });
     ok(sha(emailSection(html(runGet()))) === SECT_111.B, c[0] + ': with another company\'s contact — byte-identical');
     prep();
-    ok(sha(emailSection(html(emailPost({ custpage_email_subject: '', custpage_rcpt_extra: 'x@example.org', custpage_rcpt_customer: 'T', custpage_email_updbtn: 'T' })))) === SECT_111.C,
+    ok(sha(emailSection(html(emailPost({ custpage_email_subject: '', custpage_rcpt_extra: 'x@example.org', custpage_rcpt_customer: 'T', custpage_email_kind: 'update' })))) === SECT_111.C,
        c[0] + ': re-rendered page after a failed save — byte-identical');
     prep();
     ubPost({ custpage_rcpt_extra: 'friend@example.org', custpage_rcpt_customer: 'T' });
     var e = state.emails[0] || {};
     ok(state.emails.length === 1 && String(e.body).indexOf('GIVE US AN UPDATE') === -1 && String(e.body).indexOf('a=update') === -1 &&
-       JSON.stringify(e.recipients) === '["ann@example.com","cust@example.com","friend@example.org"]', c[0] + ': a posted tick is ignored — sent without the button, typed extra allowed as in 1.1.1');
+       JSON.stringify(e.recipients) === '["ann@example.com","cust@example.com","friend@example.org"]', c[0] + ': a posted update is sent as write — no button, typed extra allowed as in 1.1.1');
     ok(sha(e.body) === sha((function () { prep(); emailPost({ custpage_call_on: 'F', custpage_rcpt_extra: 'friend@example.org', custpage_rcpt_customer: 'T' }); return state.emails[0].body; })()),
-       c[0] + ': that email is byte-identical to the same email without the tick');
+       c[0] + ': that email is byte-identical to the same email without the kind');
     prep();
     ubPost({ custpage_rcpt_customer: 'T' });
     var mode = /^ADMIN/.test(c[0]) ? 'ADMIN' : 'OFF';
@@ -1372,7 +1394,7 @@ var SECT_111 = { A: 'eae57f65e92d4940b35f221d6f5948bfd5ada4cb4d4b870e3b6b42dd65b
 
 console.log('T64. Unknown and unreadable values are logged once per request, at debug');
 resetState(); setMode('Yes please');
-emailPost({ custpage_email_subject: '', custpage_email_updbtn: 'T' });   // refused → re-rendered in the same request
+emailPost({ custpage_email_subject: '', custpage_email_kind: 'update' });   // refused → re-rendered in the same request
 var d64 = state.logs.filter(function (l) { return l.title === 'UpdateOppSL.UpdateButton' && l.level === 'debug'; });
 ok(d64.length === 1 && d64[0].details === 'Unknown mode "Yes please"; OFF', 'one debug line with the value (' + d64.length + ')');
 ok(state.calls.filter(function (x) { return x === 'getParameter:custscript_nuheat_updbtn_mode'; }).length === 1, 'the parameter is read once per request');
@@ -1385,7 +1407,7 @@ ok(!state.logs.some(function (l) { return l.title === 'UpdateOppSL.UpdateButton'
 console.log('T65. Mode ADMIN');
 resetState(); withLink(); setMode('ADMIN'); state.roleId = 'administrator'; state.contacts[0].company = '55';
 var h65 = html(runGet());
-ok(updTick(h65) === '' && h65.indexOf('Add a ‘Give us an update’ button') !== -1, 'Administrator (roleId "administrator") → the tick box is offered');
+ok(updTick(h65) === '' && h65.indexOf('<span>Request an update</span>') !== -1, 'Administrator (roleId "administrator") → the choice is offered');
 ubPost({ custpage_rcpt_customer: 'T' });
 ok(state.emails.length === 1 && String(state.emails[0].body).indexOf('GIVE US AN UPDATE') !== -1, 'Administrator → the button is sent');
 resetState(); withLink(); setMode('ADMIN'); state.roleId = 'administrator';
@@ -1394,21 +1416,139 @@ ok(state.emails.length === 0 && state.logs.some(function (l) { return l.details.
 resetState(); withLink(); setMode('admin'); state.roleId = 'administrator';
 ok(updTick(html(runGet())) === '', '"admin" (any case) = ADMIN');
 resetState(); withLink(); setMode('ADMIN');   // default role: a sales role
-ok(html(runGet()).indexOf('id="nsq-updbtn"') === -1, 'a sales role → the 1.1.1 page (see T63 for byte-identity)');
+ok(html(runGet()).split('<script>')[0].indexOf('custpage_email_kind') === -1, 'a sales role → the 1.1.1 page (see T63 for byte-identity)');
 
 console.log('T66. Mode ALL: as built');
 resetState(); withLink(); state.roleId = 'customrole_nh_account_manager'; state.contacts[0].company = '55';
-ok(updTick(html(runGet())) === '', 'a sales role gets the tick box');
+ok(updTick(html(runGet())) === '', 'a sales role gets the choice');
 ubPost({ custpage_rcpt_customer: 'T' });
 ok(state.emails.length === 1 && String(state.emails[0].body).indexOf('GIVE US AN UPDATE') !== -1 && !audit('UpdateOppSL.UpdateButton').length, 'and the button; nothing "ignored"');
 resetState(); withLink(); setMode(' all ');
 ok(updTick(html(runGet())) === '', '" all " (trimmed, any case) = ALL');
 
-console.log('T67. The page script with no tick box');
+console.log('T67. The page script with no choice');
 resetState(); setMode('OFF');
 var s67 = scripts(html(runGet()))[0];
 var parsed67 = true; try { new vm.Script(s67); } catch (e) { parsed67 = false; }
-ok(parsed67 && /if \(\$\("nsq-updbtn"\)\) \$\("nsq-updbtn"\)\.addEventListener/.test(s67) && /if \(!u\) return;/.test(s67), 'the script guards the missing tick box (pageInit and applyUpdBtn)');
+ok(parsed67 && /each\(root\.querySelectorAll\("input\[name=custpage_email_kind\]"\)/.test(s67) && (s67.match(/if \(!u\) return;/g) || []).length === 1 && /if \(!u \|\| u\.disabled\) return;/.test(s67),
+   'the script copes with no choice (listeners over a query; switchKind and applyUpdBtn return early)');
+
+
+// ─── T68–T73: 1.2.2 — "Write an email" / "Request an update" ─────────────────────────────
+
+console.log('T68. Mode not allowed: a posted update is sent as write (message then required)');
+resetState(); withLink(); setMode('OFF'); state.contacts[0].company = '55';
+ubPost({ custpage_email_message: '', custpage_rcpt_customer: 'T' });
+ok(state.emails.length === 0 && state.logs.some(function (l) { return l.title === 'UpdateOppSL.Validation' && /Write the email message\./.test(l.details); }) &&
+   audit('UpdateOppSL.UpdateButton').some(function (l) { return l.details === 'Opportunity 123 — ignored: mode OFF'; }), 'OFF + update + empty message → "Write the email message." (treated as write)');
+resetState(); withLink(); setMode('ADMIN'); state.contacts[0].company = '55';
+ubPost({ custpage_rcpt_customer: 'T', custpage_rcpt_extra: 'friend@example.org' });
+ok(state.emails.length === 1 && String(state.emails[0].body).indexOf('a=update') === -1 && state.emails[0].recipients.indexOf('friend@example.org') !== -1, 'ADMIN, sales role: sent as write, no button, extras allowed');
+
+console.log('T69. "Request an update": the prefill on the page');
+resetState(); withLink({ isperson: true, firstname: 'Jo &amp; "Jay"' });
+var h69 = html(runGet());
+ok(kindAttr(h69, 'subject') === 'Could you give us a quick update on OPP123?', 'subject prefill: "Could you give us a quick update on OPP123?"');
+ok(kindAttr(h69, 'message') === 'Hi Jo &amp; &quot;Jay&quot;,\n\nWe’d love to know where your project is up to, so we can be ready when you need us. Just press the button below. It only takes a minute.\n\nThanks,',
+   'message prefill for a person: "Hi <first name>," (decoded once, escaped in the attribute)');
+ok(kindAttr(h69, 'write-subject') === 'An update on OPP123', 'the write subject is kept for switching back');
+ok(/id="nsq-email-subject" name="custpage_email_subject" maxlength="120" autocomplete="off" value="An update on OPP123"/.test(h69) && /name="custpage_email_message" rows="8" maxlength="10000"><\/textarea>/.test(h69),
+   'the page itself still opens as "Write an email" (subject and message as 1.1.1)');
+var s69 = scripts(h69)[0];
+ok(!/Jo|OPP123|Could you/.test(s69), 'no prefill or record data in the <script>');
+[['company', { isperson: false, firstname: '' }], ['company with a firstname set', { isperson: false, firstname: 'Ann' }], ['person, no first name', { isperson: 'T', firstname: '' }]].forEach(function (c) {
+    resetState(); withLink(c[1]);
+    ok(/^Hi,\n\nWe’d love/.test(kindAttr(html(runGet()), 'message') || ''), c[0] + ' → "Hi,"');
+});
+resetState(); withLink({ isperson: 'T', firstname: 'Ann' });
+ok(/^Hi Ann,\n/.test(kindAttr(html(runGet()), 'message') || ''), 'isperson "T" → "Hi Ann,"');
+
+console.log('T70. "Request an update": the email');
+resetState(); withLink(); state.contacts[0].company = '55';
+ubPost({ custpage_email_message: '', custpage_email_subject: 'Could you give us a quick update on OPP123?', custpage_rcpt_customer: 'T' });
+var b70 = String((state.emails[0] || {}).body || '');
+ok(state.emails.length === 1 && state.emails[0].subject === 'Could you give us a quick update on OPP123?', 'an empty message is allowed; the posted subject is used');
+ok(b70.indexOf('When you have a moment, let us know where your project is up to. It only takes a minute, and it helps us be ready when you need us.</font></p>') !== -1 &&
+   b70.indexOf('When you have a moment') < b70.indexOf('GIVE US AN UPDATE') && b70.indexOf('GIVE US AN UPDATE') < b70.indexOf('Best wishes,'), 'empty message → the fixed line, then the button, then the sign-off');
+ok(b70.indexOf('overflow:hidden;">When you have a moment, let us know where your project is up to. It only takes a minute, a</span>') !== -1,
+   'the preheader is the fixed line too (first 90 characters)');
+var m70 = 'Hi Ann,\n\nWe’d love to know where your project is up to, so we can be ready when you need us. Just press the button below. It only takes a minute.\n\nThanks,';
+resetState(); withLink(); state.contacts[0].company = '55';
+ubPost({ custpage_email_message: m70, custpage_rcpt_customer: 'T' });
+var b70p = String((state.emails[0] || {}).body || '');
+ok(b70p.indexOf('We’d love to know') !== -1 && b70p.indexOf('When you have a moment') === -1 && b70p.indexOf('Thanks,') < b70p.indexOf('GIVE US AN UPDATE'), 'the prefilled message is sent; no fixed line; the button after it');
+resetState(); withLink(); state.contacts[0].company = '55';
+ubPost({ custpage_email_message: 'Ann — any news on the slab pour? <b>x</b>', custpage_rcpt_customer: 'T' });
+var b70e = String((state.emails[0] || {}).body || '');
+ok(b70e.indexOf('Ann — any news on the slab pour? &lt;b&gt;x&lt;/b&gt;') !== -1 && b70e.indexOf('We’d love') === -1 && b70e.indexOf('When you have a moment') === -1 && b70e.indexOf('GIVE US AN UPDATE') !== -1,
+   'a rep-edited message is kept (escaped) and sent with the button');
+resetState(); withLink(); state.contacts[0].company = '55';
+ubPost({ custpage_email_message: new Array(10002).join('x'), custpage_rcpt_customer: 'T' });
+ok(state.emails.length === 0 && state.logs.some(function (l) { return /The message is longer than 10000 characters\./.test(l.details); }), 'the message limit still applies');
+resetState(); withLink(); state.contacts[0].company = '55';
+ubPost({ custpage_email_subject: '', custpage_rcpt_customer: 'T' });
+ok(state.emails.length === 0 && state.logs.some(function (l) { return /Enter a subject for the email\./.test(l.details); }), 'the subject is still required');
+resetState(); withLink(); state.contacts[0].company = '55';
+var f70 = ubPost({ custpage_email_message: '', custpage_rcpt_extra: 'friend@example.org' });
+ok(state.emails.length === 0 && Object.keys(state.cache).length === 0 && html(f70).indexOf(UB_REFUSAL + 'friend@example.org') !== -1, 'typed extras refused, nothing sent, token not claimed');
+ok(updTick(html(f70)) === ' checked' && /name="custpage_email_message" rows="8" maxlength="10000"><\/textarea>/.test(html(f70)), 're-rendered with "Request an update" chosen and the (empty) message as posted');
+resetState(); withLink(); state.contacts[0].company = '55';
+state.contacts.push({ id: '73', first: 'Cat', last: 'Day', email: 'cat@architects.example', company: '99' });
+ubPost({ custpage_email_message: '', custpage_rcpt_contacts: '71,73' });
+ok(state.emails.length === 0 && Object.keys(state.cache).length === 0 && state.logs.some(function (l) { return l.details.indexOf(UB_REFUSAL + 'cat@architects.example') !== -1; }), 'another company\'s contact refused, token not claimed');
+resetState(); withLink(); state.contacts[0].company = '55';
+ubPost({ custpage_email_message: '', custpage_rcpt_customer: 'T' });
+var h70 = []; String(state.emails[0].body).replace(/href="([^"]*a=update[^"]*)"/g, function (m, x) { h70.push(x); });
+ok(h70.length === 2 && h70.every(function (x) { return /&amp;a=update&amp;opp=123$/.test(x); }) && JSON.stringify(state.logs).indexOf(cdbSign(55, 2)) === -1, 'button URL ends &a=update&opp=123; the link is never logged');
+
+console.log('T71. "Write an email" with the mode allowed: as 1.1.1');
+resetState(); withLink(); state.contacts[0].company = '55';
+emailPost({ custpage_email_kind: 'write', custpage_email_message: '', custpage_call_on: 'F' });
+ok(state.emails.length === 0 && state.logs.some(function (l) { return /Write the email message\./.test(l.details); }), 'the message is required');
+resetState(); withLink(); state.contacts[0].company = '55';
+emailPost({ custpage_email_kind: 'write', custpage_rcpt_extra: 'friend@example.org', custpage_call_on: 'F' });
+ok(state.emails.length === 1 && String(state.emails[0].body).indexOf('GIVE US AN UPDATE') === -1 && state.emails[0].recipients.indexOf('friend@example.org') !== -1 &&
+   !state.calls.some(function (c) { return /^lookupFields:customer:email,custentity/.test(c); }), 'no button; typed extras allowed; no dashboard lookup');
+resetState(); withLink(); state.contacts[0].company = '55';
+emailPost({ custpage_email_kind: 'junk', custpage_rcpt_extra: 'friend@example.org', custpage_call_on: 'F' });
+ok(state.emails.length === 1 && String(state.emails[0].body).indexOf('a=update') === -1, 'an unknown kind = write');
+
+console.log('T72. Switching modes on the page');
+var d72 = page62(false);
+d72.choose(true);
+ok(d72.subj.value === 'Could you give us a quick update on OPP123?' && d72.msg.value === 'Hi,\n\nPrefill', 'to update: the write default subject and an empty message are prefilled');
+ok(d72.extra.disabled && d72.extra.value === '' && d72.other.disabled, 'to update: the 1.2.0 recipient rule');
+ok(d72.req.hidden, 'to update: the Message "*" is hidden (optional)');
+d72.choose(false);
+ok(d72.subj.value === 'An update on OPP123' && d72.msg.value === '', 'back to write: unedited prefill cleared (subject back to "An update on …")');
+ok(!d72.extra.disabled && d72.extra.value === 'x@example.org' && !d72.other.disabled, 'back to write: recipients and the set-aside addresses restored');
+ok(!d72.req.hidden, 'back to write: the Message "*" is shown again');
+d72.choose(true);
+d72.subj.value = 'Quick one'; d72.msg.value = 'Hi,\n\nPrefill plus my note';
+d72.choose(false);
+ok(d72.subj.value === 'Quick one' && d72.msg.value === 'Hi,\n\nPrefill plus my note', 'back to write: edited subject and message are kept');
+var e72 = page62(false);
+e72.subj.value = 'My own subject'; e72.msg.value = 'Typed first';
+e72.choose(true);
+ok(e72.subj.value === 'My own subject' && e72.msg.value === 'Typed first', 'to update: a subject and message the rep already typed are kept');
+e72.choose(false);
+ok(e72.subj.value === 'My own subject' && e72.msg.value === 'Typed first', 'and still kept going back');
+var f72 = page62(false);
+f72.subj.value = '  ';
+f72.choose(true);
+ok(f72.subj.value === 'Could you give us a quick update on OPP123?', 'to update: a blank subject is prefilled');
+f72.choose(false);
+ok(f72.subj.value === '  ', 'back to write: the blank subject is put back as it was');
+var g72 = page62(false); g72.choose(true);
+ok(g72.kindIsUpdate(), 'kindIsUpdate() true while chosen (the message is then optional on the page)');
+var b72 = page62(true); b72.choose(true);
+ok(!b72.kindIsUpdate() && b72.subj.value === 'An update on OPP123' && b72.msg.value === '' && b72.write.checked, 'blocked: choosing it changes nothing');
+
+console.log('T73. The page script: message optional only for an update request');
+resetState(); withLink();
+var s73 = scripts(html(runGet()))[0];
+ok(/if \(!msg\.value\.trim\(\) && !kindIsUpdate\(\)\) return "Write the message\.";/.test(s73), 'problem(): "Write the message." only when not an update request');
+ok(html(runGet()).indexOf('.nsq-tick[hidden]{display:none;}') !== -1, 'CSS: a hidden recipient row (the Dashboard contact) is really hidden');
 
 // ─── T14–T16 (UE 1.3.0) and T33–T34 (UE 1.4.0): Opportunity UE banner ─────────────────────────────────────
 

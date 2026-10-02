@@ -171,14 +171,15 @@ Fields owned by the customer dashboard (`NS-Customer-Dashboard`, "Request an upd
 | `custentity_cdb_link` | Customer | the customer's signed BASE dashboard link (written by the dashboard's customer UE / backfill). The email's button = this + `&a=update&opp=<opportunity ID>`. Its `t` payload `c<customerId>.v<version>` must name this customer at this version (`lib.cdbLinkMatches`, signature not checked) |
 | `custentity_cdb_link_version` | Customer | the link version; empty = 0. A link of another version is "out of date" |
 | `isinactive` | Customer | inactive → not offered (true / `'T'` / `'true'`) |
-| `custentity_cdb_dashboard_contact` | Customer | the dashboard contact (Contact): an allowed recipient with the button on; its `email` read with one `search.lookupFields` on the contact |
+| `custentity_cdb_dashboard_contact` | Customer | the dashboard contact (Contact): an allowed recipient for an update request; its `email` read with one `search.lookupFields` on the contact |
+| `isperson`, `firstname` | Customer | *(1.2.2)* the "Request an update" prefill: "Hi <firstname>," only when `isperson`; a company → "Hi," |
 | `company` | Contact (join from the Opportunity's contact search, `lib.loadContacts`) | an opportunity contact is "the customer's own" only when its company is the opportunity's customer |
 
-All four customer columns ride on the page's existing customer `lookupFields` (with `email`) — *(1.2.1)* only
+These customer columns ride on the page's existing customer `lookupFields` (with `email`) — *(1.2.1)* only
 when `custscript_nuheat_updbtn_mode` gives the user the button (OFF → `email` only, as 1.1.1); the POST
-repeats the lookup only when the tick is on and allowed.
+repeats the lookup only for an allowed update request.
 
-*(1.2.1)* Script parameter `custscript_nuheat_updbtn_mode` (Free-Form Text): `OFF` (empty / unknown / unreadable) · `ADMIN` (`roleId` `administrator`) · `ALL`. Posted: `custpage_email_updbtn` = `T` (missing = off).
+*(1.2.1)* Script parameter `custscript_nuheat_updbtn_mode` (Free-Form Text): `OFF` (empty / unknown / unreadable) · `ADMIN` (`roleId` `administrator`) · `ALL`. Posted *(1.2.2)*: `custpage_email_kind` = `write` | `update` (missing or anything else = `write`).
 
 ### Page fields posted (1.1.0)
 
@@ -191,7 +192,7 @@ repeats the lookup only when the tick is on and allowed.
 | `custpage_rcpt_contacts` | comma list of contact IDs |
 | `custpage_rcpt_customer`, `custpage_rcpt_ccme` | `T` / `F` |
 | `custpage_rcpt_extra` | other addresses, as typed |
-| `custpage_email_updbtn` | *(1.2.0)* `T` = add the "Give us an update" button; missing = off. Rechecked on the server |
+| `custpage_email_kind` | *(1.2.2; replaces 1.2.0's `custpage_email_updbtn`)* `write` \| `update` — missing or anything else = `write`. `update` = the "Request an update" email (button added by the server; message optional). Rechecked on the server |
 | `custpage_today` | the browser's date, `yyyy-mm-dd` |
 | `custpage_save_token` | the one-time save token (`N/cache`, PRIVATE, cache `nh_update_opp_save_guard`, 1 hour) |
 

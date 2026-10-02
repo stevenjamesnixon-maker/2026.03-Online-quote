@@ -9,7 +9,7 @@
  *              objections. Saves a completed Phone Call, sends a bespoke email from the user, saves one
  *              Customer Objection per ticked type, then the Opportunity fields LAST, and returns to the
  *              Opportunity with the result banner (nuheat_opportunity_ue.js, nsqs=upd).
- * @version     1.2.1
+ * @version     1.2.2
  * @author      Nu-Heat Development
  *
  * Script ID:      customscript_nuheat_update_opp_sl
@@ -19,6 +19,25 @@
  *    BEFORE this script, or it fails at load time.
  * ⚠️ 1.2.1: create the script parameter custscript_nuheat_updbtn_mode (Free-Form Text) first and leave
  *    it empty (= OFF) on the Released deployment until the dashboard go-live — DEPLOYMENT_CHECKLIST 2f-2.
+ *
+ * CHANGELOG v1.2.2 (PR #36 amendment 2 — "Write an email" or "Request an update", 2 Oct 2026):
+ *   - The tick box is REMOVED. When the mode allows it, Send an email opens with a two-option choice,
+ *     posted as custpage_email_kind = write (default) | update (missing or anything else = write).
+ *     "Write an email" = the 1.1.1 email: message required, no button, no recipient restriction.
+ *     "Request an update" = a ready-made, editable email: subject "Could you give us a quick update on
+ *     <tranid>?" (unless the rep already changed the subject), message "Hi <first name>, …" (unless the
+ *     rep already typed one; first name only when the customer isperson, else "Hi,"). The message is
+ *     OPTIONAL in this mode: empty → the fixed line (EMAIL_COPY.updateLine) stands in, so the button
+ *     never stands alone; otherwise the fixed line is dropped (the message carries that wording).
+ *     Recipients: the 1.2.0 rule. Switching back restores the recipients (and set-aside addresses)
+ *     and puts back the subject / message only where the prefill was not edited.
+ *   - Not offerable (no link / stale / inactive) → "Request an update" disabled with the reason;
+ *     "Write an email" stays selected. Mode excludes the user → no choice, the 1.1.1 section; a posted
+ *     update is treated as write ("ignored: mode X", as 1.2.1) — so its message is then required.
+ *   - The Message label's "*" is hidden while "Request an update" is chosen; .nsq-tick[hidden] now
+ *     really hides (1.2.0's Dashboard contact row stayed visible, disabled, because of display:flex).
+ *   - The server adds the button; the page never sends it. The customer lookup adds isperson and
+ *     firstname (only when the mode allows the user). The refusal now says "Choose ‘Write an email’".
  *
  * CHANGELOG v1.2.1 (PR #36 amendment 1 — an on/off switch, 2 Oct 2026):
  *   - New script parameter custscript_nuheat_updbtn_mode (Free-Form Text, "Give us an update button:
@@ -108,7 +127,7 @@ define([
 
     'use strict';
 
-    var SCRIPT_VERSION = '1.2.1';
+    var SCRIPT_VERSION = '1.2.2';
 
     /** Page rules for the shared update fields: Next contact must end up set. */
     var RULES = { required: ['next_contact'], logKey: 'UpdateOppSL.OppUpdate' };
@@ -170,7 +189,14 @@ define([
         // rule (NS-Design-Email dsn_sl_send_design.js, senderEmailForBody). Replies still go to the PE.
         peCardEmail:  'design@nu-heat.co.uk',
         // v1.2.0: the "Give us an update" button — the line before it and its label
+        // v1.2.2: used only when a "Request an update" email has no message — the button never stands alone
         updateLine:   'When you have a moment, let us know where your project is up to. It only takes a minute, and it helps us be ready when you need us.',
+        // v1.2.2: the "Request an update" prefill (editable on the page; the server never adds these)
+        updateSubjectStart: 'Could you give us a quick update on ',   // + the Opportunity's tranid
+        updateSubjectEnd:   '?',
+        updateHi:           'Hi',                                     // + ' <first name>' for a person, then ','
+        updateBody:         'We’d love to know where your project is up to, so we can be ready when you need us. Just press the button below. It only takes a minute.',
+        updateThanks:       'Thanks,',
         updateButton: 'GIVE US AN UPDATE'
     };
 
@@ -186,10 +212,10 @@ define([
         version: 'custentity_cdb_link_version',
         contact: 'custentity_cdb_dashboard_contact'
     };
-    var CDB_CUSTOMER_COLUMNS = [CDB.link, CDB.version, 'isinactive', CDB.contact];
+    var CDB_CUSTOMER_COLUMNS = [CDB.link, CDB.version, 'isinactive', CDB.contact, 'isperson', 'firstname'];   // v1.2.2: + isperson, firstname (the prefill's "Hi <first name>")
 
     /**
-     * v1.2.1: who gets the tick box — script parameter on the Update Opportunity deployment.
+     * v1.2.1: who gets the choice (1.2.1: the tick box) — script parameter on the Update Opportunity deployment.
      * OFF (default; empty, unknown or unreadable too — fail closed), ADMIN (the Administrator role only),
      * ALL. The switch exists because the deployment is already Released to the sales roles.
      */
@@ -231,17 +257,19 @@ define([
         return { mode: mode, allowed: false };
     }
 
-    /** The page's copy for the tick box. Steve may reword these. */
+    /** The page's copy for the "Request an update" choice. Steve may reword these. */
     var UPDBTN_COPY = {
-        label:      'Add a ‘Give us an update’ button',
+        write:      'Write an email',                // v1.2.2: the choice (replaces the 1.2.0 tick box)
+        update:     'Request an update',
+        kindLabel:  'What kind of email',
         hint:       'Sends the customer their personal link to update this project’s stage, timing and details. It can only go to the customer and their own contacts.',
         noLink:     'No dashboard link for this customer yet.',
         inactive:   'Customer is inactive.',
         stale:      'The customer’s link is out of date. Ask an administrator to run the link backfill.',
         notOwn:     'Not this customer’s contact',
-        extraNote:  'Other addresses are off while the update button is ticked: it opens the customer’s whole project page.',
+        extraNote:  'Other addresses are off for an update request: its button opens the customer’s whole project page.',
         dashLabel:  'Dashboard contact',
-        refusal:    'The update button opens the customer’s whole project page, so it can only go to the customer and their own contacts. Untick it, or remove: '
+        refusal:    'The update button opens the customer’s whole project page, so it can only go to the customer and their own contacts. Choose ‘Write an email’, or remove: '
     };
 
     /**
@@ -482,6 +510,22 @@ define([
         return out;
     }
 
+    /** v1.2.2: "Could you give us a quick update on <tranid>?" */
+    function updateSubject(page) {
+        return EMAIL_COPY.updateSubjectStart + (page.tranId || '') + EMAIL_COPY.updateSubjectEnd;
+    }
+
+    /**
+     * v1.2.2: the "Request an update" message prefill. "Hi <first name>," only when the customer is a
+     * person with a first name (lookupFields isperson / firstname); a company → "Hi,".
+     */
+    function updateMessage(f) {
+        f = f || {};
+        var person = f.isperson === true || f.isperson === 'T' || f.isperson === 'true';
+        var first = person ? lib.cleanText(lib.lookupText(f.firstname)).trim() : '';
+        return EMAIL_COPY.updateHi + (first ? ' ' + first : '') + ',\n\n' + EMAIL_COPY.updateBody + '\n\n' + EMAIL_COPY.updateThanks;
+    }
+
     /** v1.2.0: the dashboard contact's email ('' if none, or on any error — logged at debug). */
     function dashContactEmail(contactId) {
         if (!contactId) return '';
@@ -580,6 +624,20 @@ define([
         h.push('<section class="nsq-card"><h2 class="nsq-h2"><span class="nsq-num">2</span>Send an email' +
             switchHTML('nsq-email-on', 'Send an email', emailOn, 'nsq-email-off') + '</h2>');
         h.push('<div id="nsq-email-body"' + (emailOn ? '' : ' hidden') + '>');
+        // v1.2.2: "Write an email" / "Request an update" — only when the mode allows it (else the 1.1.1 section)
+        var ub = page.updBtn;
+        if (ub) {
+            var kindUpd = ub.ok && !emailFresh && r.kind === 'update';
+            h.push('<div class="nsq-field nsq-kind"><div class="nsq-seg-row" role="radiogroup" aria-label="' + escapeHtml(UPDBTN_COPY.kindLabel) + '">' +
+                '<label class="nsq-seg"><input type="radio" name="custpage_email_kind" id="nsq-kind-write" value="write"' + (kindUpd ? '' : ' checked') + '><span>' +
+                escapeHtml(UPDBTN_COPY.write) + '</span></label>' +
+                '<label class="nsq-seg"><input type="radio" name="custpage_email_kind" id="nsq-kind-update" value="update"' +
+                (ub.ok ? (kindUpd ? ' checked' : '') + ' data-subject="' + escapeHtml(updateSubject(page)) + '" data-message="' + escapeHtml(updateMessage(page.customerFields)) +
+                    '" data-write-subject="' + escapeHtml(defaultSubject(page)) + '"' : ' disabled data-blocked="1"') +
+                '><span>' + escapeHtml(UPDBTN_COPY.update) + '</span></label></div>' +
+                '<p class="nsq-help nsq-kind-hint">' + escapeHtml(UPDBTN_COPY.hint) + '</p>' +
+                (ub.ok ? '' : '<p class="nsq-help nsq-updbtn-why" id="nsq-updbtn-why">' + escapeHtml(ub.reason) + '</p>') + '</div>');
+        }
         // D18a: From — posted as a code only; the posted code is restored if still offered, else 'me'
         var fromCode = (!emailFresh && page.senders.some(function (o) { return o.code === r.from; })) ? r.from : 'me';
         var fromOpt = page.senders.filter(function (o) { return o.code === fromCode; })[0];
@@ -594,12 +652,6 @@ define([
         h.push('<div class="nsq-field"><label class="nsq-label" for="nsq-email-message">Message <span class="nsq-req" aria-hidden="true">*</span></label>' +
             '<textarea class="nsq-input nsq-textarea" id="nsq-email-message" name="custpage_email_message" rows="8" maxlength="' + EMAIL_MESSAGE_MAX + '">' +
             escapeHtml(emailFresh ? '' : (r.message || '')) + '</textarea></div>');
-        // v1.2.0: the "Give us an update" button — offered, or disabled with the reason
-        var ub = page.updBtn;
-        if (ub) h.push('<div class="nsq-field nsq-updbtn"><label class="nsq-tick"><input type="checkbox" id="nsq-updbtn" name="custpage_email_updbtn" value="T"' +
-            (ub.ok ? ((!emailFresh && r.updBtn) ? ' checked' : '') : ' disabled data-blocked="1"') + '> ' + escapeHtml(UPDBTN_COPY.label) + '</label>' +
-            '<p class="nsq-help">' + escapeHtml(UPDBTN_COPY.hint) + '</p>' +
-            (ub.ok ? '' : '<p class="nsq-help nsq-updbtn-why" id="nsq-updbtn-why">' + escapeHtml(ub.reason) + '</p>') + '</div>');
         h.push(lib.buildRecipientsHTML(page.contacts, page.customerEmail, emailFresh ? null : r.rcpt, (ub && ub.ok) ? {
             ownIds:        ub.own.ids,
             extraContacts: ub.own.extra ? [{ id: ub.own.extra.id, label: UPDBTN_COPY.dashLabel, email: ub.own.extra.email }] : [],
@@ -684,26 +736,54 @@ define([
         '.nsq-tick input{width:18px;height:18px;}' +
         '.nsq-tick-addr{color:' + lib.PAGE_COLORS.muted + ';}' +
         '.nsq-email-note{margin-top:12px;}' +
-        // v1.2.0: the update button tick box
-        '.nsq-updbtn .nsq-help{margin:0 0 4px 26px;}' +
+        // v1.2.2: the "Write an email" / "Request an update" choice (a segmented control over two radios)
+        '.nsq-seg-row{display:inline-flex;border:1px solid ' + lib.PAGE_COLORS.border + ';border-radius:8px;overflow:hidden;margin-bottom:6px;}' +
+        '.nsq-seg{position:relative;cursor:pointer;}' +
+        '.nsq-seg input{position:absolute;opacity:0;width:1px;height:1px;}' +
+        '.nsq-seg span{display:inline-flex;align-items:center;min-height:40px;padding:0 16px;font-size:14px;background:#fff;color:' + lib.PAGE_COLORS.text + ';}' +
+        '.nsq-seg + .nsq-seg span{border-left:1px solid ' + lib.PAGE_COLORS.border + ';}' +
+        '.nsq-seg input:checked + span{background:' + lib.PAGE_COLORS.accent + ';color:#fff;font-weight:600;}' +
+        '.nsq-seg input:focus-visible + span{outline:2px solid ' + lib.PAGE_COLORS.accent + ';outline-offset:-4px;}' +
+        '.nsq-seg input:disabled + span{opacity:.5;cursor:not-allowed;}' +
+        '.nsq-tick[hidden]{display:none;}' +   // v1.2.2: .nsq-tick's display:flex beat [hidden] — the Dashboard contact row showed in write mode
         '.nsq-updbtn-why{color:#a4262c;}' +
         '.nsq-rcpt-not{font-size:13px;color:' + lib.PAGE_COLORS.muted + ';font-style:italic;}' +
         '</style>';
 
     /**
-     * v1.2.0: the update button's part of the page script — STATIC, nothing interpolated. With the
-     * tick on (and the email on): contacts that aren't this customer's (data-own="0") are unticked,
-     * disabled and labelled; the Dashboard contact tick shows; Other addresses is emptied (kept aside,
-     * put back when the tick goes off), disabled and explained. A blocked tick (data-blocked) stays
-     * disabled even after the email switch re-enables its section. The server rechecks all of it.
+     * v1.2.0–1.2.2: the update request's part of the page script — STATIC, nothing interpolated (the
+     * prefill sits in data- attributes on the radio). While "Request an update" is chosen (and the email
+     * is on): contacts that aren't this customer's (data-own="0") are unticked, disabled and labelled; the
+     * Dashboard contact tick shows; Other addresses is emptied (kept aside, put back on Write), disabled
+     * and explained; the Message "*" is hidden. switchKind() fills the subject / message prefill and, going
+     * back, clears only what wasn't edited. A blocked option (data-blocked) stays disabled even after the
+     * email switch re-enables its section. The server rechecks all of it and adds the button itself.
      */
     var UPDBTN_PART = [
-        '  var updStash = null;',
+        '  // updbtn:start',
+        '  var updStash = null, kindPrev = null;',
+        '  function kindIsUpdate() { var u = $("nsq-kind-update"); return !!(u && u.checked && !u.disabled); }',
+        '  function switchKind() {',
+        '    var u = $("nsq-kind-update"), subj = $("nsq-email-subject"), msg = $("nsq-email-message");',
+        '    if (!u || u.disabled) return;',
+        '    var ps = u.getAttribute("data-subject"), pm = u.getAttribute("data-message"), ws = u.getAttribute("data-write-subject");',
+        '    if (u.checked) {',
+        '      kindPrev = { s: subj.value, m: msg.value };',
+        '      if (!subj.value.trim() || subj.value === ws) subj.value = ps;',
+        '      if (!msg.value.trim()) msg.value = pm;',
+        '    } else {',
+        '      if (subj.value === ps) subj.value = kindPrev ? kindPrev.s : ws;',
+        '      if (msg.value === pm) msg.value = kindPrev ? kindPrev.m : "";',
+        '      kindPrev = null;',
+        '    }',
+        '  }',
         '  function applyUpdBtn() {',
-        '    var u = $("nsq-updbtn"), em = $("nsq-email-on").checked;',
+        '    var u = $("nsq-kind-update"), w = $("nsq-kind-write"), em = $("nsq-email-on").checked;',
         '    if (!u) return;',
-        '    if (u.getAttribute("data-blocked") === "1") { u.disabled = true; u.checked = false; }',
-        '    var on = em && u.checked && !u.disabled;',
+        '    if (u.getAttribute("data-blocked") === "1") { u.disabled = true; u.checked = false; if (w) w.checked = true; }',
+        '    var on = em && kindIsUpdate();',
+        '    var req = root.querySelector("label[for=nsq-email-message] .nsq-req");',   // the message is optional for an update request
+        '    if (req) req.hidden = on;',
         '    each(root.querySelectorAll(".nsq-rcpt[data-own]"), function (c) {',
         '      var dash = c.className.indexOf("nsq-rcpt-dash") !== -1;',
         '      var off = dash ? !on : (on && c.getAttribute("data-own") !== "1");',
@@ -720,7 +800,8 @@ define([
         '      x.disabled = on || !em;',
         '    }',
         '    if (note) note.hidden = !on;',
-        '  }'
+        '  }',
+        '  // updbtn:end'
     ].join('\n');
 
     /**
@@ -783,7 +864,7 @@ define([
         '      setSection(sw, s[1], s[2], s[3]);',
         '      sw.addEventListener("change", function () { setSection(sw, s[1], s[2], s[3]); update(); });',
         '    });',
-        '    if ($("nsq-updbtn")) $("nsq-updbtn").addEventListener("change", function () { applyUpdBtn(); update(); });',   // v1.2.1: absent when the mode is off
+        '    each(root.querySelectorAll("input[name=custpage_email_kind]"), function (k) { k.addEventListener("change", function () { switchKind(); applyUpdBtn(); update(); }); });',   // v1.2.2: none when the mode is off
         '    $("nsq-email-on").addEventListener("change", applyUpdBtn);',   // after setSection (registered first)
         '    applyUpdBtn();',
         '    $("nsq-send").addEventListener("click", function () { submitForm("Saving…"); });',
@@ -802,7 +883,7 @@ define([
         '      var subj = $("nsq-email-subject"), msg = $("nsq-email-message");',
         '      if (!subj.value.trim()) return "Enter a subject.";',
         '      if (subj.value.trim().length > subj.maxLength) return "The subject is too long.";',
-        '      if (!msg.value.trim()) return "Write the message.";',
+        '      if (!msg.value.trim() && !kindIsUpdate()) return "Write the message.";',   // v1.2.2: optional for an update request
         '      if (msg.value.trim().length > msg.maxLength) return "The message is too long.";',
         '      var rp = recipientsProblem();',
         '      if (rp) return rp;',
@@ -843,7 +924,7 @@ define([
             from:     String(params.custpage_email_from || ''),
             subject:  String(params.custpage_email_subject || ''),
             message:  String(params.custpage_email_message || ''),
-            updBtn:   params.custpage_email_updbtn === 'T',   // v1.2.0
+            kind:     params.custpage_email_kind === 'update' ? 'update' : 'write',   // v1.2.2
             rcpt:     lib.readPostedRecipients(params),
             objSel:   sel.ids,
             objNotes: objNotes,
@@ -929,11 +1010,12 @@ define([
         var first = String(sender.firstName || '').trim();
         var phone = String(sender.phone || '');
         var preheader = String(message || '').replace(/\s+/g, ' ').trim().substring(0, 90);
+        if (updateLink && !preheader) preheader = EMAIL_COPY.updateLine.substring(0, 90);   // v1.2.2: an update request with no message
 
         var rows = '' +
             '<tr><td align="left" valign="top" style="padding:28px 30px 4px 30px;text-align:left;">\n' +
             messageParagraphs(message) +
-            (updateLink ? updateButtonHtml(updateLink) : '') +
+            (updateLink ? updateButtonHtml(updateLink, !String(message || '').trim()) : '') +
             '<p style="margin:8px 0 0 0;' + font + 'font-size:18px;line-height:26px;color:#131313;text-align:left;">' +
             '<font face="' + face + '" color="#131313">' + emailText(EMAIL_COPY.signOff) + '<br>' + emailText(name) + '</font></p>\n' +
             '</td></tr>\n';
@@ -960,11 +1042,14 @@ define([
         });
     }
 
-    /** v1.2.0: the line and the button, between the message and the sign-off. */
-    function updateButtonHtml(link) {
+    /**
+     * The button between the message and the sign-off. v1.2.2: the fixed line only when there is no
+     * message (the "Request an update" prefill carries that wording), so the button never stands alone.
+     */
+    function updateButtonHtml(link, withLine) {
         var font = lib.EMAIL_FONT, face = lib.EMAIL_FACE;
-        return '<p style="margin:0 0 16px 0;' + font + 'font-size:18px;line-height:26px;color:#131313;text-align:left;">' +
-            '<font face="' + face + '" color="#131313">' + emailText(EMAIL_COPY.updateLine) + '</font></p>\n' +
+        return (withLine ? '<p style="margin:0 0 16px 0;' + font + 'font-size:18px;line-height:26px;color:#131313;text-align:left;">' +
+            '<font face="' + face + '" color="#131313">' + emailText(EMAIL_COPY.updateLine) + '</font></p>\n' : '') +
             '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr><td align="center" style="padding:0 0 20px 0;">\n' +
             lib.emailButton(escapeHtml(link), EMAIL_COPY.updateButton) +
             '</td></tr></table>\n';
@@ -1071,8 +1156,9 @@ define([
         }
 
         var subject = '', message = '', rcpt = null, sender = null, fromCode = '', ccMeEmail = '';
-        var updBtnOn = emailOn && params.custpage_email_updbtn === 'T';   // v1.2.0
-        if (updBtnOn) {   // v1.2.1: the same rule as the page — excluded → treated as tick off
+        // v1.2.2: "Request an update" (custpage_email_kind = update; missing or anything else = write)
+        var updBtnOn = emailOn && params.custpage_email_kind === 'update';
+        if (updBtnOn) {   // v1.2.1: the same rule as the page — excluded → treated as write
             var access = updBtnAccess();
             if (!access.allowed) {
                 log.audit('UpdateOppSL.UpdateButton', 'Opportunity ' + opportunityId + ' — ignored: mode ' + access.mode);
@@ -1086,7 +1172,7 @@ define([
             if (subject.length > EMAIL_SUBJECT_MAX) return invalid('The subject is longer than ' + EMAIL_SUBJECT_MAX + ' characters.');
 
             message = String(params.custpage_email_message || '').trim();
-            if (!message) return invalid('Write the email message.');
+            if (!message && !updBtnOn) return invalid('Write the email message.');   // v1.2.2: optional for an update request
             if (message.length > EMAIL_MESSAGE_MAX) return invalid('The message is longer than ' + EMAIL_MESSAGE_MAX + ' characters.');
 
             var customerEmail = '';
