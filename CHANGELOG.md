@@ -1,3 +1,74 @@
+## [Update Opportunity SL v1.2.2] — 2 October 2026 (PR #36 amendment 2: "Write an email" or "Request an update")
+**Status:** 🔶 In review — not deployed. Library unchanged (1.3.0); the 1.2.1 switch still applies.
+**Components:** `nuheat_update_opp_sl.js`, `test/update-opp.js`, `test/opp-lib-customer.js`
+
+**Why (Steve, 2 Oct, testing 1.2.1 as Administrator):** sending the button meant writing a full bespoke
+email, because Message was required. A quick "please update us" should be quick.
+
+- CHANGED: the "Add a ‘Give us an update’ button" tick box is replaced by a choice at the top of Send an
+  email — **Write an email** (default; exactly the 1.1.1 email) or **Request an update** — posted as
+  `custpage_email_kind` = `write` | `update` (missing / anything else = write). Shown only when the mode
+  allows it; not offerable → "Request an update" greyed with the existing reason.
+- ADDED: Request an update prefills (editable) the subject "Could you give us a quick update on <tranid>?"
+  and the message "Hi <first name>, / We’d love to know where your project is up to, … / Thanks," (first
+  name only for a person — customer `isperson`, `firstname`, read in the same lookup; a company → "Hi,").
+  A subject or message the rep already typed is kept. The message is optional: empty → the fixed
+  "When you have a moment…" line stands in above the button; otherwise that line is dropped.
+- Switching back to Write puts the recipients and set-aside addresses back, and clears the prefill only
+  where the rep didn't edit it. Recipients for an update request: the 1.2.0 rule, rechecked on the server
+  before the save guard; the refusal now ends "Choose ‘Write an email’, or remove: …".
+- FIXED (found in the Chromium check): `.nsq-tick{display:flex}` overrode `[hidden]`, so 1.2.0's
+  "Dashboard contact" row stayed visible (disabled) in write mode — `.nsq-tick[hidden]{display:none}`.
+  The Message "*" is hidden while Request an update is chosen.
+- Unchanged: D3 (Next contact), the call, objections, fields, the save guard, the mode switch.
+
+## [Update Opportunity SL v1.2.1] — 2 October 2026 (PR #36 amendment 1: an on/off switch)
+**Status:** 🔶 In review — not deployed. **Create the script parameter before uploading** (DEPLOYMENT_CHECKLIST 2f-2).
+**Components:** `nuheat_update_opp_sl.js`, `test/update-opp.js`, `test/opp-lib-customer.js` (library unchanged, 1.3.0)
+
+**Why:** the Update Opportunity deployment is already Released to the sales roles, so 1.2.0 would show the
+tick box to every rep as soon as it is uploaded. Steve tests now and switches it on at the dashboard go-live.
+
+- ADDED: script parameter `custscript_nuheat_updbtn_mode` (Free-Form Text). Empty / `OFF` / unknown /
+  unreadable → **OFF** (fail closed): no tick box, the 1.1.1 customer lookup and a byte-identical email
+  section (SHA-256 against 1.1.1); a posted tick is ignored. `ADMIN` → only
+  `runtime.getCurrentUser().roleId === 'administrator'`. `ALL` → everyone. Trimmed, any case.
+- The POST applies the same rule: an excluded tick is treated as tick off (no button, no recipient
+  rule), audit `UpdateOppSL.UpdateButton` "ignored: mode X". An unknown value is logged once per
+  request at debug.
+
+## [Update Opportunity SL v1.2.0, Opportunity Update Library v1.3.0] — 2 October 2026 ("Request an update" part B)
+**Status:** 🔶 In review — not deployed. Steve tests at **Testing**; off for reps until the dashboard goes live.
+**Prerequisite:** the dashboard's part A deployed (its customer UE fills `custentity_cdb_link`; the backfill
+is held until go-live). Without a link the tick box simply isn't offered.
+**Components:** `nuheat_update_opp_sl.js`, `nuheat_opp_update_lib.js`, `test/update-opp.js`, `test/opp-lib-customer.js`
+
+**Why (Steve, 2 Oct):** reps send a customer their personal "Give us an update" link from Update
+Opportunity's email, without another button on the opportunity.
+
+- ADDED (SL): under the message, **"Add a ‘Give us an update’ button"** (off) with its hint. Offered only
+  when the customer is active and `custentity_cdb_link`'s `t` payload names this customer at
+  `custentity_cdb_link_version`; otherwise disabled with "No dashboard link for this customer yet." /
+  "Customer is inactive." / "The customer's link is out of date. Ask an administrator to run the link
+  backfill." (logged at debug, `UpdateOppSL.UpdateButton`).
+- ADDED (SL): with the tick on, To may only be the customer, the dashboard contact
+  (`custentity_cdb_dashboard_contact`; a "Dashboard contact" tick when not already on the opportunity)
+  and opportunity contacts whose company is this customer. Other addresses are disabled on the page and
+  refused on the server, as are other companies' contacts; CC me stays allowed. All rechecked on the
+  server before the save token is claimed.
+- ADDED (SL): the email gets one line and **GIVE US AN UPDATE** (`<stored link>&a=update&opp=<id>`)
+  between the message and the sign-off. Subject, sender, card and shell unchanged; **tick off → the email
+  is byte-identical** (SHA-256 checked against 1.1.1). `UpdateOppSL.Email` adds
+  `{"updateButton":true,"opp":"<id>"}`; the link is never logged.
+- ADDED (library 1.3.0, additive): `cdbLinkMatches` / `cdbLinkPayload` / `cdbNormaliseVersion` — a pure
+  copy of the dashboard's `linkMatches` decode (no dashboard file required, no secret read);
+  `loadContacts` also returns `company`; `loadOppPageBase` takes `customerColumns`; `buildRecipientsHTML`
+  takes optional `opts`. Without the new options every output is unchanged (Send Quote's 400 pass unedited).
+- FIXED (test only): `update-opp.js` T41's "no 81 in the redirect" check also scanned `nsqt` (a Unix
+  time), so it failed whenever the clock contained "81". `nsqt` is now left out of that check.
+- Upload order: library 1.3.0 first, then the Suitelet 1.2.0. The dashboard's library version check
+  (`>= 1.2.0`) is satisfied.
+
 ## [Opportunity Update Library v1.2.0, Update Opportunity SL v1.1.1] — 1 October 2026 (Release 2.1 part A)
 **Status:** 🔶 In review — not deployed
 **Components:** `nuheat_opp_update_lib.js`, `nuheat_update_opp_sl.js`, `test/opp-lib-customer.js` (new)
