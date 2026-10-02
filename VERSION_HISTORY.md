@@ -361,6 +361,11 @@
 
 ## Send Quote Suitelet (`nuheat_send_quote_sl.js`) & Client Script (`nuheat_send_quote_cs.js`)
 
+### Update Opportunity SL v1.3.2 / Opportunity Update Library v1.4.2 — 2 October 2026 🔶 In review
+
+- CHANGED: the box is Project stage and Expected start only; posted changes show in it; one line above the
+  button for an empty update request; the 1.1.1 reply line back in the footer.
+
 ### Update Opportunity SL v1.3.1 / Opportunity Update Library v1.4.1 — 2 October 2026 🔶 In review
 
 - ADDED: the "Your project" box (title, Project, Project stage, Expected start) above the message, both

@@ -7,7 +7,7 @@
  *              and Update Opportunity (nuheat_update_opp_sl.js): field rules, preparing and writing
  *              the Opportunity fields, the required-field gate, redirect codes, text cleaning, and
  *              the page building blocks (CSS, header, update section, error page, page-script core).
- * @version     1.4.1
+ * @version     1.4.2
  * @author      Nu-Heat Development
  *
  * ⚠️ EXTERNAL CONSUMER: the customer dashboard (NS-Customer-Dashboard) requires this library by
@@ -18,6 +18,10 @@
  * ⚠️ DEPLOYMENT: a shared AMD module — no script record, no deployment. Upload it to
  *    SuiteScripts/NuHeat/2026 Quote/ BEFORE either Suitelet is redeployed; both define() it as
  *    './nuheat_opp_update_lib' and fail at load time without it.
+ *
+ * CHANGELOG v1.4.2 (PR #37 amendment 2 — a slimmer box):
+ *   - emailFactBoxV2: label and title optional; with neither, the first row has no top rule. A call
+ *     with a label (as 1.4.1) gives the same HTML as before.
  *
  * CHANGELOG v1.4.1 (PR #37 amendment 1 — a "Your project" box; additive only):
  *   - ADDED: emailFactBoxV2(label, title, rows) — the dashboard's delivery-link "Your order" box (border,
@@ -106,7 +110,7 @@ function (serverWidget, search, record, log, url, format, email, runtime) {
 
     'use strict';
 
-    var LIB_VERSION = '1.4.1';
+    var LIB_VERSION = '1.4.2';
 
     // ─── Field rules ──────────────────────────────────────────────────────────────
 
@@ -1663,9 +1667,11 @@ function (serverWidget, search, record, log, url, format, email, runtime) {
      * fact box: a bordered, rounded card with a small teal capitals label, a bold title, then one row per
      * fact — the muted label on the left, the bold value on the right. Rows with an empty value are left
      * out; no title and no rows → ''. Every argument is PLAIN text, escaped here.
+     * v1.4.2: label and title optional ('' = left out). With neither, the box is the rows alone and the
+     * first row has no top rule.
      *
-     * @param {string} label - e.g. "YOUR PROJECT"
-     * @param {string} title
+     * @param {string} [label] - e.g. "YOUR PROJECT"
+     * @param {string} [title]
      * @param {Array<Array<string>>} rows - [[label, value], …]
      * @returns {string} a table for the body cell (the caller adds any spacing after it)
      */
@@ -1674,19 +1680,21 @@ function (serverWidget, search, record, log, url, format, email, runtime) {
             return '<p style="margin:' + margin + ';' + EMAIL_FONT + 'font-size:' + size + 'px;line-height:' + Math.round(size * 1.4) + 'px;' +
                 'font-weight:bold;color:' + color + ';">' + emailFontV2(color, '<b>' + emailTextV2(text) + '</b>') + '</p>\n';
         };
-        var facts = (rows || []).filter(function (r) { return r && String(r[1] == null ? '' : r[1]).trim(); }).map(function (r) {
-            return '<tr><td align="left" valign="top" style="padding:10px 12px 10px 0;border-top:1px solid #ece8e3;' + EMAIL_FONT +
+        var hasLabel = !!String(label || '').trim(), hasTitle = !!String(title || '').trim();
+        var facts = (rows || []).filter(function (r) { return r && String(r[1] == null ? '' : r[1]).trim(); }).map(function (r, i) {
+            var rule = (i === 0 && !hasLabel && !hasTitle) ? '' : 'border-top:1px solid #ece8e3;';   // v1.4.2
+            return '<tr><td align="left" valign="top" style="padding:10px 12px 10px 0;' + rule + EMAIL_FONT +
                 'font-size:16px;line-height:22px;color:' + EMAIL_V2.muted + ';white-space:nowrap;">' + emailFontV2(EMAIL_V2.muted, emailTextV2(r[0])) +
-                '</td><td align="right" valign="top" style="padding:10px 0;border-top:1px solid #ece8e3;' + EMAIL_FONT +
+                '</td><td align="right" valign="top" style="padding:10px 0;' + rule + EMAIL_FONT +
                 'font-size:16px;line-height:22px;color:' + EMAIL_V2.text + ';text-align:right;">' + emailFontV2(EMAIL_V2.text, '<b>' + emailTextV2(r[1]) + '</b>') +
                 '</td></tr>\n';
         }).join('');
-        if (!String(title || '').trim() && !facts) return '';
+        if (!hasTitle && !facts) return '';
         return '<table role="presentation" width="100%" align="center" cellpadding="0" cellspacing="0" border="0" bgcolor="#ffffff" ' +
             'style="background-color:#ffffff;border:1px solid #e2ded9;border-radius:10px;border-collapse:separate;">\n' +
-            '<tr><td align="left" valign="top" style="padding:20px 22px 12px 22px;">\n' +
-            p('0 0 6px 0', 12, EMAIL_V2.teal, label) +
-            (String(title || '').trim() ? p('0 0 8px 0', 19, EMAIL_V2.text, title) : '') +
+            '<tr><td align="left" valign="top" style="padding:' + (hasLabel || hasTitle ? '20px 22px 12px 22px' : '8px 22px') + ';">\n' +
+            (hasLabel ? p('0 0 6px 0', 12, EMAIL_V2.teal, label) : '') +
+            (hasTitle ? p('0 0 8px 0', 19, EMAIL_V2.text, title) : '') +
             (facts ? '<table role="presentation" width="100%" align="center" cellpadding="0" cellspacing="0" border="0">\n' + facts + '</table>\n' : '') +
             '</td></tr>\n</table>\n';
     }

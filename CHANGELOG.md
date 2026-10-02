@@ -1,3 +1,18 @@
+## [Update Opportunity SL v1.3.2 / Opportunity Update Library v1.4.2] — 2 October 2026 (PR #37 amendment 2: a slimmer box, tidier wording)
+**Status:** 🔶 In review — not deployed. Upload the library (1.4.2) before the Suitelet.
+**Components:** `nuheat_opp_update_lib.js`, `nuheat_update_opp_sl.js`, `test/update-opp.js`, `test/opp-lib-customer.js`, `docs/email-previews/`
+
+- CHANGED: the box keeps only **Project stage** and **Expected start** (no YOUR PROJECT label, title or
+  Project row — the band and the subject name the project). Neither → no box; Request an update then says
+  "Tell us where your project is up to with the button below."
+- CHANGED: Request an update with an empty message no longer has the "When you have a moment…" line in the
+  body; the call-to-action line is the one line above the button. That text stays as the preheader.
+- ADDED: a posted, validated stage or date change shows in the box. The stage text comes from
+  `lib.fieldOptions('build_stage')` (10 units, only when the posted stage differs from the stored one);
+  not found → the stored text.
+- RESTORED: the 1.1.1 reply line in the footer, above the generic line.
+- lib 1.4.2: `emailFactBoxV2` label and title optional (with a label, the HTML is as 1.4.1).
+
 ## [Update Opportunity SL v1.3.1 / Opportunity Update Library v1.4.1] — 2 October 2026 (PR #37 amendment 1: a "Your project" box)
 **Status:** 🔶 In review — not deployed. Upload the library (1.4.1) before the Suitelet.
 **Components:** `nuheat_opp_update_lib.js`, `nuheat_update_opp_sl.js`, `test/update-opp.js`, `test/opp-lib-customer.js`, `docs/email-previews/`

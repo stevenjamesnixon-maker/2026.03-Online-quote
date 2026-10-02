@@ -237,6 +237,8 @@ Navigate to **Customization > Scripting > Scripts > New** for each:
 - **1.3.1 — the "Your project" box (needs library 1.4.1):** the role must be able to read the
   opportunity's `title`, `custbody_opp_site_adress`, `custbody_build_stage` and `custbody_opp_del_date`
   (one extra lookup when an email is sent). No new parameters.
+- **1.3.2 (needs library 1.4.2):** the box reads only `custbody_build_stage` and `custbody_opp_del_date`.
+  When a save changes the build stage, the email reads the stage options (one record load, 10 units).
 
 #### 2g. Opportunity User Event
 - **Name:** Nu-Heat Opportunity UE

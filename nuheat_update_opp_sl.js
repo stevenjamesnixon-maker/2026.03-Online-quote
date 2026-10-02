@@ -9,16 +9,26 @@
  *              objections. Saves a completed Phone Call, sends a bespoke email from the user, saves one
  *              Customer Objection per ticked type, then the Opportunity fields LAST, and returns to the
  *              Opportunity with the result banner (nuheat_opportunity_ue.js, nsqs=upd).
- * @version     1.3.1
+ * @version     1.3.2
  * @author      Nu-Heat Development
  *
  * Script ID:      customscript_nuheat_update_opp_sl
  * Deployment ID:  customdeploy_nuheat_update_opp_sl
  *
- * ⚠️ DEPLOYMENT: nuheat_opp_update_lib.js (1.4.1) must be uploaded to SuiteScripts/NuHeat/2026 Quote/
+ * ⚠️ DEPLOYMENT: nuheat_opp_update_lib.js (1.4.2) must be uploaded to SuiteScripts/NuHeat/2026 Quote/
  *    BEFORE this script, or it fails at load time.
  * ⚠️ 1.2.1: create the script parameter custscript_nuheat_updbtn_mode (Free-Form Text) first and leave
  *    it empty (= OFF) on the Released deployment until the dashboard go-live — DEPLOYMENT_CHECKLIST 2f-2.
+ *
+ * CHANGELOG v1.3.2 (PR #37 amendment 2 — a slimmer box and tidier wording, 2 Oct 2026):
+ *   - The box keeps only Project stage and Expected start (no YOUR PROJECT label, title or Project row);
+ *     neither → no box (and, for "Request an update", the "Tell us where your project is up to…" line).
+ *   - "Request an update" with an empty message: no "When you have a moment…" line in the body — the
+ *     call-to-action line is the one line above the button; that text stays as the preheader.
+ *   - A posted, validated stage or date change shows in the box (the stage's option text via
+ *     lib.fieldOptions — 10 units, only when the stage changes; not found → the stored text).
+ *   - Footer: the 1.1.1 reply line ("Any questions at all, just reply to this email – it comes straight
+ *     to me.") back above "You’re receiving this because you have a project with Nu-Heat."
  *
  * CHANGELOG v1.3.1 (PR #37 amendment 1 — a "Your project" box, 2 Oct 2026):
  *   - Both modes: after the hero and before the message, the dashboard's "Your order" box as "YOUR
@@ -155,7 +165,7 @@ define([
 
     'use strict';
 
-    var SCRIPT_VERSION = '1.3.1';
+    var SCRIPT_VERSION = '1.3.2';
 
     /** Page rules for the shared update fields: Next contact must end up set. */
     var RULES = { required: ['next_contact'], logKey: 'UpdateOppSL.OppUpdate' };
@@ -209,6 +219,7 @@ define([
         subjectStart: 'An update on ',                  // + the Opportunity's tranid (D17)
         cardLabel:    'YOUR NU-HEAT CONTACT',
         footer:       'You’re receiving this because you have a project with Nu-Heat.',   // v1.3.0: inside the teal footer
+        replyLine:    'Any questions at all, just reply to this email – it comes straight to me.',   // v1.3.2: the 1.1.1 footer text, above footer
         nameFallback: 'Nu-Heat',                        // only if the employee record has no name at all
         pageNote:     'Sent from you, with your contact details. Replies come to you.',
         // Amendment 2 (D18a): the note when sending as the sales rep / project engineer
@@ -227,17 +238,16 @@ define([
         updateBody:         'We’d love to know where your project is up to, so we can be ready when you need us. Just press the button below. It only takes a minute.',
         // v1.3.0: no "Thanks," — the sender card signs the email off
         updateButton: 'GIVE US AN UPDATE',
-        // v1.3.1: the "Your project" box (both modes) and, for "Request an update", the line under it
-        projectLabel:   'YOUR PROJECT',
-        factProject:    'Project',
+        // v1.3.1: the project box (both modes) and, for "Request an update", the line under it
+        // v1.3.2: the box is the stage and the expected start only (no label, title or Project row)
         factStage:      'Project stage',
         factStart:      'Expected start',
         updateCta:      'Has anything changed? Let us know with the button below.',
         updateCtaEmpty: 'Tell us where your project is up to with the button below.'   // no stage and no expected start
     };
 
-    /** v1.3.1: the Opportunity columns the "Your project" box reads (current values, never posted ones). */
-    var PROJECT_COLUMNS = ['tranid', 'title', 'custbody_opp_site_adress', 'custbody_build_stage', 'custbody_opp_del_date'];
+    /** v1.3.1: the Opportunity columns the project box reads. v1.3.2: the stage and the date only. */
+    var PROJECT_COLUMNS = ['custbody_build_stage', 'custbody_opp_del_date'];
     var MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
     // ─── "Give us an update" button (v1.2.0) ──────────────────────────────────────
@@ -1055,51 +1065,54 @@ define([
         return MONTHS[d.getMonth()] + ' ' + d.getFullYear();
     }
 
-    /** The site address (Long Text) on one line: each line trimmed, blank lines dropped, joined with ", ". */
-    function siteLine(v) {
-        return String(v || '').split(/\r\n?|\n/).map(function (l) { return l.replace(/\s+/g, ' ').trim(); })
-            .filter(function (l) { return l; }).join(', ');
-    }
-
     /**
-     * The box's facts from the Opportunity's CURRENT values (one lookupFields, 1 unit). Read before the
-     * save writes the fields (they are written last), so a value changed in this save shows as it was.
+     * The box's facts: the Opportunity's stored values (one lookupFields, 1 unit) — v1.3.2: unless this
+     * save changes them. A posted, validated change (lib.pendingChanges: shown, non-blank, a real date)
+     * wins: the date as posted; the stage as its option's text (lib.fieldOptions, 10 units, only when the
+     * posted stage differs from the stored one), else the stored text when that text can't be found.
      * A failed lookup → null (no box; logged), never an email failure.
      */
-    function loadProjectFacts(opportunityId) {
+    function loadProjectFacts(opportunityId, params) {
+        var f;
         try {
-            var f = search.lookupFields({ type: search.Type.OPPORTUNITY, id: opportunityId, columns: PROJECT_COLUMNS }) || {};
-            return {
-                tranId: lib.lookupText(f.tranid).trim(),
-                title:  lib.lookupText(f.title).replace(/\s+/g, ' ').trim(),
-                site:   siteLine(lib.lookupText(f.custbody_opp_site_adress)),
-                stage:  stageLabel(lib.lookupText(f.custbody_build_stage)).trim(),
-                start:  monthYear(Array.isArray(f.custbody_opp_del_date) ? lib.lookupText(f.custbody_opp_del_date) : f.custbody_opp_del_date)
-            };
+            f = search.lookupFields({ type: search.Type.OPPORTUNITY, id: opportunityId, columns: PROJECT_COLUMNS }) || {};
         } catch (e) {
-            log.error('UpdateOppSL.Email', 'Opportunity ' + opportunityId + ' — project lookup failed; no "Your project" box: ' + e.message);
+            log.error('UpdateOppSL.Email', 'Opportunity ' + opportunityId + ' — project lookup failed; no project box: ' + e.message);
             return null;
         }
+        var storedStage = Array.isArray(f.custbody_build_stage) && f.custbody_build_stage[0] ? f.custbody_build_stage[0] : { value: '', text: lib.lookupText(f.custbody_build_stage) };
+        var stageText = String(storedStage.text || '');
+        var start = Array.isArray(f.custbody_opp_del_date) ? lib.lookupText(f.custbody_opp_del_date) : f.custbody_opp_del_date;
+
+        var posted = lib.pendingChanges(params || {}).values;
+        if (posted.custbody_opp_del_date instanceof Date) start = posted.custbody_opp_del_date;
+        var postedStage = posted.custbody_build_stage ? String(posted.custbody_build_stage) : '';
+        if (postedStage && postedStage !== String(storedStage.value || '')) {
+            try {
+                var opt = lib.fieldOptions('build_stage', opportunityId).filter(function (o) { return o.id === postedStage; })[0];
+                if (opt && String(opt.text).trim()) stageText = String(opt.text);
+                else log.audit('UpdateOppSL.Email', 'Opportunity ' + opportunityId + ' — posted build stage ' + postedStage + ' not among the options; the box shows the stored stage');
+            } catch (e) {
+                log.error('UpdateOppSL.Email', 'Opportunity ' + opportunityId + ' — build stage options could not be read; the box shows the stored stage: ' + e.message);
+            }
+        }
+        return { stage: stageLabel(stageText).trim(), start: monthYear(start) };
     }
 
     /**
-     * The "Your project" box, then — for "Request an update" — the call-to-action line. Title: the
-     * Opportunity title, else the site address, else the QR number. Project: "QR · site", the site left
-     * out when it is the title, and the row left out when it would only repeat the title.
+     * The project box (the stage and the expected start, each only with a value; neither → no box), then
+     * — for "Request an update" — the call-to-action line ("Tell us where your project is up to…" when
+     * there is no box). v1.3.2: no label, title or Project row (the band and the subject name the project).
      */
     function projectBoxHtml(facts, isUpdate) {
-        if (!facts) return '';
-        var title = facts.title || facts.site || facts.tranId;
-        var project = [facts.tranId, facts.site && facts.site !== title ? facts.site : ''].filter(function (x) { return x; }).join(' · ');
-        var box = lib.emailFactBoxV2(EMAIL_COPY.projectLabel, title, [
-            [EMAIL_COPY.factProject, project !== title ? project : ''],
-            [EMAIL_COPY.factStage, facts.stage],
-            [EMAIL_COPY.factStart, facts.start]
+        var f = facts || { stage: '', start: '' };
+        var box = lib.emailFactBoxV2('', '', [
+            [EMAIL_COPY.factStage, f.stage],
+            [EMAIL_COPY.factStart, f.start]
         ]);
-        if (!box) return '';
-        return '<table role="presentation" width="100%" align="center" cellpadding="0" cellspacing="0" border="0"><tr><td align="left" valign="top" style="padding:0 0 24px 0;">\n' +
-            box + '</td></tr></table>\n' +
-            (isUpdate ? lib.emailParagraphV2(emailText(facts.stage || facts.start ? EMAIL_COPY.updateCta : EMAIL_COPY.updateCtaEmpty)) : '');
+        return (box ? '<table role="presentation" width="100%" align="center" cellpadding="0" cellspacing="0" border="0"><tr><td align="left" valign="top" style="padding:0 0 24px 0;">\n' +
+                box + '</td></tr></table>\n' : '') +
+            (isUpdate ? lib.emailParagraphV2(emailText(box ? EMAIL_COPY.updateCta : EMAIL_COPY.updateCtaEmpty)) : '');
     }
 
     /**
@@ -1136,19 +1149,18 @@ define([
             heroUrl:    lib.EMAIL_HERO_V2,
             bodyHtml:   projectBoxHtml(project, !!updateLink) +   // v1.3.1: before the message
                         messageParagraphs(message) +
-                        (updateLink ? updateButtonHtml(updateLink, !String(message || '').trim()) : ''),
+                        (updateLink ? updateButtonHtml(updateLink) : ''),   // v1.3.2: no fixed line (the call-to-action line says it)
             senderCard: card,
-            footerLine: emailText(EMAIL_COPY.footer)
+            footerLine: emailText(EMAIL_COPY.replyLine) + '<br>' + emailText(EMAIL_COPY.footer)   // v1.3.2: the reply line first
         });
     }
 
     /**
-     * The button after the message. v1.2.2: the fixed line only when there is no message (the "Request
-     * an update" prefill carries that wording), so the button never stands alone. v1.3.0: v2 styles.
+     * The button after the message. v1.3.0: v2 styles. v1.3.2: never the fixed line — the project box's
+     * call-to-action line stands above it (EMAIL_COPY.updateLine is now the preheader only).
      */
-    function updateButtonHtml(link, withLine) {
-        return (withLine ? lib.emailParagraphV2(emailText(EMAIL_COPY.updateLine)) : '') +
-            '<table role="presentation" width="100%" align="center" cellpadding="0" cellspacing="0" border="0"><tr><td align="center" valign="top" style="padding:8px 0 16px 0;">\n' +
+    function updateButtonHtml(link) {
+        return '<table role="presentation" width="100%" align="center" cellpadding="0" cellspacing="0" border="0"><tr><td align="center" valign="top" style="padding:8px 0 16px 0;">\n' +
             lib.emailButtonV2(link, EMAIL_COPY.updateButton) +
             '</td></tr></table>\n';
     }
@@ -1435,7 +1447,7 @@ define([
             var body = null;
             try {
                 body = buildBespokeEmail(subject, message, sender, fromCode === 'pe' ? EMAIL_COPY.peCardEmail : sender.email, updateLink,   // '' when off
-                    loadProjectFacts(opportunityId));   // v1.3.1: the values before this save (fields are written last)
+                    loadProjectFacts(opportunityId, params));   // v1.3.2: a posted stage / date change wins
             } catch (e) {
                 log.error('UpdateOppSL.Email', 'Opportunity ' + opportunityId + ' — email body could not be built; not sent: ' + ((e && e.message) || String(e)));
             }
