@@ -7,7 +7,7 @@
  *              and Update Opportunity (nuheat_update_opp_sl.js): field rules, preparing and writing
  *              the Opportunity fields, the required-field gate, redirect codes, text cleaning, and
  *              the page building blocks (CSS, header, update section, error page, page-script core).
- * @version     1.3.0
+ * @version     1.4.0
  * @author      Nu-Heat Development
  *
  * ⚠️ EXTERNAL CONSUMER: the customer dashboard (NS-Customer-Dashboard) requires this library by
@@ -18,6 +18,16 @@
  * ⚠️ DEPLOYMENT: a shared AMD module — no script record, no deployment. Upload it to
  *    SuiteScripts/NuHeat/2026 Quote/ BEFORE either Suitelet is redeployed; both define() it as
  *    './nuheat_opp_update_lib' and fail at load time without it.
+ *
+ * CHANGELOG v1.4.0 (Customer email family v2, step 1 — Update Opportunity's email; additive only):
+ *   - ADDED: emailShellV2({ preheader, eyebrow, headline, heroUrl, bodyHtml, senderCard, footerLine }),
+ *     emailSenderCardV2(sender, cardEmail, label), emailButtonV2(href, label), emailParagraphV2(html) and
+ *     EMAIL_HERO_V2 — the dashboard's v2 customer email design (NS-Customer-Dashboard cdb_lib_render.js,
+ *     "Book your delivery"; canvas EmailDeliveryLink.dc.html), markup copied, no dashboard file required.
+ *     Coloured logo · purple band · hero · body · sender card (CALL filled / EMAIL outlined) · teal
+ *     #25847a footer with its line inside. Same Outlook rules as Send Quote 2.2.0 (pitfall 25).
+ *   - emailShell / emailRepCard / emailButton unchanged: Send Quote's email is byte-identical (its H1
+ *     hashes). emailShellV2 also takes bodyRows (complete rows) so Send Quote can switch over later.
  *
  * CHANGELOG v1.3.0 ("Request an update" part B — Update Opportunity's "Give us an update" button; additive only):
  *   - ADDED: cdbLinkMatches(link, customerId, version) and cdbNormaliseVersion(raw) — a pure copy of the
@@ -91,7 +101,7 @@ function (serverWidget, search, record, log, url, format, email, runtime) {
 
     'use strict';
 
-    var LIB_VERSION = '1.3.0';
+    var LIB_VERSION = '1.4.0';
 
     // ─── Field rules ──────────────────────────────────────────────────────────────
 
@@ -1391,6 +1401,264 @@ function (serverWidget, search, record, log, url, format, email, runtime) {
             '</html>\n';
     }
 
+    // ─── Email v2 (v1.4.0: the customer email family v2) ──────────────────────────
+    //
+    // The dashboard's v2 customer email design (NS-Customer-Dashboard cdb_lib_render.js 2.0.3+,
+    // "Book your delivery" — docs/design/canvas/EmailDeliveryLink.dc.html), markup copied from it; no
+    // dashboard file is required. Same standard as Send Quote 2.2.0 (pitfall 25): one centred 600px
+    // column of tables, layout and colour as HTML attributes (align, width, bgcolor, <font color>),
+    // CSS only polishes and stacks; no flex, grid or floats; each button one [if !mso] / [if mso] pair;
+    // the preheader span is the only display:none element. emailShell / emailRepCard / emailButton
+    // above are unchanged, so Send Quote's email is byte-identical; it can move to emailShellV2 later
+    // by passing its rows as bodyHtml.
+    //
+    // ⚠️ As emailShell: NO MERGE-TAG SUBSTITUTION HAPPENS HERE. emailShellV2's slots are HTML the caller
+    //    has already escaped; emailButtonV2 and emailSenderCardV2 take PLAIN text and escape it here.
+
+    var EMAIL_V2 = {
+        purple:     '#59315f',
+        text:       '#2b2a2e',
+        footerBg:   '#25847a',
+        footerText: '#e6f3f1',
+        cardBg:     '#f6f2f7',
+        buttonBg:   '#ffb500',
+        buttonText: '#3e3b39'
+    };
+
+    /** Send Quote 2.2.0's hero ("Order conformation.jpg", 600 × 337) — the delivery-link email's hero. */
+    var EMAIL_HERO_V2 = EMAIL_IMG + '1613738610524_Order%20conformation.jpg';
+
+    /** Plain text for the email: escaped, and "{{" neutralised (no merge pass runs anyway). */
+    function emailTextV2(s) {
+        return escapeHtml(s == null ? '' : String(s)).replace(/\{\{/g, '&#123;&#123;');
+    }
+
+    /** Text in a colour that survives stripped styles. html must be escaped already. */
+    function emailFontV2(color, html) {
+        return '<font face="' + EMAIL_FACE + '" color="' + color + '">' + html + '</font>';
+    }
+
+    /**
+     * The dashboard's button kinds: yellow (the main button — "CHOOSE MY DELIVERY DATE"), call (the
+     * sender card's filled CALL) and outline (its EMAIL: a purple frame made by an outer bgcolor cell,
+     * so it survives stripped styles).
+     */
+    function emailButtonKindV2(kind) {
+        var kinds = {
+            yellow:  { bg: EMAIL_V2.buttonBg, fg: EMAIL_V2.buttonText, size: 18, pad: '15px 28px' },
+            call:    { bg: EMAIL_V2.purple, fg: '#ffffff', size: 15, pad: '12px 22px' },
+            outline: { bg: '#ffffff', fg: EMAIL_V2.purple, size: 15, pad: '10px 20px', frame: EMAIL_V2.purple }
+        };
+        return kinds[kind] || kinds.yellow;
+    }
+
+    /** The bulletproof button in a kind (see emailButtonKindV2). href and label are plain; escaped here. */
+    function emailButtonOfKindV2(href, label, kind) {
+        var k = emailButtonKindV2(kind);
+        var text = EMAIL_FONT + 'font-size:' + k.size + 'px;line-height:' + (k.size + 4) + 'px;font-weight:bold;color:' + k.fg +
+            ';text-decoration:none;letter-spacing:0.5px;';
+        var h = escapeHtml(href);
+        var l = emailTextV2(label);
+        var radius = k.frame ? '4' : '6';
+        var link = '<a href="' + h + '" target="_blank" style="display:block;padding:' + k.pad + ';' + text + '"><font face="' +
+            EMAIL_FACE + '" color="' + k.fg + '"><b>' + l + '</b></font></a>';
+        var inner = '<table role="presentation" class="btn-full" align="center" cellpadding="14" cellspacing="0" border="0" bgcolor="' +
+            k.bg + '" style="background-color:' + k.bg + ';border-radius:' + radius + 'px;border-collapse:separate;' +
+            (k.frame ? 'width:100%;' : '') + '">\n' +
+            '<tr><td align="center" valign="middle" bgcolor="' + k.bg + '" style="padding:0;border-radius:' + radius + 'px;">' + link + '</td></tr>\n' +
+            '</table>\n';
+        return '' +
+            '<!--[if !mso]><!-- -->\n' +
+            (k.frame ? '<table role="presentation" class="btn-full" align="center" cellpadding="2" cellspacing="0" border="0" bgcolor="' +
+                k.frame + '" style="background-color:' + k.frame + ';border-radius:6px;border-collapse:separate;">\n' +
+                '<tr><td align="center" valign="middle" bgcolor="' + k.frame + '" style="padding:2px;border-radius:6px;">\n' + inner +
+                '</td></tr>\n</table>\n' : inner) +
+            '<!--<![endif]-->\n' +
+            '<!--[if mso]>\n' +
+            '<table role="presentation" align="center" cellpadding="0" cellspacing="0" border="0" bgcolor="' + k.bg + '">\n' +
+            '<tr><td align="center" valign="middle" bgcolor="' + k.bg + '" style="padding:' + k.pad + ';' +
+            (k.frame ? 'border:2px solid ' + k.frame + ';' : '') + '"><a href="' + h + '" target="_blank" style="' + text +
+            '"><font face="Arial, sans-serif" color="' + k.fg + '"><b>' + l + '</b></font></a></td></tr>\n' +
+            '</table>\n' +
+            '<![endif]-->\n';
+    }
+
+    /**
+     * The v2 primary button: yellow #ffb500, centred, bulletproof (the dashboard's "CHOOSE MY DELIVERY
+     * DATE"). href and label are PLAIN text; escaped here.
+     */
+    function emailButtonV2(href, label) {
+        return emailButtonOfKindV2(href, label, 'yellow');
+    }
+
+    /**
+     * The v2 sender card (the dashboard's account manager card): the photo (96px circle, only for an
+     * https:// photoUrl), the label, the name, phone · email (two lines on phones), then CALL <FIRST>
+     * (purple, filled) and EMAIL <FIRST> (purple outline), side by side, stacked on phones.
+     *
+     * Update Opportunity's contact rules (1.1.0), not the dashboard's office fallback: no name →
+     * "Nu-Heat"; no phone → the email line alone and no CALL button; a phone with no digits → shown,
+     * no CALL button; no first name → CLICK TO CALL / SEND AN EMAIL; one button → full width.
+     *
+     * @param {Object} sender - loadSender(): { fullName, firstName, phone, photoUrl } — PLAIN text
+     * @param {string} cardEmail - the card's email line and EMAIL button (plain)
+     * @param {string} label - the card's small heading (plain), e.g. "YOUR NU-HEAT CONTACT"
+     * @returns {string}
+     */
+    function emailSenderCardV2(sender, cardEmail, label) {
+        var s = sender || {};
+        var name  = String(s.fullName || '').trim() || 'Nu-Heat';
+        var first = String(s.firstName || '').trim().toUpperCase();
+        var phone = String(s.phone || '').trim();
+        var tel   = phone.replace(/[^\d+]/g, '');
+        var mail  = String(cardEmail || '').trim();
+        var photo = checkPhotoUrl(s.photoUrl).url;
+        var buttons = [];
+        if (tel) buttons.push(emailButtonOfKindV2('tel:' + tel, first ? 'CALL ' + first : 'CLICK TO CALL', 'call'));
+        if (mail) buttons.push(emailButtonOfKindV2('mailto:' + mail, first ? 'EMAIL ' + first : 'SEND AN EMAIL', 'outline'));
+        var lines = [];
+        if (phone) lines.push('<span class="cl-line">' + emailTextV2(phone) + '</span>');
+        if (mail) lines.push('<span class="cl-line">' + emailTextV2(mail) + '</span>');
+        return '' +
+            '<table role="presentation" class="main-card" width="440" align="center" cellpadding="0" cellspacing="0" border="0" bgcolor="' + EMAIL_V2.cardBg +
+            '" style="width:100%;max-width:440px;background-color:' + EMAIL_V2.cardBg + ';border-radius:12px;">\n' +
+            (photo ? '<tr><td align="center" valign="top" style="padding:24px 20px 0 20px;"><img src="' + escapeHtml(photo) +
+                '" width="96" height="96" alt="' + emailTextV2(name) + '" border="0" style="display:block;margin:0 auto;width:96px;height:96px;border-radius:48px;object-fit:cover;"></td></tr>\n' : '') +
+            '<tr><td align="center" valign="top" style="padding:' + (photo ? '14px' : '24px') + ' 20px 0 20px;">\n' +
+            '<p style="margin:0 0 4px 0;' + EMAIL_FONT + 'font-size:13px;line-height:16px;letter-spacing:2px;color:' + EMAIL_V2.purple + ';">' +
+            emailFontV2(EMAIL_V2.purple, '<b>' + emailTextV2(label) + '</b>') + '</p>\n' +
+            '<p style="margin:0 0 6px 0;' + EMAIL_FONT + 'font-size:24px;line-height:28px;font-weight:bold;color:#000000;">' +
+            emailFontV2('#000000', '<b>' + emailTextV2(name) + '</b>') + '</p>\n' +
+            '<p style="margin:0;' + EMAIL_FONT + 'font-size:17px;line-height:23px;color:#131313;">' +
+            emailFontV2('#131313', lines.join('<span class="cl-sep"> · </span>')) + '</p>\n' +
+            '</td></tr>\n' +
+            '<tr><td align="center" valign="top" style="padding:16px 14px 20px 14px;">\n' +
+            '<table role="presentation" width="100%" align="center" cellpadding="0" cellspacing="0" border="0">\n' +
+            '<tr>\n' +
+            buttons.map(function (b) {
+                return '<td class="stack" width="' + (buttons.length === 2 ? '50%' : '100%') + '" align="center" valign="top" style="padding:6px;">\n' + b + '</td>\n';
+            }).join('') +
+            '</tr>\n' +
+            '</table>\n' +
+            '</td></tr>\n' +
+            '</table>\n';
+    }
+
+    /**
+     * The v2 customer email (the dashboard's delivery-link layout): preheader · coloured logo on white ·
+     * purple band (eyebrow + headline, no greeting) · hero · the caller's body · sender card · teal
+     * footer (white logo, social links, footerLine inside it). Every slot is HTML the caller has
+     * already escaped; nothing is substituted here.
+     *
+     * @param {Object} s
+     * @param {string} s.preheader   - hidden preview text (the one allowed display:none span)
+     * @param {string} s.eyebrow     - the small line in the band (shown in capitals)
+     * @param {string} s.headline    - the band's headline; also the <title> unless s.title is given
+     * @param {string} [s.title]     - <title> text (default: s.headline)
+     * @param {string} [s.heroUrl]   - the hero image (600 × 337); used only when it is https://, else no hero row
+     * @param {string} s.bodyHtml    - the body: inner HTML of one centred, padded cell (or rows — see s.bodyRows)
+     * @param {string} [s.bodyRows]  - instead of bodyHtml: complete <tr>…</tr> rows (for Send Quote later)
+     * @param {string} [s.senderCard] - emailSenderCardV2() ('' / absent = no card)
+     * @param {string} s.footerLine  - the line inside the teal footer
+     * @returns {string} the complete HTML document
+     */
+    function emailShellV2(s) {
+        var social = SOCIAL_LINKS.map(function (sl) {
+            return '<td align="center" valign="middle" width="42" style="padding:0 10px;"><a href="' + sl[0] + '" target="_blank"><img src="' + EMAIL_IMG + sl[1] + '" width="22" height="22" alt="" border="0" style="display:block;width:22px;height:22px;"></a></td>\n';
+        }).join('');
+        var hero = checkPhotoUrl(s.heroUrl).url;
+
+        return '' +
+            '<!DOCTYPE html>\n' +
+            '<html lang="en" xmlns="http://www.w3.org/1999/xhtml" xmlns:v="urn:schemas-microsoft-com:vml" xmlns:o="urn:schemas-microsoft-com:office:office">\n' +
+            '<head>\n' +
+            '<meta http-equiv="Content-Type" content="text/html; charset=utf-8">\n' +
+            '<meta name="viewport" content="width=device-width, initial-scale=1.0">\n' +
+            '<meta http-equiv="X-UA-Compatible" content="IE=edge">\n' +
+            '<meta name="x-apple-disable-message-reformatting">\n' +
+            '<meta name="format-detection" content="telephone=no">\n' +
+            '<title>' + (s.title != null ? s.title : s.headline) + '</title>\n' +
+            '<!--[if gte mso 16]>\n' +
+            '<xml><o:OfficeDocumentSettings><o:AllowPNG/><o:PixelsPerInch>96</o:PixelsPerInch></o:OfficeDocumentSettings></xml>\n' +
+            '<![endif]-->\n' +
+            '<style>\n' +
+            'body { margin:0; padding:0; -ms-text-size-adjust:100%; -webkit-text-size-adjust:100%; }\n' +
+            'table { border-spacing:0; mso-table-lspace:0pt; mso-table-rspace:0pt; }\n' +
+            'td { border-collapse:collapse; }\n' +
+            'img { -ms-interpolation-mode:bicubic; border:0; outline:none; text-decoration:none; }\n' +
+            'a[x-apple-data-detectors=true] { color:inherit !important; text-decoration:inherit !important; }\n' +
+            '@media all and (max-width: 599px) {\n' +
+            '.main-container { width:100% !important; }\n' +
+            '.fluid { width:100% !important; height:auto !important; }\n' +
+            '.stack { display:block !important; width:100% !important; box-sizing:border-box; }\n' +
+            '.btn-full { width:100% !important; }\n' +
+            '.cl-sep { display:none !important; }\n' +
+            '.cl-line { display:block !important; }\n' +
+            '.h1 { font-size:26px !important; line-height:32px !important; }\n' +
+            '.pad { padding-left:20px !important; padding-right:20px !important; }\n' +
+            '}\n' +
+            '</style>\n' +
+            '<!--[if mso]>\n' +
+            '<style>h1, h2, p, td, a, span, font { font-family:Arial, sans-serif !important; }</style>\n' +
+            '<![endif]-->\n' +
+            '</head>\n' +
+            '<body id="body" bgcolor="#ffffff" style="margin:0;padding:0;background-color:#ffffff;">\n' +
+            '<span style="display:none;font-size:0px;line-height:0px;max-height:0px;max-width:0px;opacity:0;overflow:hidden;">' + s.preheader + '</span>\n' +
+            '<table role="presentation" width="100%" align="center" cellpadding="0" cellspacing="0" border="0" bgcolor="#ffffff" style="background-color:#ffffff;">\n' +
+            '<tr><td align="center" valign="top">\n' +
+            '<!--[if mso]><table role="presentation" width="600" align="center" cellpadding="0" cellspacing="0" border="0"><tr><td align="center" valign="top"><![endif]-->\n' +
+            '<table role="presentation" class="width600 main-container" width="600" align="center" cellpadding="0" cellspacing="0" border="0" bgcolor="#ffffff" style="width:100%;max-width:600px;">\n' +
+
+            // The coloured logo, on white
+            '<tr><td align="center" valign="top" style="padding:24px 16px;">\n' +
+            '<img src="' + EMAIL_IMG + '1698400306920_Nu-Heat%20Master%20logo%20green%20-%20transparent%20v3.png" width="170" height="73" alt="Nu-Heat Underfloor Heating &amp; Renewables" border="0" style="display:block;margin:0 auto;width:170px;height:auto;max-width:100%;">\n' +
+            '</td></tr>\n' +
+
+            // The purple band: eyebrow and headline (no greeting line)
+            '<tr><td align="center" valign="top" bgcolor="' + EMAIL_V2.purple + '" class="pad" style="background-color:' + EMAIL_V2.purple +
+            ';padding:36px 48px 40px 48px;' + EMAIL_FONT + 'color:#ffffff;">\n' +
+            '<p style="margin:0 0 10px;' + EMAIL_FONT + 'font-size:14px;letter-spacing:1px;text-transform:uppercase;font-weight:bold;color:#e7d9ea;">' +
+            emailFontV2('#e7d9ea', '<b>' + s.eyebrow + '</b>') + '</p>\n' +
+            '<h1 class="h1" style="margin:0;' + EMAIL_FONT + 'font-size:32px;line-height:37px;font-weight:bold;color:#ffffff;word-break:break-word;">' +
+            emailFontV2('#ffffff', s.headline) + '</h1>\n' +
+            '</td></tr>\n' +
+
+            // The hero, full width
+            (hero ? '<tr><td align="center" valign="top"><img src="' + escapeHtml(hero) + '" width="600" height="337" alt="" border="0" class="fluid" style="display:block;width:100%;max-width:600px;height:auto;"></td></tr>\n' : '') +
+
+            // The body
+            (s.bodyRows != null ? s.bodyRows
+                : '<tr><td align="left" valign="top" class="pad" style="padding:32px 48px 8px 48px;text-align:left;">\n' + s.bodyHtml + '</td></tr>\n') +
+
+            // The sender card
+            (s.senderCard ? '<tr><td align="center" valign="top" class="pad" style="padding:20px 40px 32px 40px;">\n' + s.senderCard + '</td></tr>\n' : '') +
+
+            // The footer: teal, the white logo, the five social links, and this email's line
+            '<tr><td align="center" valign="top" bgcolor="' + EMAIL_V2.footerBg + '" class="pad" style="background-color:' + EMAIL_V2.footerBg + ';padding:28px 40px;">\n' +
+            '<img src="' + EMAIL_IMG + '1604422010305_Nu-Heat%20Master%20logo%20wht%20on%20green.png" width="167" height="94" alt="Nu-Heat Underfloor Heating &amp; Renewables" border="0" style="display:block;margin:0 auto 10px auto;width:167px;height:auto;">\n' +
+            '<table role="presentation" align="center" cellpadding="0" cellspacing="0" border="0">\n' +
+            '<tr>\n' + social + '</tr>\n' +
+            '</table>\n' +
+            '<p style="margin:16px 0 0 0;' + EMAIL_FONT + 'font-size:13px;line-height:20px;color:' + EMAIL_V2.footerText + ';">' +
+            emailFontV2(EMAIL_V2.footerText, s.footerLine) + '</p>\n' +
+            '</td></tr>\n' +
+
+            '</table>\n' +
+            '<!--[if mso]></td></tr></table><![endif]-->\n' +
+            '</td></tr>\n' +
+            '</table>\n' +
+            '</body>\n' +
+            '</html>\n';
+    }
+
+    /**
+     * A body paragraph in the v2 style (17px / 25px, #2b2a2e, left). html must be escaped already.
+     */
+    function emailParagraphV2(html) {
+        return '<p style="margin:0 0 16px 0;' + EMAIL_FONT + 'font-size:17px;line-height:25px;color:' + EMAIL_V2.text + ';text-align:left;">' +
+            emailFontV2(EMAIL_V2.text, html) + '</p>\n';
+    }
+
     /**
      * Sends one email and logs it against the customer and the Opportunity (Communication ›
      * Messages). Never throws.
@@ -1730,6 +1998,12 @@ function (serverWidget, search, record, log, url, format, email, runtime) {
         emailButton:            emailButton,
         emailRepCard:           emailRepCard,
         emailShell:             emailShell,
+        // v1.4.0: the customer email family v2 (Update Opportunity's bespoke email)
+        emailShellV2:           emailShellV2,
+        emailSenderCardV2:      emailSenderCardV2,
+        emailButtonV2:          emailButtonV2,
+        emailParagraphV2:       emailParagraphV2,
+        EMAIL_HERO_V2:          EMAIL_HERO_V2,
         sendEmail:              sendEmail,
         loadSender:             loadSender,
         pendingChanges:         pendingChanges,

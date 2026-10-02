@@ -4,6 +4,7 @@
  * T18–T51 for 1.1.0 (T36–T37: amendment 1; T38–T46: amendment 2; T47–T51: amendment 3).
  * T52–T62 for 1.2.0 ("Request an update" part B: the "Give us an update" button; lib 1.3.0).
  * T63–T67 for 1.2.1 (amendment 1: custscript_nuheat_updbtn_mode — OFF / ADMIN / ALL). T52–T62 run with ALL.
+ * T74–T81 for 1.3.0 (the v2 customer email design, lib 1.4.0); T28, T37, T41, T42, T45, T60, T61, T69, T70 updated for it.
  * T68–T73 for 1.2.2 (amendment 2: "Write an email" / "Request an update", custpage_email_kind). T52–T67 updated:
  * the tick box became the choice (custpage_email_updbtn=T → custpage_email_kind=update), and the fixed line now
  * appears only when an update request has no message.
@@ -680,12 +681,12 @@ ok(b28.indexOf('<script') === -1 && b28.indexOf('&lt;script&gt;alert(1)&lt;/scri
 ok(!/\{\{/.test(b28), 'no "{{" left anywhere in the body');
 var paras28 = b28.match(/<p style="margin:0 0 16px 0;[^"]*text-align:left;"><font [^>]*>[\s\S]*?<\/font><\/p>/g) || [];
 ok(paras28.length === 2 && /Para two &#123;&#123;PROPOSAL_URL\}\}<\/font><\/p>$/.test(paras28[1]), 'blank lines → a new paragraph (2 paragraphs)');
-ok(/<font [^>]*>Best wishes,<br>Sam Taylor<\/font><\/p>/.test(b28) && b28.indexOf('Best wishes,') > b28.indexOf('Para two'), 'sign-off directly under the body: Best wishes, Sam Taylor');
-ok(/<b>A MESSAGE FROM NU-HEAT<\/b>/.test(b28) && /<b>YOUR NU-HEAT CONTACT<\/b>/.test(b28) && !/YOUR ACCOUNT MANAGER|YOUR QUOTE IS READY|requested a quote/.test(b28), 'labels: A MESSAGE FROM NU-HEAT, YOUR NU-HEAT CONTACT; no proposal copy');
+ok(b28.indexOf('Best wishes') === -1, 'no "Best wishes" sign-off (changed in 1.3.0: the sender card signs off)');
+ok(/<b>An update from Nu-Heat<\/b>/.test(b28) && /<b>YOUR NU-HEAT CONTACT<\/b>/.test(b28) && !/YOUR ACCOUNT MANAGER|YOUR QUOTE IS READY|requested a quote/.test(b28), 'labels: An update from Nu-Heat (eyebrow), YOUR NU-HEAT CONTACT; no proposal copy');   // changed in 1.3.0 (was: A MESSAGE FROM NU-HEAT)
 ok(/<b>CALL SAM<\/b>/.test(b28) && /<b>EMAIL SAM<\/b>/.test(b28) && b28.indexOf('href="tel:01404549770"') !== -1 && b28.indexOf('href="mailto:sam.taylor@nu-heat.co.uk"') !== -1, 'CALL SAM → tel:, EMAIL SAM → mailto: (the sender)');
 ok(b28.indexOf('<span class="cl-line">01404 549 770</span><span class="cl-sep"> · </span><span class="cl-line">sam.taylor@nu-heat.co.uk</span>') !== -1, 'card: the sender\'s phone (employee phone) and email');
 ok(/<img src="https:\/\/1234567\.app\.netsuite\.com\/core\/media\/media\.nl\?id=5&amp;c=1234567&amp;h=ab" width="96"[^>]* alt="Sam Taylor"/.test(b28), 'card: the sender\'s photo');
-ok(b28.indexOf('Any questions at all, just reply to this email – it comes straight to me. Sam</font></p>') !== -1, 'footer from the sender, with the first name');
+ok(b28.indexOf('You’re receiving this because you have a project with Nu-Heat.</font></p>') !== -1 && b28.indexOf('Any questions at all') === -1, 'footer: the v2 line (changed in 1.3.0: was the sender\'s "just reply" line)');
 var pre28 = (/<span style="display:none;[^"]*">([^<]*)<\/span>/.exec(b28) || [])[1];
 ok(MSG28.replace(/\s+/g, ' ').trim().length > 90 && pre28 === LIB.escapeHtml(MSG28.replace(/\s+/g, ' ').trim().substring(0, 90)).replace(/\{\{/g, '&#123;&#123;'),
    'preheader: the first 90 characters of the message, plain text, escaped');
@@ -701,8 +702,8 @@ state.employee.firstname = ''; state.employee.lastname = ''; state.employee.enti
 emailPost({});
 var b28b = state.emails[0] ? String(state.emails[0].body) : '';
 ok(/<b>SEND AN EMAIL<\/b>/.test(b28b) && !/CALL|tel:/.test(b28b.replace(/CLICK TO CALL/g, '')), 'no first name, no phone → SEND AN EMAIL only, no tel:');
-ok(b28b.indexOf('Any questions at all, just reply to this email – it comes straight to me.</font></p>') !== -1, 'footer without a first name');
-ok(/Best wishes,<br>Nu-Heat<\/font>/.test(b28b) && b28b.indexOf('<span class="cl-sep">') === -1 && !/width="96"/.test(b28b), 'no name → "Nu-Heat"; card shows the email alone; no photo');
+ok(b28b.indexOf('You’re receiving this because you have a project with Nu-Heat.</font></p>') !== -1, 'footer: the same line without a first name');   // changed in 1.3.0
+ok(/<b>Nu-Heat<\/b>/.test(b28b) && b28b.indexOf('Best wishes') === -1 && b28b.indexOf('<span class="cl-sep">') === -1 && !/width="96"/.test(b28b), 'no name → "Nu-Heat" on the card; card shows the email alone; no photo');   // changed in 1.3.0: no sign-off
 
 console.log('T29. Objection notes (D21)');
 function notesFor(over, setup) {
@@ -859,12 +860,12 @@ ok(/value="My own subject"/.test(h36d) && />My own message<\/textarea>/.test(h36
 
 console.log('T37. Building the email body throws → an email failure, the rest still saved (D24)');
 resetState();
-var realShell = LIB.emailShell;
-LIB.emailShell = function () { throw new Error('shell broke'); };
+var realShell = LIB.emailShellV2;   // changed in 1.3.0 (was: emailShell)
+LIB.emailShellV2 = function () { throw new Error('shell broke'); };
 try {
     emailPost({ custpage_call_on: 'F', custpage_obj_sel: '["11"]', custpage_upd_entitystatus: '12' });
 } finally {
-    LIB.emailShell = realShell;
+    LIB.emailShellV2 = realShell;
 }
 ok(state.calls.indexOf('email.send') === -1 && state.emails.length === 0, 'no email.send');
 ok(objections().length === 1 && writesOf('submitFields', 'opportunity').length === 1 && !!state.redirect, 'objections and fields still written; redirected');
@@ -921,10 +922,10 @@ resetState(); withTeam();
 emailPost({ custpage_email_from: 'rep', custpage_rcpt_ccme: 'T' });
 var e41 = state.emails[0] || {}; var b41 = String(e41.body || '');
 ok(e41.author === '81', 'author = the rep (81)');
-ok(/<font [^>]*>Best wishes,<br>Rob Rep<\/font>/.test(b41) && /<b>Rob Rep<\/b>/.test(b41) && /<b>CALL ROB<\/b>/.test(b41) && /<b>EMAIL ROB<\/b>/.test(b41) &&
+ok(b41.indexOf('Best wishes') === -1 && /<b>Rob Rep<\/b>/.test(b41) && /<b>CALL ROB<\/b>/.test(b41) && /<b>EMAIL ROB<\/b>/.test(b41) &&
    b41.indexOf('href="mailto:rob.rep@nu-heat.co.uk"') !== -1 && b41.indexOf('href="tel:01404111222"') !== -1 && /src="https:\/\/x\.example\/rob\.jpg"/.test(b41),
-   'card and sign-off: the rep (name, photo, phone, email, first name)');
-ok(b41.indexOf('it comes straight to me. Rob</font>') !== -1 && !/Sam/.test(b41), 'footer uses the rep\'s first name; nothing of me in the body');
+   'card: the rep (name, photo, phone, email, first name); no sign-off');   // changed in 1.3.0 (was: card and sign-off)
+ok(!/Sam/.test(b41), 'nothing of me in the body');   // changed in 1.3.0: the footer no longer carries a first name
 ok(JSON.stringify(e41.cc) === JSON.stringify(['sam.taylor@nu-heat.co.uk']) && !e41.bcc, 'CC = only me (CC me ticked)');
 ok(audit('UpdateOppSL.Email').some(function (l) { return /from rep \(employee 81\)/.test(l.details); }) && audit('UpdateOppSL.Email').every(function (l) { return !/@/.test(l.details); }),
    'UpdateOppSL.Email: "from rep (employee 81)", never an address');
@@ -943,7 +944,7 @@ var e42 = state.emails[0] || {}; var b42 = String(e42.body || '');
 ok(e42.author === '82', 'author = the PE (82)');
 ok(b42.indexOf('<span class="cl-line">01404 333 444</span><span class="cl-sep"> · </span><span class="cl-line">design@nu-heat.co.uk</span>') !== -1 &&
    b42.indexOf('href="mailto:design@nu-heat.co.uk"') !== -1 && /<b>EMAIL PAT<\/b>/.test(b42), 'card email line and EMAIL button = design@nu-heat.co.uk');
-ok(/<b>Pat Engineer<\/b>/.test(b42) && /Best wishes,<br>Pat Engineer/.test(b42) && b42.indexOf('href="tel:01404333444"') !== -1, 'the PE\'s name and phone shown');
+ok(/<b>Pat Engineer<\/b>/.test(b42) && b42.indexOf('Best wishes') === -1 && b42.indexOf('href="tel:01404333444"') !== -1, 'the PE\'s name and phone shown');
 ok(b42.indexOf('pat.pe@') === -1, 'the PE\'s own address appears nowhere in the body');
 
 console.log('T43. POST from=pe, the PE has no phone');
@@ -978,7 +979,7 @@ ok(/<option value="me" selected>/.test(html(f44c)), 're-render: email off → fr
 console.log('T45. custpage_email_from missing (an in-flight page) → me');
 resetState(); withTeam();
 emailPost({ custpage_email_from: undefined, custpage_rcpt_ccme: 'T' });
-ok(state.emails[0] && state.emails[0].author === '7' && /Best wishes,<br>Sam Taylor/.test(String(state.emails[0].body)) &&
+ok(state.emails[0] && state.emails[0].author === '7' && /<b>Sam Taylor<\/b>/.test(String(state.emails[0].body)) &&   // changed in 1.3.0: the card, no sign-off
    JSON.stringify(state.emails[0].cc) === JSON.stringify(['sam.taylor@nu-heat.co.uk']), 'author = me; my card; CC me = me');
 
 console.log('T46. Governance, worst case with from=pe and CC me');
@@ -1119,7 +1120,7 @@ function ubPost(overrides) {
 var UB_REFUSAL = 'The update button opens the customer’s whole project page, so it can only go to the customer and their own contacts. Choose ‘Write an email’, or remove: ';   // changed in 1.2.2: was "Untick it"
 
 console.log('T52. lib.cdbLinkMatches — the dashboard\'s pure decode, test vectors');
-ok(LIB.LIB_VERSION === '1.3.0', 'LIB_VERSION 1.3.0');
+ok(LIB.LIB_VERSION === '1.4.0', 'LIB_VERSION 1.4.0');   // changed in 1.3.0 (lib 1.4.0)
 ok(makePayload(55, '') === 'c55.v0' && assembleToken('c55.v0', 'AAEC/w+=').indexOf('YzU1LnYw.') === 0 && assembleToken('c55.v0', 'AAEC/w+=') === 'YzU1LnYw.AAEC_w-',
    'fixture: makePayload / assembleToken give c55.v0 → YzU1LnYw.<sig, base64url>');
 ok(JSON.stringify(LIB.cdbLinkPayload(CDB_BASE + '&t=YzU1LnYw.AAEC_w-')) === '{"customerId":"55","version":0}', 'payload decoded: customer 55, version 0');
@@ -1274,10 +1275,10 @@ ubPost({ custpage_email_message: 'Hello Ann,\n\nQuick one.' });
 var b60 = String((state.emails[0] || {}).body || '');
 var URL60 = cdbLink(55, 2) + '&a=update&opp=123';
 ok(state.emails.length === 1 && b60.indexOf('When you have a moment') === -1, 'with a message, no fixed line (1.2.2)');
-ok((b60.match(/<b>GIVE US AN UPDATE<\/b>/g) || []).length === 2 && b60.indexOf(LIB.emailButton(LIB.escapeHtml(URL60), 'GIVE US AN UPDATE')) !== -1, 'lib.emailButton(escapeHtml(link), \'GIVE US AN UPDATE\')');
+ok((b60.match(/<b>GIVE US AN UPDATE<\/b>/g) || []).length === 2 && b60.indexOf(LIB.emailButtonV2(URL60, 'GIVE US AN UPDATE')) !== -1, 'lib.emailButtonV2(link, \'GIVE US AN UPDATE\')');   // changed in 1.3.0 (was: lib.emailButton)
 var hrefs60 = []; b60.replace(/href="([^"]*a=update[^"]*)"/g, function (m, h) { hrefs60.push(h); });
 ok(hrefs60.length === 2 && hrefs60.every(function (h) { return /&amp;a=update&amp;opp=123$/.test(h) && h === LIB.escapeHtml(URL60); }), 'href = the stored link + &a=update&opp=123, escaped');
-ok(b60.indexOf('Quick one.') < b60.indexOf('GIVE US AN UPDATE') && b60.indexOf('GIVE US AN UPDATE') < b60.indexOf('Best wishes,'), 'between the message and the sign-off');
+ok(b60.indexOf('Quick one.') < b60.indexOf('GIVE US AN UPDATE') && b60.indexOf('GIVE US AN UPDATE') < b60.indexOf('YOUR NU-HEAT CONTACT') && b60.indexOf('Best wishes') === -1, 'between the message and the sender card');   // changed in 1.3.0
 ok(state.emails[0].subject === 'An update on OPP123' && state.emails[0].author === '7', 'the posted subject; sender unchanged');
 ok(JSON.stringify(state.logs).indexOf(cdbSign(55, 2)) === -1 && JSON.stringify(state.logs).indexOf('extforms') === -1, 'the link is never logged');
 ok(audit('UpdateOppSL.Email').some(function (l) { return l.details === 'Opportunity 123 — from me (employee 7) | {"updateButton":true,"opp":"123"}'; }), 'audit: updateButton: true and the opportunity ID');
@@ -1291,17 +1292,20 @@ var b60off = String((state.emails[0] || {}).body || '');
 ok(b60off.indexOf('GIVE US AN UPDATE') === -1 && b60off.indexOf('When you have a moment') === -1 && b60off.indexOf('a=update') === -1, 'no kind (a 1.1 page) → no line, no button');
 ok(audit('UpdateOppSL.Email').some(function (l) { return l.details === 'Opportunity 123 — from me (employee 7)'; }), 'no kind → the audit line as before');
 
-console.log('T61. "Write an email" (or no kind) → the email is byte-identical to 1.1.1');
+// 1.3.0: SHA-256 of the v2 email (lib 1.4.0), captured when the design changed — any later change to it shows here.
+var EMAIL_130 = { write: '874f94b6483f1a07a27d087d93408d7727f8dd5723c0b47661394417014fc3d8', multi: '04fdb98ca09c2b69e92382239a353140f411fa02c1eebc8655ffd66897e81c3b' };
+console.log('T61. "Write an email" (or no kind) → one email; changed in 1.3.0: the v2 design (was: byte-identical to 1.1.1)');
 function sha(s) { return require('crypto').createHash('sha256').update(String(s)).digest('hex'); }
 resetState(); withLink(); state.contacts[0].company = '55';
 emailPost({ custpage_rcpt_customer: 'T', custpage_rcpt_ccme: 'T' });
-ok(sha(state.emails[0].body) === '62617470eaa91c9c4285f36cd95768ed5bae5848e5ec852c7ca20b7a16be3ff3', 'default email: same SHA-256 as 1.1.1');
+var b61a = state.emails[0].body;
 resetState(); withLink(); state.contacts[0].company = '55';
 emailPost({ custpage_email_kind: 'write', custpage_rcpt_customer: 'T', custpage_rcpt_ccme: 'T' });
-ok(sha(state.emails[0].body) === '62617470eaa91c9c4285f36cd95768ed5bae5848e5ec852c7ca20b7a16be3ff3', 'kind=write: same SHA-256 as 1.1.1');
+ok(sha(state.emails[0].body) === sha(b61a), 'kind=write and no kind: the same email');
+ok(sha(b61a) === EMAIL_130.write, 'default email: the 1.3.0 baseline SHA-256' + (sha(b61a) === EMAIL_130.write ? '' : ' (got ' + sha(b61a) + ')'));
 resetState();
 emailPost({ custpage_email_from: 'me', custpage_email_message: 'Line one\nline two\n\nPara <b>&amp;</b> {{x}}' });
-ok(sha(state.emails[0].body) === '0344d6cf20a86e0e5904ee35529a999e4312025dcd96adc2c0eb63a7ac156e70', 'multi-paragraph, escaped email: same SHA-256 as 1.1.1');
+ok(sha(state.emails[0].body) === EMAIL_130.multi, 'multi-paragraph, escaped email: the 1.3.0 baseline SHA-256' + (sha(state.emails[0].body) === EMAIL_130.multi ? '' : ' (got ' + sha(state.emails[0].body) + ')'));
 
 console.log('T62. Page script: while "Request an update" is chosen');
 resetState(); withLink(); state.contacts[0].company = '55';
@@ -1449,7 +1453,7 @@ console.log('T69. "Request an update": the prefill on the page');
 resetState(); withLink({ isperson: true, firstname: 'Jo &amp; "Jay"' });
 var h69 = html(runGet());
 ok(kindAttr(h69, 'subject') === 'Could you give us a quick update on OPP123?', 'subject prefill: "Could you give us a quick update on OPP123?"');
-ok(kindAttr(h69, 'message') === 'Hi Jo &amp; &quot;Jay&quot;,\n\nWe’d love to know where your project is up to, so we can be ready when you need us. Just press the button below. It only takes a minute.\n\nThanks,',
+ok(kindAttr(h69, 'message') === 'Hi Jo &amp; &quot;Jay&quot;,\n\nWe’d love to know where your project is up to, so we can be ready when you need us. Just press the button below. It only takes a minute.',   // changed in 1.3.0: no "Thanks,"
    'message prefill for a person: "Hi <first name>," (decoded once, escaped in the attribute)');
 ok(kindAttr(h69, 'write-subject') === 'An update on OPP123', 'the write subject is kept for switching back');
 ok(/id="nsq-email-subject" name="custpage_email_subject" maxlength="120" autocomplete="off" value="An update on OPP123"/.test(h69) && /name="custpage_email_message" rows="8" maxlength="10000"><\/textarea>/.test(h69),
@@ -1469,14 +1473,14 @@ ubPost({ custpage_email_message: '', custpage_email_subject: 'Could you give us 
 var b70 = String((state.emails[0] || {}).body || '');
 ok(state.emails.length === 1 && state.emails[0].subject === 'Could you give us a quick update on OPP123?', 'an empty message is allowed; the posted subject is used');
 ok(b70.indexOf('When you have a moment, let us know where your project is up to. It only takes a minute, and it helps us be ready when you need us.</font></p>') !== -1 &&
-   b70.indexOf('When you have a moment') < b70.indexOf('GIVE US AN UPDATE') && b70.indexOf('GIVE US AN UPDATE') < b70.indexOf('Best wishes,'), 'empty message → the fixed line, then the button, then the sign-off');
+   b70.indexOf('When you have a moment') < b70.indexOf('GIVE US AN UPDATE') && b70.indexOf('GIVE US AN UPDATE') < b70.indexOf('YOUR NU-HEAT CONTACT'), 'empty message → the fixed line, then the button, then the sender card');   // changed in 1.3.0
 ok(b70.indexOf('overflow:hidden;">When you have a moment, let us know where your project is up to. It only takes a minute, a</span>') !== -1,
    'the preheader is the fixed line too (first 90 characters)');
-var m70 = 'Hi Ann,\n\nWe’d love to know where your project is up to, so we can be ready when you need us. Just press the button below. It only takes a minute.\n\nThanks,';
+var m70 = 'Hi Ann,\n\nWe’d love to know where your project is up to, so we can be ready when you need us. Just press the button below. It only takes a minute.';   // changed in 1.3.0: no "Thanks,"
 resetState(); withLink(); state.contacts[0].company = '55';
 ubPost({ custpage_email_message: m70, custpage_rcpt_customer: 'T' });
 var b70p = String((state.emails[0] || {}).body || '');
-ok(b70p.indexOf('We’d love to know') !== -1 && b70p.indexOf('When you have a moment') === -1 && b70p.indexOf('Thanks,') < b70p.indexOf('GIVE US AN UPDATE'), 'the prefilled message is sent; no fixed line; the button after it');
+ok(b70p.indexOf('We’d love to know') !== -1 && b70p.indexOf('When you have a moment') === -1 && b70p.indexOf('It only takes a minute.') < b70p.indexOf('GIVE US AN UPDATE'), 'the prefilled message is sent; no fixed line; the button after it');
 resetState(); withLink(); state.contacts[0].company = '55';
 ubPost({ custpage_email_message: 'Ann — any news on the slab pour? <b>x</b>', custpage_rcpt_customer: 'T' });
 var b70e = String((state.emails[0] || {}).body || '');
@@ -1688,6 +1692,153 @@ resetState();
 runUe({ nsq: 'dup', nsqt: NOW });
 runUe({ nsqs: 'send', nsq: 'dup', nsqt: NOW });
 ok(state.pageMessages.length === 0, 'nsq=dup without nsqs=upd → no banner');
+
+// ═══ T74–T82 — 1.3.0: the v2 customer email design (lib 1.4.0) ═══════════════════
+
+var MSO_BLOCK_V2 = /<!--\[if (?:gte )?mso[^\]]*\]>([\s\S]*?)<!\[endif\]-->/g;
+var NOT_MSO_BLOCK_V2 = /<!--\[if !mso\]><!-- -->([\s\S]*?)<!--<!\[endif\]-->/g;
+/** What Outlook shows: [if mso] content unwrapped, [if !mso] content removed. */
+function outlookViewV2(h) { return h.replace(NOT_MSO_BLOCK_V2, '').replace(MSO_BLOCK_V2, '$1').replace(/<!--[\s\S]*?-->/g, ''); }
+/** Every <style> block and style attribute removed, [if mso] blocks dropped: the most hostile viewer. */
+function fullyStrippedV2(h) {
+    return h.replace(MSO_BLOCK_V2, '').replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, '').replace(/\sstyle="[^"]*"/g, '').replace(/<!--[\s\S]*?-->/g, '');
+}
+function countOf(h, t) { return h.split(t).length - 1; }
+var HERO_V2 = 'https://images.chamaileon.io/5b1fac592f38b800113c85ca/5ca8626420e2346b3ee9a013/1613738610524_Order%20conformation.jpg';
+var FOOTER_V2 = 'You’re receiving this because you have a project with Nu-Heat.';
+/** The v2 email of each mode, as email.send() received it. */
+function v2Write(over, setup) { resetState(); if (setup) setup(); emailPost(over || {}); return String((state.emails[0] || {}).body || ''); }
+function v2Update(over, setup) {
+    resetState(); withLink(); state.contacts[0].company = '55'; if (setup) setup();
+    var p = { custpage_rcpt_customer: 'T' }; Object.keys(over || {}).forEach(function (k) { p[k] = over[k]; });
+    ubPost(p); return String((state.emails[0] || {}).body || '');
+}
+var PREFILL_V2 = 'Hi Ann,\n\nWe’d love to know where your project is up to, so we can be ready when you need us. Just press the button below. It only takes a minute.';
+
+console.log('T74. Both modes: logo · band (the subject as headline) · hero · message · sender card · teal footer; no "Best wishes"');
+var v74 = [
+    ['write', v2Write({ custpage_email_subject: 'Your heat pump options' }), 'An update from Nu-Heat', 'Your heat pump options', 'The quote is attached to your account.'],
+    ['update', v2Update({ custpage_email_subject: 'Could you give us a quick update on OPP123?', custpage_email_message: PREFILL_V2 }), 'Your project', 'Could you give us a quick update on OPP123?', 'It only takes a minute.']
+];
+v74.forEach(function (c) {
+    var h = c[1];
+    ok(h.length > 5000, c[0] + ': email rendered (' + h.length + ' chars)');
+    ok(/<td align="center" valign="top" bgcolor="#59315f" class="pad" style="background-color:#59315f;padding:36px 48px 40px 48px;/.test(h), c[0] + ': purple band #59315f (bgcolor attribute)');
+    ok(h.indexOf('color="#e7d9ea"><b>' + c[2] + '</b></font>') !== -1 && /text-transform:uppercase/.test(h), c[0] + ': eyebrow "' + c[2] + '" (shown in capitals)');
+    ok(new RegExp('<h1 class="h1"[^>]*><font [^>]*color="#ffffff">' + c[3].replace(/[?]/g, '\\?') + '</font></h1>').test(h), c[0] + ': headline = the subject');
+    var band = (/bgcolor="#59315f" class="pad"[^>]*>([\s\S]*?)<\/td><\/tr>/.exec(h) || [])[1] || '';
+    ok(countOf(band, '<p ') === 1 && /<\/h1>\n$/.test(band) && h.indexOf('#f3ecf4') === -1, c[0] + ': no greeting line in the band (eyebrow and headline only)');
+    ok(h.indexOf('<img src="' + HERO_V2 + '" width="600" height="337" alt="" border="0" class="fluid"') !== -1, c[0] + ': the hero (Order conformation.jpg, 600 × 337)');
+    ok(h.indexOf(c[4]) !== -1, c[0] + ': the message');
+    ok(/<b>YOUR NU-HEAT CONTACT<\/b>/.test(h) && /<b>Sam Taylor<\/b>/.test(h) && /bgcolor="#f6f2f7"/.test(h), c[0] + ': the sender card');
+    ok(/bgcolor="#25847a" class="pad" style="background-color:#25847a;/.test(h) && h.indexOf('color="#e6f3f1">' + FOOTER_V2 + '</font></p>') !== -1 && !/#00857d/.test(h), c[0] + ': teal footer #25847a with its one line inside');
+    ok((h.match(/1604502\d+_white%20-%20(facebook|instagram|linkedin|twitter|youtube)\.png/g) || []).length === 5 && h.indexOf('logo%20wht%20on%20green.png') !== -1, c[0] + ': white logo and the five social icons');
+    ok(h.indexOf('Best wishes') === -1 && h.indexOf('Any questions at all') === -1, c[0] + ': no "Best wishes" paragraph, no "just reply" line');
+    var from = h.indexOf('<body'), order = ['logo%20green%20-%20transparent', 'bgcolor="#59315f"', HERO_V2, c[4] + '</font></p>', 'YOUR NU-HEAT CONTACT', 'bgcolor="#25847a"'].every(function (t) {
+        var n = h.indexOf(t, from); if (n === -1) return false; from = n; return true;
+    });
+    ok(order, c[0] + ': in order — logo, band, hero, message, card, footer');
+    ok(/<table role="presentation" class="width600 main-container" width="600" align="center"[^>]*style="width:100%;max-width:600px;"/.test(h), c[0] + ': one 600px centred column');
+});
+ok(v74[0][1].indexOf('GIVE US AN UPDATE') === -1 && v74[0][1].indexOf('a=update') === -1, 'write: no button');
+
+console.log('T75. Request an update: the GIVE US AN UPDATE button (v2 primary, #ffb500, centred, bulletproof)');
+var b75 = v74[1][1];
+var URL75 = cdbLink(55, 2) + '&a=update&opp=123';
+var hrefs75 = []; b75.replace(/href="([^"]*a=update[^"]*)"/g, function (m, h) { hrefs75.push(h); });
+ok(hrefs75.length === 2 && hrefs75.every(function (h) { return h === LIB.escapeHtml(URL75) && /&amp;a=update&amp;opp=123$/.test(h); }), 'href = the stored link + &a=update&opp=123 (escaped), in both halves of the pair');
+ok(b75.indexOf('<td align="center" valign="top" style="padding:8px 0 16px 0;">\n' + LIB.emailButtonV2(URL75, 'GIVE US AN UPDATE')) !== -1, 'lib.emailButtonV2, in a centred cell');
+var btn75 = LIB.emailButtonV2(URL75, 'GIVE US AN UPDATE');
+ok(/<table [^>]*align="center"[^>]*bgcolor="#ffb500" style="background-color:#ffb500;border-radius:6px;/.test(btn75) && /color="#3e3b39"><b>GIVE US AN UPDATE<\/b>/.test(btn75), 'yellow #ffb500, text #3e3b39, by bgcolor and <font color>');
+ok(countOf(btn75, '<!--[if !mso]><!-- -->') === 1 && countOf(btn75, '<!--[if mso]>') === 1 && !/display:\s*none/.test(btn75), 'one [if !mso] / [if mso] pair, no display:none');
+ok(b75.indexOf('It only takes a minute.') < b75.indexOf('GIVE US AN UPDATE') && b75.indexOf('When you have a moment') === -1, 'with a message: the message, then the button; no fixed line');
+var b75e = v2Update({ custpage_email_message: '' });
+ok(b75e.indexOf('When you have a moment, let us know where your project is up to.') !== -1 &&
+   b75e.indexOf('When you have a moment') < b75e.indexOf('GIVE US AN UPDATE') && b75e.indexOf('GIVE US AN UPDATE') < b75e.indexOf('YOUR NU-HEAT CONTACT'),
+   'empty message: the fixed line, then the button, then the card');
+ok(b75e.indexOf('overflow:hidden;">When you have a moment, let us know where your project is up to. It only takes a minute, a</span>') !== -1, 'empty message: the preheader is the fixed line');
+
+console.log('T76. Escaping: the subject in the band and <title>, the message in the body — both modes');
+var SUBJ76 = 'Q&A <b>"hot"</b> {{X}}', MSG76 = 'Line <i>one</i> & "two"\nnext {{Y}}';
+[['write', v2Write({ custpage_email_subject: SUBJ76, custpage_email_message: MSG76 })], ['update', v2Update({ custpage_email_subject: SUBJ76, custpage_email_message: MSG76 })]].forEach(function (c) {
+    var h = c[1];
+    ok(h.indexOf('<font face="Calibri, Arial, sans-serif" color="#ffffff">Q&amp;A &lt;b&gt;&quot;hot&quot;&lt;/b&gt; &#123;&#123;X}}</font></h1>') !== -1 && h.indexOf('<title>Q&amp;A &lt;b&gt;&quot;hot&quot;&lt;/b&gt; &#123;&#123;X}}</title>') !== -1, c[0] + ': subject escaped in the band and the title');
+    ok(h.indexOf('Line &lt;i&gt;one&lt;/i&gt; &amp; &quot;two&quot;<br>next &#123;&#123;Y}}</font></p>') !== -1 && h.indexOf('<i>') === -1 && h.indexOf('<b>"hot"') === -1, c[0] + ': message escaped; a single newline kept as <br>');
+    ok(!/\{\{/.test(h), c[0] + ': no "{{" anywhere');
+});
+var b76p = v2Write({ custpage_email_message: 'One\n\n\nTwo\nthree' });
+var paras76 = b76p.match(/<p style="margin:0 0 16px 0;[^"]*font-size:17px;line-height:25px;color:#2b2a2e;text-align:left;"><font [^>]*>[\s\S]*?<\/font><\/p>/g) || [];
+ok(paras76.length === 2 && /Two<br>three<\/font><\/p>$/.test(paras76[1]), 'blank lines → paragraphs in the v2 body style (17px / 25px, #2b2a2e)');
+
+console.log('T77. The sender card');
+var b77 = v74[0][1];
+ok(/<b>CALL SAM<\/b>/.test(b77) && /<b>EMAIL SAM<\/b>/.test(b77) && countOf(b77, 'href="tel:01404549770"') === 2 && countOf(b77, 'href="mailto:sam.taylor@nu-heat.co.uk"') === 2, 'CALL SAM → tel:, EMAIL SAM → mailto: (each in both halves of its pair)');
+ok(/<table [^>]*bgcolor="#59315f"[^>]*>\n<tr><td [^>]*><a href="tel:/.test(b77) && /bgcolor="#59315f" style="background-color:#59315f;border-radius:6px;border-collapse:separate;">\n<tr><td align="center" valign="middle" bgcolor="#59315f" style="padding:2px;border-radius:6px;">\n<table [^>]*bgcolor="#ffffff"/.test(b77), 'CALL purple filled; EMAIL purple outline (an outer bgcolor frame)');
+ok(b77.indexOf('<span class="cl-line">01404 549 770</span><span class="cl-sep"> · </span><span class="cl-line">sam.taylor@nu-heat.co.uk</span>') !== -1, 'name, phone · email');
+ok(/<img src="https:\/\/1234567\.app\.netsuite\.com\/core\/media\/media\.nl\?id=5&amp;c=1234567&amp;h=ab" width="96" height="96" alt="Sam Taylor"/.test(b77), 'https photo shown, 96px');
+var b77h = v2Write({}, function () { state.employee.custentity_employee_photo_link = 'http://insecure.example/p.jpg'; });
+ok(!/width="96"/.test(b77h) && b77h.indexOf('insecure.example') === -1, 'http photo → no photo row');
+var b77n = v2Write({}, function () { state.employee.phone = ''; });
+ok(b77n.indexOf('tel:') === -1 && !/CALL SAM/.test(b77n) && /<b>EMAIL SAM<\/b>/.test(b77n) && b77n.indexOf('<span class="cl-sep">') === -1 &&
+   /<td class="stack" width="100%"[^>]*>\n<!--\[if !mso\]><!-- -->\n<table [^>]*bgcolor="#59315f"/.test(b77n), 'no phone → the email line alone, no CALL button, EMAIL full width (as 1.1.0)');
+ok(b77n.indexOf('01404 540604') === -1 && b77n.indexOf('info@nu-heat.co.uk') === -1, 'no phone → no office fallback (this repo\'s rule, not the dashboard\'s)');
+var b77d = v2Write({}, function () { state.employee.phone = 'ask for Sam'; });
+ok(b77d.indexOf('ask for Sam</span>') !== -1 && b77d.indexOf('tel:') === -1, 'a phone with no digits → shown, no CALL button');
+var b77f = v2Write({}, function () { state.employee.firstname = ''; state.employee.lastname = ''; state.employee.entityid = ''; });
+ok(/<b>Nu-Heat<\/b>/.test(b77f) && /<b>CLICK TO CALL<\/b>/.test(b77f) && /<b>SEND AN EMAIL<\/b>/.test(b77f), 'no name → "Nu-Heat", CLICK TO CALL / SEND AN EMAIL');
+var b77e = v2Write({ custpage_email_from: 'me' }, function () { state.employee.email = ''; });
+ok(state.emails.length === 0, 'missing sender email → not sent (refused before the card, as 1.1.0)');
+var c77 = LIB.emailSenderCardV2({ fullName: 'A B', firstName: 'A', phone: '', photoUrl: '' }, '', 'L');
+ok(c77.indexOf('mailto:') === -1 && c77.indexOf('tel:') === -1 && c77.indexOf('<td class="stack"') === -1, 'lib: no phone and no email → no buttons');
+var b77p = v2Write({ custpage_email_from: 'pe' }, withTeam);
+ok(b77p.indexOf('href="mailto:design@nu-heat.co.uk"') !== -1 && b77p.indexOf('pat.pe@') === -1 && /<b>CALL PAT<\/b>/.test(b77p), 'the PE: design@nu-heat.co.uk on the card (Send Design\'s rule)');
+
+console.log('T78. The "Request an update" prefill no longer ends with "Thanks,"');
+[{ isperson: true, firstname: 'Ann' }, { isperson: false, firstname: '' }].forEach(function (x) {
+    resetState(); withLink(x);
+    var m = kindAttr(html(runGet()), 'message') || '';
+    ok(/It only takes a minute\.$/.test(m) && m.indexOf('Thanks') === -1, (x.isperson ? 'person' : 'company') + ': ends after "It only takes a minute."');
+});
+
+console.log('T79. Outlook safety (Send Quote 2.2.0 rules) for the v2 shell');
+[['write', v74[0][1], ['CALL SAM', 'EMAIL SAM']], ['update', v74[1][1], ['GIVE US AN UPDATE', 'CALL SAM', 'EMAIL SAM']], ['no phone', b77n, ['EMAIL SAM']]].forEach(function (c) {
+    var h = c[1];
+    ok(!/display:\s*(flex|grid|inline-flex)|grid-template|flex-direction|float\s*:/i.test(h) && !/<div\b/i.test(h), c[0] + ': tables only — no flex, grid, float or <div>');
+    var w = h.match(/<[a-z]+[^>]*style="[^"]*display:\s*none[^"]*"[^>]*>/gi) || [];
+    ok(w.length === 1 && /^<span style="display:none;font-size:0px/.test(w[0]) && !/mso-hide/i.test(h), c[0] + ': only the preheader span is display:none');
+    ok(countOf(h, '<!--[if !mso]><!-- -->') === c[2].length && countOf(h, '<!--[if mso]>\n<table') === c[2].length, c[0] + ': one [if !mso] / [if mso] pair per button (' + c[2].length + ')');
+    var ov = outlookViewV2(h), fs_ = fullyStrippedV2(h);
+    c[2].forEach(function (b) { ok(countOf(ov, '<b>' + b + '</b>') === 1 && countOf(fs_, '<b>' + b + '</b>') === 1, c[0] + ': "' + b + '" once in Outlook and once fully stripped'); });
+    ok(!/<style/i.test(fs_) && !/\sstyle=/.test(fs_), c[0] + ': stripped view has no CSS left');
+    ok(/<table [^>]*class="width600 main-container"[^>]* width="600" align="center"/.test(fs_), c[0] + ': stripped: container width="600" align="center"');
+    ok(/bgcolor="#59315f"[^>]*>\n<p[^>]*><font [^>]*color="#e7d9ea">/.test(fs_) && /<h1 class="h1"><font [^>]*color="#ffffff">/.test(fs_) && /bgcolor="#25847a"/.test(fs_) && /bgcolor="#f6f2f7"/.test(fs_),
+       c[0] + ': stripped: band, footer and card coloured by attributes, text by <font color>');
+    ok((h.match(/<(p|h1)\b[^>]*>/g) || []).every(function (t) { return / style="[^"]*font-family:/.test(t); }), c[0] + ': every <p> / <h1> carries its own inline font style');
+    ok((h.match(/<table\b[^>]*>/g) || []).every(function (t) { return /role="presentation"/.test(t) && /cellpadding=/.test(t) && /border="0"/.test(t); }), c[0] + ': every table is role="presentation" with cellpadding and border attributes');
+    ok(/<!--\[if mso\]><table role="presentation" width="600" align="center"/.test(h) && /<!--\[if mso\]>\n<style>h1, h2, p, td, a, span, font \{ font-family:Arial/.test(h), c[0] + ': the mso 600px wrapper and Arial override');
+});
+
+console.log('T80. Send Quote unchanged: emailShell / emailRepCard / emailButton byte-identical to lib 1.3.0');
+var SQ80 = {
+    title: 'T', preheader: 'P', headerLabel: 'L', headerH1: 'H', headerSub: 'S', rows: '<tr><td>R</td></tr>\n',
+    card: { intro: '<p>I</p>', html: LIB.emailRepCard({ name: 'N', phone: '1', email: 'e@x.y', photo: 'https://p/x.jpg', tel: '1', mailto: 'e@x.y', firstUpper: 'N' }, 'C') },
+    footerLine: 'F'
+};
+var SQ80_HASH = 'b46890dbda68dc3d1d9f9f780e2fe2cf9d61286ede2b73bd83ee60c303c9ae77';   // captured from lib 1.3.0 (origin/main d14ccb4)
+ok(sha(LIB.emailShell(SQ80) + LIB.emailButton('h', 'l')) === SQ80_HASH, 'the 1.3.0 functions\' output, same SHA-256' + (sha(LIB.emailShell(SQ80) + LIB.emailButton('h', 'l')) === SQ80_HASH ? '' : ' (got ' + sha(LIB.emailShell(SQ80) + LIB.emailButton('h', 'l')) + ')'));
+
+console.log('T81. Previews in docs/email-previews match the fixtures');
+var PREVIEWS = {
+    'update-opportunity-write-email.html':     function () { return v2Write({ custpage_email_subject: 'Your heat pump options', custpage_email_message: 'Hi Ann,\n\nThanks for your time on the phone today. As promised, I’ve attached the updated layout for the ground floor, with the extra zone in the snug.\n\nShall we pencil in a call next week to go through it together?' }); },
+    'update-opportunity-request-update.html':  function () { return v2Update({ custpage_email_subject: 'Could you give us a quick update on OPP123?', custpage_email_message: PREFILL_V2 }); },
+    'update-opportunity-request-update-empty-message.html': function () { return v2Update({ custpage_email_subject: 'Could you give us a quick update on OPP123?', custpage_email_message: '' }); }
+};
+Object.keys(PREVIEWS).forEach(function (f) {
+    var file = path.join(ROOT, 'docs', 'email-previews', f);
+    var body = PREVIEWS[f]();
+    if (process.env.WRITE_EMAIL_PREVIEWS) fs.writeFileSync(file, body);
+    ok(fs.existsSync(file) && fs.readFileSync(file, 'utf8') === body, f + ' is the current email');
+});
 
 console.log('\n' + passes + ' passed, ' + failures + ' failed');
 process.exit(failures ? 1 : 0);

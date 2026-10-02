@@ -361,6 +361,12 @@
 
 ## Send Quote Suitelet (`nuheat_send_quote_sl.js`) & Client Script (`nuheat_send_quote_cs.js`)
 
+### Update Opportunity SL v1.3.0 / Opportunity Update Library v1.4.0 — 2 October 2026 🔶 In review
+
+- CHANGED: the email (both modes) moves to the v2 customer email design (the dashboard's "Book your
+  delivery"): `lib.emailShellV2`, `emailSenderCardV2`, `emailButtonV2`. No "Best wishes" paragraph; the
+  prefill no longer ends "Thanks,". Send Quote unchanged (byte-identical).
+
 ### Update Opportunity SL v1.2.2 — 2 October 2026 🔶 In review
 
 - CHANGED: the tick box became a choice, "Write an email" (default, 1.1.1) / "Request an update"

@@ -1,3 +1,25 @@
+## [Update Opportunity SL v1.3.0 / Opportunity Update Library v1.4.0] — 2 October 2026 (Customer email family v2, step 1)
+**Status:** 🔶 In review — not deployed. Upload the library (1.4.0) before the Suitelet.
+**Components:** `nuheat_opp_update_lib.js`, `nuheat_update_opp_sl.js`, `test/update-opp.js`, `test/opp-lib-customer.js`, `docs/email-previews/`
+
+**Why (Steve, 2 Oct):** the Update Opportunity email should match the v2 customer email design of the
+dashboard's "Book your delivery" (Send delivery link) email.
+
+- ADDED (lib 1.4.0): `emailShellV2({ preheader, eyebrow, headline, heroUrl, bodyHtml, senderCard, footerLine })`,
+  `emailSenderCardV2(sender, cardEmail, label)`, `emailButtonV2(href, label)`, `emailParagraphV2(html)` and
+  `EMAIL_HERO_V2` — markup copied from NS-Customer-Dashboard `cdb_lib_render.js` (no dashboard file is
+  required). `emailShell` / `emailRepCard` / `emailButton` are unchanged, so Send Quote's email is
+  byte-identical (its hashes pass). `emailShellV2` also takes `bodyRows`, so Send Quote can switch later.
+- CHANGED (SL 1.3.0): both modes use the v2 shell — coloured logo, purple band (eyebrow "An update from
+  Nu-Heat", or "Your project" for Request an update; headline = the subject; no greeting), the hero, the
+  message in the v2 body style, the GIVE US AN UPDATE button in the v2 yellow style (Request an update),
+  the sender card (CALL filled, EMAIL outlined) and the teal `#25847a` footer: "You’re receiving this
+  because you have a project with Nu-Heat."
+- REMOVED: the separate "Best wishes, <name>" paragraph (the card signs off), the footer's "just reply to
+  this email" line, and "Thanks," at the end of the Request an update prefill.
+- Unchanged: the card label (YOUR NU-HEAT CONTACT for every sender), https-only photo, no phone → email
+  alone and no CALL button, the PE's design@ address, escaping, the fixed line rule, the button URL.
+
 ## [Update Opportunity SL v1.2.2] — 2 October 2026 (PR #36 amendment 2: "Write an email" or "Request an update")
 **Status:** 🔶 In review — not deployed. Library unchanged (1.3.0); the 1.2.1 switch still applies.
 **Components:** `nuheat_update_opp_sl.js`, `test/update-opp.js`, `test/opp-lib-customer.js`

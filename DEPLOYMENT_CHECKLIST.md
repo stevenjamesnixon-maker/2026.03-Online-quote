@@ -230,6 +230,10 @@ Navigate to **Customization > Scripting > Scripts > New** for each:
     the dashboard go-live and team training. `ADMIN` = the Administrator role only (Steve's testing);
     `ALL` = everyone. Anything else, or an unreadable value, is OFF (logged at debug).
   - OFF gives exactly the 1.1.1 email section; the customer lookup reads only `email`.
+- **1.3.0 — the v2 email design (needs library 1.4.0, uploaded first):** not behind the switch — once
+  uploaded, every "Write an email" from every rep uses the new design (logo, purple band, hero, sender
+  card, teal footer; no "Best wishes" sign-off). No new parameters or permissions. Previews:
+  `docs/email-previews/`. Send Quote's email is unchanged (byte-identical; Send Quote needs no redeploy).
 
 #### 2g. Opportunity User Event
 - **Name:** Nu-Heat Opportunity UE

@@ -9,16 +9,30 @@
  *              objections. Saves a completed Phone Call, sends a bespoke email from the user, saves one
  *              Customer Objection per ticked type, then the Opportunity fields LAST, and returns to the
  *              Opportunity with the result banner (nuheat_opportunity_ue.js, nsqs=upd).
- * @version     1.2.2
+ * @version     1.3.0
  * @author      Nu-Heat Development
  *
  * Script ID:      customscript_nuheat_update_opp_sl
  * Deployment ID:  customdeploy_nuheat_update_opp_sl
  *
- * ⚠️ DEPLOYMENT: nuheat_opp_update_lib.js (1.3.0) must be uploaded to SuiteScripts/NuHeat/2026 Quote/
+ * ⚠️ DEPLOYMENT: nuheat_opp_update_lib.js (1.4.0) must be uploaded to SuiteScripts/NuHeat/2026 Quote/
  *    BEFORE this script, or it fails at load time.
  * ⚠️ 1.2.1: create the script parameter custscript_nuheat_updbtn_mode (Free-Form Text) first and leave
  *    it empty (= OFF) on the Released deployment until the dashboard go-live — DEPLOYMENT_CHECKLIST 2f-2.
+ *
+ * CHANGELOG v1.3.0 (Customer email family v2, step 1 — the v2 customer email design, 2 Oct 2026):
+ *   - The email (both "Write an email" and "Request an update") now matches the dashboard's "Book your
+ *     delivery" email: lib.emailShellV2 (lib 1.4.0) — coloured logo, purple band (eyebrow "An update
+ *     from Nu-Heat", or "Your project" for an update request; headline = the subject; no greeting),
+ *     the hero, the message in the v2 body style, the GIVE US AN UPDATE button in the v2 primary style
+ *     (lib.emailButtonV2), the sender card (lib.emailSenderCardV2: CALL filled, EMAIL outlined) and the
+ *     teal footer with one line, "You’re receiving this because you have a project with Nu-Heat."
+ *   - The separate "Best wishes, <name>" paragraph is gone (the card signs off), and so is "Thanks,"
+ *     at the end of the "Request an update" prefill. The footer's "just reply to this email" line is
+ *     replaced by the footer line above.
+ *   - Unchanged: the label (YOUR NU-HEAT CONTACT for every sender), the photo rule (https only), the
+ *     contact rules (no phone → email alone, no CALL button; the PE's card shows design@nu-heat.co.uk),
+ *     escaping, the fixed line only for an update request with no message, and the button URL.
  *
  * CHANGELOG v1.2.2 (PR #36 amendment 2 — "Write an email" or "Request an update", 2 Oct 2026):
  *   - The tick box is REMOVED. When the mode allows it, Send an email opens with a two-option choice,
@@ -127,7 +141,7 @@ define([
 
     'use strict';
 
-    var SCRIPT_VERSION = '1.2.2';
+    var SCRIPT_VERSION = '1.3.0';
 
     /** Page rules for the shared update fields: Next contact must end up set. */
     var RULES = { required: ['next_contact'], logKey: 'UpdateOppSL.OppUpdate' };
@@ -172,14 +186,15 @@ define([
 
     /**
      * D19: the bespoke email's fixed copy. Steve may reword these — keep them in this one block.
-     * The sign-off adds the sender's full name; the footer adds the sender's first name if known.
+     * v1.3.0: the v2 customer email design — the band's eyebrow per mode, one footer line, and no
+     * separate sign-off (the sender card does that job).
      */
     var EMAIL_COPY = {
-        headerLabel:  'A MESSAGE FROM NU-HEAT',
+        eyebrow:       'An update from Nu-Heat',        // v1.3.0: "Write an email" (shown in capitals)
+        eyebrowUpdate: 'Your project',                  // v1.3.0: "Request an update"
         subjectStart: 'An update on ',                  // + the Opportunity's tranid (D17)
-        signOff:      'Best wishes,',
         cardLabel:    'YOUR NU-HEAT CONTACT',
-        footer:       'Any questions at all, just reply to this email – it comes straight to me.',
+        footer:       'You’re receiving this because you have a project with Nu-Heat.',   // v1.3.0: inside the teal footer
         nameFallback: 'Nu-Heat',                        // only if the employee record has no name at all
         pageNote:     'Sent from you, with your contact details. Replies come to you.',
         // Amendment 2 (D18a): the note when sending as the sales rep / project engineer
@@ -196,7 +211,7 @@ define([
         updateSubjectEnd:   '?',
         updateHi:           'Hi',                                     // + ' <first name>' for a person, then ','
         updateBody:         'We’d love to know where your project is up to, so we can be ready when you need us. Just press the button below. It only takes a minute.',
-        updateThanks:       'Thanks,',
+        // v1.3.0: no "Thanks," — the sender card signs the email off
         updateButton: 'GIVE US AN UPDATE'
     };
 
@@ -523,7 +538,7 @@ define([
         f = f || {};
         var person = f.isperson === true || f.isperson === 'T' || f.isperson === 'true';
         var first = person ? lib.cleanText(lib.lookupText(f.firstname)).trim() : '';
-        return EMAIL_COPY.updateHi + (first ? ' ' + first : '') + ',\n\n' + EMAIL_COPY.updateBody + '\n\n' + EMAIL_COPY.updateThanks;
+        return EMAIL_COPY.updateHi + (first ? ' ' + first : '') + ',\n\n' + EMAIL_COPY.updateBody;   // v1.3.0: no "Thanks,"
     }
 
     /** v1.2.0: the dashboard contact's email ('' if none, or on any error — logged at debug). */
@@ -979,79 +994,64 @@ define([
         return escapeHtml(s).replace(/\{\{/g, '&#123;&#123;');
     }
 
-    /** Plain-text message → paragraphs: a blank line starts a new paragraph, a single newline is <br>. */
+    /**
+     * Plain-text message → paragraphs: a blank line starts a new paragraph, a single newline is <br>.
+     * v1.3.0: in the v2 body style (lib.emailParagraphV2).
+     */
     function messageParagraphs(message) {
-        var font = lib.EMAIL_FONT, face = lib.EMAIL_FACE;
         return String(message || '').replace(/\r\n?/g, '\n').split(/\n[ \t]*\n\s*/)
             .map(function (p) { return p.replace(/^\n+|\n+$/g, ''); })
             .filter(function (p) { return p.trim(); })
-            .map(function (p) {
-                return '<p style="margin:0 0 16px 0;' + font + 'font-size:18px;line-height:26px;color:#131313;text-align:left;">' +
-                    '<font face="' + face + '" color="#131313">' + p.split('\n').map(emailText).join('<br>') + '</font></p>\n';
-            }).join('');
+            .map(function (p) { return lib.emailParagraphV2(p.split('\n').map(emailText).join('<br>')); })
+            .join('');
     }
 
     /**
-     * The bespoke email: the library's shell with this page's copy (EMAIL_COPY), the message, the
-     * sign-off and the SENDER's contact card (D18: employee record only — no Opportunity overrides).
-     * No merge-tag substitution runs over any of it (pitfall 28).
+     * The bespoke email — v1.3.0: the v2 customer email design (lib.emailShellV2, as the dashboard's
+     * "Book your delivery" email): preheader · logo · purple band (eyebrow, the subject as headline) ·
+     * hero · the message · for "Request an update" the GIVE US AN UPDATE button · the SENDER's card
+     * (D18: employee record only — no Opportunity overrides) · teal footer. No separate sign-off: the
+     * card does that job. No merge-tag substitution runs over any of it (pitfall 28).
      *
      * @param {string} subject - the subject, also the headline
      * @param {string} message - plain text as typed
      * @param {Object} sender - lib.loadSender() — the chosen sender (D18a: me, the sales rep or the PE)
      * @param {string} cardEmail - the card's email line and EMAIL button: the sender's own address, or
      *                             EMAIL_COPY.peCardEmail when sending as the project engineer
-     * @param {string} [updateLink] - v1.2.0: the "Give us an update" URL (unescaped); omitted → the
-     *                             email is byte-identical to 1.1.1
+     * @param {string} [updateLink] - v1.2.0: the "Give us an update" URL (unescaped); omitted → "Write an
+     *                             email" (no button, eyebrow EMAIL_COPY.eyebrow)
      */
     function buildBespokeEmail(subject, message, sender, cardEmail, updateLink) {
-        var font = lib.EMAIL_FONT, face = lib.EMAIL_FACE;
-        var name  = sender.fullName || EMAIL_COPY.nameFallback;
-        var first = String(sender.firstName || '').trim();
-        var phone = String(sender.phone || '');
         var preheader = String(message || '').replace(/\s+/g, ' ').trim().substring(0, 90);
         if (updateLink && !preheader) preheader = EMAIL_COPY.updateLine.substring(0, 90);   // v1.2.2: an update request with no message
 
-        var rows = '' +
-            '<tr><td align="left" valign="top" style="padding:28px 30px 4px 30px;text-align:left;">\n' +
-            messageParagraphs(message) +
-            (updateLink ? updateButtonHtml(updateLink, !String(message || '').trim()) : '') +
-            '<p style="margin:8px 0 0 0;' + font + 'font-size:18px;line-height:26px;color:#131313;text-align:left;">' +
-            '<font face="' + face + '" color="#131313">' + emailText(EMAIL_COPY.signOff) + '<br>' + emailText(name) + '</font></p>\n' +
-            '</td></tr>\n';
+        var card = lib.emailSenderCardV2({
+            fullName:  sender.fullName || EMAIL_COPY.nameFallback,
+            firstName: sender.firstName,
+            phone:     sender.phone,
+            photoUrl:  sender.photoUrl
+        }, cardEmail, EMAIL_COPY.cardLabel);
 
-        var card = lib.emailRepCard({
-            name:       emailText(name),
-            phone:      emailText(phone),
-            email:      emailText(cardEmail),
-            photo:      sender.photoUrl ? escapeHtml(sender.photoUrl) : '',
-            tel:        escapeHtml(phone.replace(/[^\d+]/g, '')),
-            mailto:     escapeHtml(cardEmail),
-            firstUpper: emailText(first.toUpperCase())
-        }, emailText(EMAIL_COPY.cardLabel));
-
-        return lib.emailShell({
-            title:       emailText(subject),
-            preheader:   emailText(preheader),
-            headerLabel: emailText(EMAIL_COPY.headerLabel),
-            headerH1:    emailText(subject),
-            headerSub:   '',
-            rows:        rows,
-            card:        { intro: '', html: card },
-            footerLine:  emailText(EMAIL_COPY.footer + (first ? ' ' + first : ''))
+        return lib.emailShellV2({
+            preheader:  emailText(preheader),
+            eyebrow:    emailText(updateLink ? EMAIL_COPY.eyebrowUpdate : EMAIL_COPY.eyebrow),
+            headline:   emailText(subject),
+            heroUrl:    lib.EMAIL_HERO_V2,
+            bodyHtml:   messageParagraphs(message) +
+                        (updateLink ? updateButtonHtml(updateLink, !String(message || '').trim()) : ''),
+            senderCard: card,
+            footerLine: emailText(EMAIL_COPY.footer)
         });
     }
 
     /**
-     * The button between the message and the sign-off. v1.2.2: the fixed line only when there is no
-     * message (the "Request an update" prefill carries that wording), so the button never stands alone.
+     * The button after the message. v1.2.2: the fixed line only when there is no message (the "Request
+     * an update" prefill carries that wording), so the button never stands alone. v1.3.0: v2 styles.
      */
     function updateButtonHtml(link, withLine) {
-        var font = lib.EMAIL_FONT, face = lib.EMAIL_FACE;
-        return (withLine ? '<p style="margin:0 0 16px 0;' + font + 'font-size:18px;line-height:26px;color:#131313;text-align:left;">' +
-            '<font face="' + face + '" color="#131313">' + emailText(EMAIL_COPY.updateLine) + '</font></p>\n' : '') +
-            '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr><td align="center" style="padding:0 0 20px 0;">\n' +
-            lib.emailButton(escapeHtml(link), EMAIL_COPY.updateButton) +
+        return (withLine ? lib.emailParagraphV2(emailText(EMAIL_COPY.updateLine)) : '') +
+            '<table role="presentation" width="100%" align="center" cellpadding="0" cellspacing="0" border="0"><tr><td align="center" valign="top" style="padding:8px 0 16px 0;">\n' +
+            lib.emailButtonV2(link, EMAIL_COPY.updateButton) +
             '</td></tr></table>\n';
     }
 
