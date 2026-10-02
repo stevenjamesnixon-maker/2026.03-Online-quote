@@ -1,3 +1,18 @@
+## [Update Opportunity SL v1.2.1] — 2 October 2026 (PR #36 amendment 1: an on/off switch)
+**Status:** 🔶 In review — not deployed. **Create the script parameter before uploading** (DEPLOYMENT_CHECKLIST 2f-2).
+**Components:** `nuheat_update_opp_sl.js`, `test/update-opp.js`, `test/opp-lib-customer.js` (library unchanged, 1.3.0)
+
+**Why:** the Update Opportunity deployment is already Released to the sales roles, so 1.2.0 would show the
+tick box to every rep as soon as it is uploaded. Steve tests now and switches it on at the dashboard go-live.
+
+- ADDED: script parameter `custscript_nuheat_updbtn_mode` (Free-Form Text). Empty / `OFF` / unknown /
+  unreadable → **OFF** (fail closed): no tick box, the 1.1.1 customer lookup and a byte-identical email
+  section (SHA-256 against 1.1.1); a posted tick is ignored. `ADMIN` → only
+  `runtime.getCurrentUser().roleId === 'administrator'`. `ALL` → everyone. Trimmed, any case.
+- The POST applies the same rule: an excluded tick is treated as tick off (no button, no recipient
+  rule), audit `UpdateOppSL.UpdateButton` "ignored: mode X". An unknown value is logged once per
+  request at debug.
+
 ## [Update Opportunity SL v1.2.0, Opportunity Update Library v1.3.0] — 2 October 2026 ("Request an update" part B)
 **Status:** 🔶 In review — not deployed. Steve tests at **Testing**; off for reps until the dashboard goes live.
 **Prerequisite:** the dashboard's part A deployed (its customer UE fills `custentity_cdb_link`; the backfill

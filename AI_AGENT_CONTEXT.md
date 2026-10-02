@@ -294,7 +294,7 @@ that something has regressed at source. See §6.
 | Master Proposal | v1.8.3 | `nuheat_master_proposal.js` | ✅ Live in Production |
 | Send Quote SL | 2.3.1 | `nuheat_send_quote_sl.js` | ✅ In Production (1 Oct 2026); email byte-identical to 2.3.0 |
 | Send Quote CS | v1.4.0 — detached | `nuheat_send_quote_cs.js` | Detached, kept for reference (the Send Quote SL has its own inline script) |
-| Update Opportunity SL | 1.2.0 | `nuheat_update_opp_sl.js` | 🔶 1.2.0 in review ("Give us an update" button). 1.1.1 merged, not deployed (objection loop moved to the library; no behaviour change). 1.1.0 in Production (1 Oct 2026); U11–U23 passed, including amendments 1–3 |
+| Update Opportunity SL | 1.2.1 | `nuheat_update_opp_sl.js` | 🔶 1.2.1 in review ("Give us an update" button, behind `custscript_nuheat_updbtn_mode`, default OFF). 1.1.1 merged, not deployed (objection loop moved to the library; no behaviour change). 1.1.0 in Production (1 Oct 2026); U11–U23 passed, including amendments 1–3 |
 | Opportunity Update Library | 1.3.0 | `nuheat_opp_update_lib.js` | 🔶 1.3.0 in review (dashboard link decode, contact company — additive). 1.2.0 merged, not deployed (customer-safe functions for the customer dashboard). 1.1.0 in Production (1 Oct 2026; upload first) |
 | Opportunity UE | 1.4.0 | `nuheat_opportunity_ue.js` | ✅ In Production (1 Oct 2026) |
 | Opportunity CS | 1.2.0 | `nuheat_opportunity_cs.js` | ✅ In Production (29 Sep 2026) |
@@ -601,7 +601,15 @@ the code** (`OPPLIB_*`) — no `N/error`, so `define()` is unchanged.
   type ids and the quote** (the Suitelet does against the record; the dashboard must too). 6 units per
   objection.
 
-### "Give us an update" button (Update Opportunity SL 1.2.0, library 1.3.0 — "Request an update" part B)
+### "Give us an update" button (Update Opportunity SL 1.2.0–1.2.1, library 1.3.0 — "Request an update" part B)
+
+> ⚠️ **Behind a switch (1.2.1): script parameter `custscript_nuheat_updbtn_mode` on the Update Opportunity
+> deployment** — empty / `OFF` (default; also any unknown or unreadable value — fail closed) = not
+> rendered, the 1.1.1 email section and lookup, a posted tick ignored; `ADMIN` = only
+> `runtime.getCurrentUser().roleId === 'administrator'` (the standard role's script ID — no numeric ID);
+> `ALL` = everyone. The deployment is Released to the sales roles, so this parameter — not the
+> deployment status — is what keeps reps from seeing it before the dashboard go-live. The POST applies
+> the same rule (excluded → tick off, audit `UpdateOppSL.UpdateButton` "ignored: mode X").
 
 The dashboard (`NS-Customer-Dashboard`, part A) keeps each customer's signed BASE link in
 `custentity_cdb_link`. Update Opportunity reads it and appends `&a=update&opp=<id>`. **No code dependency
@@ -1407,7 +1415,7 @@ The scripts log heavily on purpose. These are the keys that answer most question
 | `UpdateOppSL.Validation` | `nuheat_update_opp_sl.js` | a save rejected before any write, and why |
 | `UpdateOppSL.Summary` | `nuheat_update_opp_sl.js` | one line per save: call ID or `off`, objections created / failed, fields changed / failed, `email sent \| fail \| off` (with the recipient count) |
 | `UpdateOppSL.Email` | `nuheat_update_opp_sl.js` / library | *(1.1.0)* who it is from — `from me \| rep \| pe (employee <id>)` (amendment 2), plus *(1.2.0)* `\| {"updateButton":true,"opp":"<id>"}` when the button is on (never the link) — the sender lookup (email/phone present, photo used or skipped), the send OK with the address count, or the failure message (error level). **Never** an address or the body |
-| `UpdateOppSL.UpdateButton` | `nuheat_update_opp_sl.js` | *(1.2.0, debug)* why the "Give us an update" tick box wasn't offered (no link / inactive / out of date), or a failed dashboard-contact lookup |
+| `UpdateOppSL.UpdateButton` | `nuheat_update_opp_sl.js` | *(1.2.0, debug)* why the "Give us an update" tick box wasn't offered (no link / inactive / out of date), or a failed dashboard-contact lookup; *(1.2.1)* an unknown / unreadable mode (debug) and, at audit, a posted tick "ignored: mode OFF \| ADMIN" |
 | `UpdateOppSL.Guard` | `nuheat_update_opp_sl.js` | *(1.1.0)* a duplicate save stopped, a missing token (a 1.0 page), a token released after a call failure, or the cache being unavailable (error level) |
 | `UpdateOppSL.Redirect` | `nuheat_update_opp_sl.js` | the exact code parameters sent back to the Opportunity |
 | `SendQuoteSL.OppUpdate` | `nuheat_send_quote_sl.js` | GET: reported field types and any update field not shown (and why). POST: fields changed old → new, "no changes", skipped because the email failed, or the failed write (error level) |

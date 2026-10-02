@@ -3,6 +3,7 @@
  * T1–T17 from 1.0.0 (T1 and T3 adjusted for the new section numbering — marked "changed in 1.1.0"),
  * T18–T51 for 1.1.0 (T36–T37: amendment 1; T38–T46: amendment 2; T47–T51: amendment 3).
  * T52–T62 for 1.2.0 ("Request an update" part B: the "Give us an update" button; lib 1.3.0).
+ * T63–T67 for 1.2.1 (amendment 1: custscript_nuheat_updbtn_mode — OFF / ADMIN / ALL). T52–T62 run with ALL.
  *
  * Same style as send-quote-opp-update.js: `define` is stubbed, the real Suitelet, library and UE are
  * loaded under stubbed N/* modules, every scenario is checked with ok(), non-zero exit on failure.
@@ -264,7 +265,17 @@ var modules = {
     'N/log': logStub,
     'N/url': { resolveRecord: function (o) { return '/app/accounting/transactions/opprtnty.nl?id=' + o.recordId; }, resolveScript: function () { return '/sl'; } },
     'N/redirect': redirectStub,
-    'N/runtime': { getCurrentUser: function () { return { id: '7', name: 'Sam Taylor' }; }, getCurrentScript: function () { return { id: 'x', deploymentId: 'y' }; } },
+    // v1.2.1: the role (state.roleId, default a sales role) and script parameters (state.scriptParams)
+    'N/runtime': {
+        getCurrentUser: function () { return { id: '7', name: 'Sam Taylor', roleId: (state && state.roleId !== undefined) ? state.roleId : 'customrole_nh_account_manager' }; },
+        getCurrentScript: function () {
+            return { id: 'x', deploymentId: 'y', getParameter: function (o) {
+                state.calls.push('getParameter:' + o.name);
+                if (state.paramThrows) throw new Error(state.paramThrows);
+                return (state.scriptParams || {})[o.name];
+            } };
+        }
+    },
     'N/format': formatStub,
     'N/ui/message': { Type: { CONFIRMATION: 'confirmation', WARNING: 'warning', INFORMATION: 'information' } },
     // v1.1.0: email.send (10 units) and N/cache (1 unit per get / put / remove)
@@ -1085,7 +1096,9 @@ var CDB_BASE = 'https://1234567.extforms.netsuite.com/app/site/hosting/scriptlet
 function cdbLink(customerId, version) { return CDB_BASE + '&t=' + cdbSign(customerId, version); }
 var LIB = modules['./nuheat_opp_update_lib'];
 
+function setMode(m) { state.scriptParams = { custscript_nuheat_updbtn_mode: m }; }
 function withLink(extra) {
+    setMode('ALL');   // v1.2.1: T52–T62 test the button as built
     state.customer = { custentity_cdb_link: cdbLink(55, 2), custentity_cdb_link_version: '2', isinactive: false, custentity_cdb_dashboard_contact: '' };
     Object.keys(extra || {}).forEach(function (k) { state.customer[k] = extra[k]; });
 }
@@ -1150,7 +1163,7 @@ console.log('T54. GET: the tick box disabled, with the reason');
     ['customer lookup fails', {}, 'boom', 'No dashboard link for this customer yet.']
 ].forEach(function (c) {
     resetState();
-    if (c[0] === 'no link') state.customer = {}; else withLink(c[1]);
+    if (c[0] === 'no link') { state.customer = {}; setMode('ALL'); } else withLink(c[1]);
     var throwsOrig = searchStub.lookupFields;
     if (c[2]) searchStub.lookupFields = function (o) { if (o.type === 'customer') throw new Error(c[2]); return throwsOrig(o); };
     var h = html(runGet());
@@ -1318,6 +1331,84 @@ var b62 = page62(true);
 b62.tick.checked = true; b62.tick.disabled = false;   // as if setSection had re-enabled it
 b62.apply();
 ok(b62.tick.disabled && !b62.tick.checked && !b62.extra.disabled && !b62.other.disabled, 'a blocked tick stays disabled and off');
+
+
+console.log('T63. Mode OFF / empty / unknown / unreadable: the 1.1.1 email section');
+function emailSection(h) { var a = h.indexOf('<section class="nsq-card"><h2 class="nsq-h2"><span class="nsq-num">2</span>'); return a < 0 ? '' : h.substring(a, h.indexOf('</section>', a) + 10); }
+// SHA-256 of the email section rendered by 1.1.1 (origin/main 7fe3964) under this harness: A fresh GET; B + another
+// company's contact; C re-render after a failed save with the email on, extra and Customer ticked, a tick posted
+var SECT_111 = { A: 'eae57f65e92d4940b35f221d6f5948bfd5ada4cb4d4b870e3b6b42dd65b63ead', B: 'fed4fcaa1bad8ed37ec505752d4f4181078bdca90a217ebaf44de1b2f1edb124',
+                 C: 'f9abc01ac7978b21a58a147c12c59b6c2db33dc02fa4b25e8974a63d28cc3123' };
+[['no parameter', function () {}], ['empty', function () { setMode(''); }], ['OFF', function () { setMode('OFF'); }], ['off ', function () { setMode(' off '); }],
+ ['unknown "YES"', function () { setMode('YES'); }], ['unreadable', function () { state.paramThrows = 'no such parameter'; }],
+ ['ADMIN, sales role', function () { setMode('ADMIN'); }], ['ADMIN, no role', function () { setMode('ADMIN'); state.roleId = ''; }],
+ ['ADMIN, custom admin-like role', function () { setMode('ADMIN'); state.roleId = 'customrole_administrator_copy'; }]].forEach(function (c) {
+    function prep() { resetState(); state.customer = { custentity_cdb_link: cdbLink(55, 2), custentity_cdb_link_version: '2', isinactive: false, custentity_cdb_dashboard_contact: '80' };
+        state.dashContacts = { '80': { email: 'dee@home.example' } }; state.contacts[0].company = '55'; c[1](); }
+    prep(); state.calls = [];
+    var ha = html(runGet());
+    ok(sha(emailSection(ha)) === SECT_111.A && ha.indexOf('id="nsq-updbtn"') === -1, c[0] + ': fresh GET — email section byte-identical to 1.1.1, no tick box');
+    ok(state.calls.filter(function (x) { return /^lookupFields:customer/.test(x); }).join() === 'lookupFields:customer:email' && !state.calls.some(function (x) { return /^lookupFields:contact/.test(x); }),
+       c[0] + ': the 1.1.1 customer lookup (email only), no contact lookup');
+    prep(); state.contacts.push({ id: '73', first: 'Cat', last: 'Day', email: 'cat@architects.example', company: '99' });
+    ok(sha(emailSection(html(runGet()))) === SECT_111.B, c[0] + ': with another company\'s contact — byte-identical');
+    prep();
+    ok(sha(emailSection(html(emailPost({ custpage_email_subject: '', custpage_rcpt_extra: 'x@example.org', custpage_rcpt_customer: 'T', custpage_email_updbtn: 'T' })))) === SECT_111.C,
+       c[0] + ': re-rendered page after a failed save — byte-identical');
+    prep();
+    ubPost({ custpage_rcpt_extra: 'friend@example.org', custpage_rcpt_customer: 'T' });
+    var e = state.emails[0] || {};
+    ok(state.emails.length === 1 && String(e.body).indexOf('GIVE US AN UPDATE') === -1 && String(e.body).indexOf('a=update') === -1 &&
+       JSON.stringify(e.recipients) === '["ann@example.com","cust@example.com","friend@example.org"]', c[0] + ': a posted tick is ignored — sent without the button, typed extra allowed as in 1.1.1');
+    ok(sha(e.body) === sha((function () { prep(); emailPost({ custpage_call_on: 'F', custpage_rcpt_extra: 'friend@example.org', custpage_rcpt_customer: 'T' }); return state.emails[0].body; })()),
+       c[0] + ': that email is byte-identical to the same email without the tick');
+    prep();
+    ubPost({ custpage_rcpt_customer: 'T' });
+    var mode = /^ADMIN/.test(c[0]) ? 'ADMIN' : 'OFF';
+    ok(audit('UpdateOppSL.UpdateButton').some(function (l) { return l.details === 'Opportunity 123 — ignored: mode ' + mode; }) &&
+       audit('UpdateOppSL.Email').every(function (l) { return l.details.indexOf('updateButton') === -1; }), c[0] + ': audit "ignored: mode ' + mode + '"; no updateButton in the email log');
+    ok(!state.calls.some(function (x) { return /^lookupFields:customer:email,custentity/.test(x); }), c[0] + ': no dashboard lookup on the POST');
+});
+
+console.log('T64. Unknown and unreadable values are logged once per request, at debug');
+resetState(); setMode('Yes please');
+emailPost({ custpage_email_subject: '', custpage_email_updbtn: 'T' });   // refused → re-rendered in the same request
+var d64 = state.logs.filter(function (l) { return l.title === 'UpdateOppSL.UpdateButton' && l.level === 'debug'; });
+ok(d64.length === 1 && d64[0].details === 'Unknown mode "Yes please"; OFF', 'one debug line with the value (' + d64.length + ')');
+ok(state.calls.filter(function (x) { return x === 'getParameter:custscript_nuheat_updbtn_mode'; }).length === 1, 'the parameter is read once per request');
+resetState(); state.paramThrows = 'no such parameter';
+runGet();
+ok(state.logs.some(function (l) { return l.level === 'debug' && l.details === 'Mode parameter could not be read (no such parameter); OFF'; }), 'unreadable → debug, OFF');
+resetState(); setMode('OFF'); runGet();
+ok(!state.logs.some(function (l) { return l.title === 'UpdateOppSL.UpdateButton'; }), 'OFF itself → nothing logged on GET');
+
+console.log('T65. Mode ADMIN');
+resetState(); withLink(); setMode('ADMIN'); state.roleId = 'administrator'; state.contacts[0].company = '55';
+var h65 = html(runGet());
+ok(updTick(h65) === '' && h65.indexOf('Add a ‘Give us an update’ button') !== -1, 'Administrator (roleId "administrator") → the tick box is offered');
+ubPost({ custpage_rcpt_customer: 'T' });
+ok(state.emails.length === 1 && String(state.emails[0].body).indexOf('GIVE US AN UPDATE') !== -1, 'Administrator → the button is sent');
+resetState(); withLink(); setMode('ADMIN'); state.roleId = 'administrator';
+ubPost({ custpage_rcpt_extra: 'friend@example.org' });
+ok(state.emails.length === 0 && state.logs.some(function (l) { return l.details.indexOf(UB_REFUSAL + 'friend@example.org') !== -1; }), 'Administrator → the recipient rule applies');
+resetState(); withLink(); setMode('admin'); state.roleId = 'administrator';
+ok(updTick(html(runGet())) === '', '"admin" (any case) = ADMIN');
+resetState(); withLink(); setMode('ADMIN');   // default role: a sales role
+ok(html(runGet()).indexOf('id="nsq-updbtn"') === -1, 'a sales role → the 1.1.1 page (see T63 for byte-identity)');
+
+console.log('T66. Mode ALL: as built');
+resetState(); withLink(); state.roleId = 'customrole_nh_account_manager'; state.contacts[0].company = '55';
+ok(updTick(html(runGet())) === '', 'a sales role gets the tick box');
+ubPost({ custpage_rcpt_customer: 'T' });
+ok(state.emails.length === 1 && String(state.emails[0].body).indexOf('GIVE US AN UPDATE') !== -1 && !audit('UpdateOppSL.UpdateButton').length, 'and the button; nothing "ignored"');
+resetState(); withLink(); setMode(' all ');
+ok(updTick(html(runGet())) === '', '" all " (trimmed, any case) = ALL');
+
+console.log('T67. The page script with no tick box');
+resetState(); setMode('OFF');
+var s67 = scripts(html(runGet()))[0];
+var parsed67 = true; try { new vm.Script(s67); } catch (e) { parsed67 = false; }
+ok(parsed67 && /if \(\$\("nsq-updbtn"\)\) \$\("nsq-updbtn"\)\.addEventListener/.test(s67) && /if \(!u\) return;/.test(s67), 'the script guards the missing tick box (pageInit and applyUpdBtn)');
 
 // ─── T14–T16 (UE 1.3.0) and T33–T34 (UE 1.4.0): Opportunity UE banner ─────────────────────────────────────
 

@@ -221,6 +221,15 @@ Navigate to **Customization > Scripting > Scripts > New** for each:
 - **Account checks (done for 1.1.0, 1 Oct 2026):** no workflow or user event script runs on **Message**
   records; every rep's employee record has an email address and a phone number. Sandbox may redirect
   outgoing email, which hides real-recipient bugs — test recipients should be your own addresses.
+- **1.2.1 — new script parameter (create it BEFORE uploading 1.2.x; the deployment is already Released
+  to the sales roles):**
+  - Script record › Parameters › New: ID `custscript_nuheat_updbtn_mode` (enter `_nuheat_updbtn_mode`;
+    NetSuite adds `custscript`), Label **Give us an update button: OFF, ADMIN or ALL**, Type
+    **Free-Form Text**, no default.
+  - On `customdeploy_nuheat_update_opp_sl` › Parameters: leave it **empty (= OFF)** in Production until
+    the dashboard go-live and team training. `ADMIN` = the Administrator role only (Steve's testing);
+    `ALL` = everyone. Anything else, or an unreadable value, is OFF (logged at debug).
+  - OFF gives exactly the 1.1.1 email section; the customer lookup reads only `email`.
 
 #### 2g. Opportunity User Event
 - **Name:** Nu-Heat Opportunity UE

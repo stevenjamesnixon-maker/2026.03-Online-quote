@@ -383,8 +383,8 @@ function suiteletLoop110(opportunityId, ids, params, contextLine, quoteId, userI
 // The Suitelet's own suite, unedited, drives the real Suitelet → library path.
 var suite = childProcess.spawnSync(process.execPath, [path.join(__dirname, 'update-opp.js')], { encoding: 'utf8' });
 var tail = (suite.stdout || '').trim().split('\n').pop();
-// changed in lib 1.3.0: update-opp.js gained T52–T62 (396 checks); the 293 earlier checks are still in it
-ok(suite.status === 0 && tail === '396 passed, 0 failed', 'test/update-opp.js passing (' + tail + ')');
+// changed in lib 1.3.0: update-opp.js gained T52–T62, and T63–T67 with SL 1.2.1 (481 checks); the 293 earlier checks are still in it
+ok(suite.status === 0 && tail === '481 passed, 0 failed', 'test/update-opp.js passing (' + tail + ')');
 
 // ─── C13+. Extra edge cases ───────────────────────────────────────────────────
 

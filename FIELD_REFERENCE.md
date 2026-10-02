@@ -174,8 +174,11 @@ Fields owned by the customer dashboard (`NS-Customer-Dashboard`, "Request an upd
 | `custentity_cdb_dashboard_contact` | Customer | the dashboard contact (Contact): an allowed recipient with the button on; its `email` read with one `search.lookupFields` on the contact |
 | `company` | Contact (join from the Opportunity's contact search, `lib.loadContacts`) | an opportunity contact is "the customer's own" only when its company is the opportunity's customer |
 
-All four customer columns ride on the page's existing customer `lookupFields` (with `email`); the POST
-repeats the lookup only when the tick is on. Posted: `custpage_email_updbtn` = `T` (missing = off).
+All four customer columns ride on the page's existing customer `lookupFields` (with `email`) — *(1.2.1)* only
+when `custscript_nuheat_updbtn_mode` gives the user the button (OFF → `email` only, as 1.1.1); the POST
+repeats the lookup only when the tick is on and allowed.
+
+*(1.2.1)* Script parameter `custscript_nuheat_updbtn_mode` (Free-Form Text): `OFF` (empty / unknown / unreadable) · `ADMIN` (`roleId` `administrator`) · `ALL`. Posted: `custpage_email_updbtn` = `T` (missing = off).
 
 ### Page fields posted (1.1.0)
 

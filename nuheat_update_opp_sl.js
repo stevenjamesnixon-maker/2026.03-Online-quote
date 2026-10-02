@@ -9,7 +9,7 @@
  *              objections. Saves a completed Phone Call, sends a bespoke email from the user, saves one
  *              Customer Objection per ticked type, then the Opportunity fields LAST, and returns to the
  *              Opportunity with the result banner (nuheat_opportunity_ue.js, nsqs=upd).
- * @version     1.2.0
+ * @version     1.2.1
  * @author      Nu-Heat Development
  *
  * Script ID:      customscript_nuheat_update_opp_sl
@@ -17,6 +17,18 @@
  *
  * ⚠️ DEPLOYMENT: nuheat_opp_update_lib.js (1.3.0) must be uploaded to SuiteScripts/NuHeat/2026 Quote/
  *    BEFORE this script, or it fails at load time.
+ * ⚠️ 1.2.1: create the script parameter custscript_nuheat_updbtn_mode (Free-Form Text) first and leave
+ *    it empty (= OFF) on the Released deployment until the dashboard go-live — DEPLOYMENT_CHECKLIST 2f-2.
+ *
+ * CHANGELOG v1.2.1 (PR #36 amendment 1 — an on/off switch, 2 Oct 2026):
+ *   - New script parameter custscript_nuheat_updbtn_mode (Free-Form Text, "Give us an update button:
+ *     OFF, ADMIN or ALL"). Empty, OFF, unknown, or unreadable → OFF (fail closed): the tick box is not
+ *     rendered, the customer lookup reads only email, the email section is byte-identical to 1.1.1 and
+ *     a posted tick is ignored. ADMIN → offered only to runtime.getCurrentUser().roleId ===
+ *     'administrator' (the standard role's script ID). ALL → everyone, as 1.2.0.
+ *   - The POST applies the same rule: a tick from a user the mode excludes is treated as tick off
+ *     (no button, no recipient rule), audit UpdateOppSL.UpdateButton "ignored: mode X". An unknown value
+ *     is logged once per request at debug. Value trimmed and case-insensitive.
  *
  * CHANGELOG v1.2.0 ("Request an update" part B — a "Give us an update" button in the email, 2 Oct 2026):
  *   - Section 2 gains a tick box under the message, "Add a 'Give us an update' button" (off;
@@ -96,7 +108,7 @@ define([
 
     'use strict';
 
-    var SCRIPT_VERSION = '1.2.0';
+    var SCRIPT_VERSION = '1.2.1';
 
     /** Page rules for the shared update fields: Next contact must end up set. */
     var RULES = { required: ['next_contact'], logKey: 'UpdateOppSL.OppUpdate' };
@@ -176,6 +188,49 @@ define([
     };
     var CDB_CUSTOMER_COLUMNS = [CDB.link, CDB.version, 'isinactive', CDB.contact];
 
+    /**
+     * v1.2.1: who gets the tick box — script parameter on the Update Opportunity deployment.
+     * OFF (default; empty, unknown or unreadable too — fail closed), ADMIN (the Administrator role only),
+     * ALL. The switch exists because the deployment is already Released to the sales roles.
+     */
+    var UPDBTN_MODE_PARAM = 'custscript_nuheat_updbtn_mode';
+    var ADMIN_ROLE_ID     = 'administrator';   // the standard Administrator role's script ID (roleId)
+
+    var requestAccess = null;   // updBtnAccess() for this request; reset in onRequest
+
+    /**
+     * v1.2.1: the mode, and whether the current user gets the button. Read once per request (a
+     * refused POST re-renders the page in the same request — one read, one log line).
+     * @returns {{ mode: string, allowed: boolean }} mode = 'OFF' | 'ADMIN' | 'ALL'
+     */
+    function updBtnAccess() {
+        if (!requestAccess) requestAccess = readUpdBtnAccess();
+        return requestAccess;
+    }
+
+    function readUpdBtnAccess() {
+        var raw = '';
+        try {
+            raw = runtime.getCurrentScript().getParameter({ name: UPDBTN_MODE_PARAM });
+        } catch (e) {
+            log.debug('UpdateOppSL.UpdateButton', 'Mode parameter could not be read (' + e.message + '); OFF');
+            return { mode: 'OFF', allowed: false };
+        }
+        var v = String(raw === null || raw === undefined ? '' : raw).trim().toUpperCase();
+        if (v !== '' && v !== 'OFF' && v !== 'ADMIN' && v !== 'ALL') {
+            log.debug('UpdateOppSL.UpdateButton', 'Unknown mode "' + String(raw).substring(0, 40) + '"; OFF');
+            v = 'OFF';
+        }
+        var mode = v || 'OFF';
+        if (mode === 'ALL') return { mode: mode, allowed: true };
+        if (mode === 'ADMIN') {
+            var role = '';
+            try { role = String(runtime.getCurrentUser().roleId || ''); } catch (e) { role = ''; }
+            return { mode: mode, allowed: role === ADMIN_ROLE_ID };
+        }
+        return { mode: mode, allowed: false };
+    }
+
     /** The page's copy for the tick box. Steve may reword these. */
     var UPDBTN_COPY = {
         label:      'Add a ‘Give us an update’ button',
@@ -208,6 +263,7 @@ define([
 
     function onRequest(context) {
         log.audit('UpdateOppSL.onRequest', 'Method: ' + context.request.method + ' | Version: ' + SCRIPT_VERSION);
+        requestAccess = null;   // v1.2.1
         try {
             if (context.request.method === 'GET') {
                 var opportunityId = context.request.parameters.opportunityId;
@@ -317,8 +373,12 @@ define([
 
     function renderPage(context, opportunityId, restore, error) {
         // v1.1.0: customerEmail: true — the Customer recipient tick (one lookupFields)
-        // v1.2.0: + the dashboard columns in the same customer lookup (the update button)
-        var page = lib.loadOppPageBase(opportunityId, { logPrefix: 'UpdateOppSL', customerEmail: true, customerColumns: CDB_CUSTOMER_COLUMNS });
+        // v1.2.0: + the dashboard columns in the same customer lookup (the update button) —
+        // v1.2.1: only when the mode gives this user the button; otherwise the 1.1.1 lookup
+        var access = updBtnAccess();
+        var page = lib.loadOppPageBase(opportunityId, access.allowed
+            ? { logPrefix: 'UpdateOppSL', customerEmail: true, customerColumns: CDB_CUSTOMER_COLUMNS }
+            : { logPrefix: 'UpdateOppSL', customerEmail: true });
         if (page.loadError) {
             showErrorPage(context, page.loadError);
             return;
@@ -329,10 +389,11 @@ define([
         page.types        = loadObjectionTypes();
         page.estimates    = loadEstimates(opportunityId);
         page.senders      = senderOptions(page.oppRecord);   // D18a
-        page.updBtn       = updateButtonState(page.customerId, page.customerFields);   // v1.2.0
-        if (page.updBtn.ok) {
+        // v1.2.0; v1.2.1: null (mode OFF, or ADMIN for a non-admin) = not rendered — the 1.1.1 email section
+        page.updBtn       = access.allowed ? updateButtonState(page.customerId, page.customerFields) : null;
+        if (page.updBtn && page.updBtn.ok) {
             page.updBtn.own = ownContacts(page.contacts, page.customerId, page.updBtn.dashContactId, dashContactEmail(page.updBtn.dashContactId));
-        } else {
+        } else if (page.updBtn) {
             log.debug('UpdateOppSL.UpdateButton', 'Opportunity ' + opportunityId + ' — update button not offered: ' + page.updBtn.reason);
         }
         // D25: a re-rendered page keeps its token (a validation failure never consumes it)
@@ -535,11 +596,11 @@ define([
             escapeHtml(emailFresh ? '' : (r.message || '')) + '</textarea></div>');
         // v1.2.0: the "Give us an update" button — offered, or disabled with the reason
         var ub = page.updBtn;
-        h.push('<div class="nsq-field nsq-updbtn"><label class="nsq-tick"><input type="checkbox" id="nsq-updbtn" name="custpage_email_updbtn" value="T"' +
+        if (ub) h.push('<div class="nsq-field nsq-updbtn"><label class="nsq-tick"><input type="checkbox" id="nsq-updbtn" name="custpage_email_updbtn" value="T"' +
             (ub.ok ? ((!emailFresh && r.updBtn) ? ' checked' : '') : ' disabled data-blocked="1"') + '> ' + escapeHtml(UPDBTN_COPY.label) + '</label>' +
             '<p class="nsq-help">' + escapeHtml(UPDBTN_COPY.hint) + '</p>' +
             (ub.ok ? '' : '<p class="nsq-help nsq-updbtn-why" id="nsq-updbtn-why">' + escapeHtml(ub.reason) + '</p>') + '</div>');
-        h.push(lib.buildRecipientsHTML(page.contacts, page.customerEmail, emailFresh ? null : r.rcpt, ub.ok ? {
+        h.push(lib.buildRecipientsHTML(page.contacts, page.customerEmail, emailFresh ? null : r.rcpt, (ub && ub.ok) ? {
             ownIds:        ub.own.ids,
             extraContacts: ub.own.extra ? [{ id: ub.own.extra.id, label: UPDBTN_COPY.dashLabel, email: ub.own.extra.email }] : [],
             notOwnNote:    UPDBTN_COPY.notOwn,
@@ -722,7 +783,7 @@ define([
         '      setSection(sw, s[1], s[2], s[3]);',
         '      sw.addEventListener("change", function () { setSection(sw, s[1], s[2], s[3]); update(); });',
         '    });',
-        '    $("nsq-updbtn").addEventListener("change", function () { applyUpdBtn(); update(); });',
+        '    if ($("nsq-updbtn")) $("nsq-updbtn").addEventListener("change", function () { applyUpdBtn(); update(); });',   // v1.2.1: absent when the mode is off
         '    $("nsq-email-on").addEventListener("change", applyUpdBtn);',   // after setSection (registered first)
         '    applyUpdBtn();',
         '    $("nsq-send").addEventListener("click", function () { submitForm("Saving…"); });',
@@ -1011,6 +1072,13 @@ define([
 
         var subject = '', message = '', rcpt = null, sender = null, fromCode = '', ccMeEmail = '';
         var updBtnOn = emailOn && params.custpage_email_updbtn === 'T';   // v1.2.0
+        if (updBtnOn) {   // v1.2.1: the same rule as the page — excluded → treated as tick off
+            var access = updBtnAccess();
+            if (!access.allowed) {
+                log.audit('UpdateOppSL.UpdateButton', 'Opportunity ' + opportunityId + ' — ignored: mode ' + access.mode);
+                updBtnOn = false;
+            }
+        }
         var updateLink = '';                                              // v1.2.0: never logged
         if (emailOn) {
             subject = String(params.custpage_email_subject || '').trim();

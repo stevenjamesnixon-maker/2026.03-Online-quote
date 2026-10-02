@@ -5,18 +5,24 @@
 
 ---
 
-## "Give us an update" button (Update Opportunity SL 1.2.0 / library 1.3.0) — "Request an update" part B
+## "Give us an update" button (Update Opportunity SL 1.2.1 / library 1.3.0) — "Request an update" part B
 
 > Needs the dashboard's part A deployed (its customer UE fills `custentity_cdb_link` when a customer is
-> saved). Test at **Testing** (deployment owner only); keep it off for reps until the dashboard goes live.
+> saved). **1.2.1:** the deployment stays Released; the button is controlled by the script parameter
+> `custscript_nuheat_updbtn_mode` — set it to **ADMIN** to test as Administrator, leave it empty (OFF) for
+> reps until the dashboard goes live, ALL at go-live.
 
 ### Automated (before uploading)
 
 ```
-node test/update-opp.js              # must end "396 passed, 0 failed" — T1–T51 as before (+ the T41 nsqt flake fix), T52–T62 new
+node test/update-opp.js              # must end "481 passed, 0 failed" — T1–T51 as before (+ the T41 nsqt flake fix), T52–T62 (1.2.0), T63–T67 (1.2.1 mode)
 node test/send-quote-opp-update.js   # must end "400 passed, 0 failed" — unedited
 node test/opp-lib-customer.js        # must end "72 passed, 0 failed" — version and the update-opp count updated
 ```
+
+- **G0** *(1.2.1)* Parameter empty: as Administrator and as a sales role, Send an email looks exactly as
+  in 1.1.1 (no tick box). Set **ADMIN**: Administrator sees the tick box, a sales role (e.g. NH Account
+  Manager) still doesn't. Set **ALL**: both do. Set it back to empty afterwards.
 
 ### Sandbox / Testing (library first, then the Suitelet)
 

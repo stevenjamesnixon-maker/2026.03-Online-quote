@@ -361,6 +361,11 @@
 
 ## Send Quote Suitelet (`nuheat_send_quote_sl.js`) & Client Script (`nuheat_send_quote_cs.js`)
 
+### Update Opportunity SL v1.2.1 — 2 October 2026 🔶 In review
+
+- ADDED: `custscript_nuheat_updbtn_mode` — OFF (default; empty, unknown or unreadable too) / ADMIN (the
+  `administrator` role only) / ALL. OFF = the 1.1.1 email section, and a posted tick is ignored.
+
 ### Update Opportunity SL v1.2.0 / Opportunity Update Library v1.3.0 — 2 October 2026 🔶 In review
 
 - ADDED (SL 1.2.0): "Add a ‘Give us an update’ button" in Send an email — offered when the customer is
