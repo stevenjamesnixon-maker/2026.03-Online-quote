@@ -1,3 +1,13 @@
+## [Update Opportunity SL v1.3.3] — 2 October 2026 (PR #37 amendment 3: the full box back; the band changes instead)
+**Status:** 🔶 In review — not deployed. Library unchanged (1.4.2).
+**Components:** `nuheat_update_opp_sl.js`, `test/update-opp.js`, `test/opp-lib-customer.js`, `docs/email-previews/`
+
+- RESTORED: the full box (both modes) — YOUR PROJECT, the title (title → site address → QR number),
+  Project stage, Expected start — with **no Project row**. Posted stage / date changes still show.
+- CHANGED: Request an update's band eyebrow is "A quick update" (was "Your project", the duplicate).
+- CHANGED: the call-to-action line only for Request an update with **no** message; with a message, the
+  box is followed by the message and the button.
+
 ## [Update Opportunity SL v1.3.2 / Opportunity Update Library v1.4.2] — 2 October 2026 (PR #37 amendment 2: a slimmer box, tidier wording)
 **Status:** 🔶 In review — not deployed. Upload the library (1.4.2) before the Suitelet.
 **Components:** `nuheat_opp_update_lib.js`, `nuheat_update_opp_sl.js`, `test/update-opp.js`, `test/opp-lib-customer.js`, `docs/email-previews/`

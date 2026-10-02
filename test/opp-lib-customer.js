@@ -384,8 +384,8 @@ function suiteletLoop110(opportunityId, ids, params, contextLine, quoteId, userI
 var suite = childProcess.spawnSync(process.execPath, [path.join(__dirname, 'update-opp.js')], { encoding: 'utf8' });
 var tail = (suite.stdout || '').trim().split('\n').pop();
 // changed in lib 1.3.0: update-opp.js gained T52–T62, T63–T67 with SL 1.2.1 and T68–T73 with SL 1.2.2 (523 checks); the 293 earlier checks are still in it
-// changed in lib 1.4.0: + T74–T81 with SL 1.3.0 (615 checks); lib 1.4.1: + T82–T89 with SL 1.3.1 (665); lib 1.4.2: T82–T89 rewritten with SL 1.3.2 (670)
-ok(suite.status === 0 && tail === '670 passed, 0 failed', 'test/update-opp.js passing (' + tail + ')');
+// changed in lib 1.4.0: + T74–T81 with SL 1.3.0 (615 checks); lib 1.4.1: + T82–T89 with SL 1.3.1 (665); lib 1.4.2: T82–T89 rewritten with SL 1.3.2 (670) and SL 1.3.3 (684)
+ok(suite.status === 0 && tail === '684 passed, 0 failed', 'test/update-opp.js passing (' + tail + ')');
 
 // ─── C13+. Extra edge cases ───────────────────────────────────────────────────
 

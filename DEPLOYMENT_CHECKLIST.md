@@ -239,6 +239,8 @@ Navigate to **Customization > Scripting > Scripts > New** for each:
   (one extra lookup when an email is sent). No new parameters.
 - **1.3.2 (needs library 1.4.2):** the box reads only `custbody_build_stage` and `custbody_opp_del_date`.
   When a save changes the build stage, the email reads the stage options (one record load, 10 units).
+- **1.3.3 (library 1.4.2, unchanged):** the box reads `tranid`, `title` and `custbody_opp_site_adress` again
+  (for its title) as well as the stage and the date — the same one lookup.
 
 #### 2g. Opportunity User Event
 - **Name:** Nu-Heat Opportunity UE

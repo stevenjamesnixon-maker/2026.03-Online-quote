@@ -4,8 +4,9 @@
  * T18–T51 for 1.1.0 (T36–T37: amendment 1; T38–T46: amendment 2; T47–T51: amendment 3).
  * T52–T62 for 1.2.0 ("Request an update" part B: the "Give us an update" button; lib 1.3.0).
  * T63–T67 for 1.2.1 (amendment 1: custscript_nuheat_updbtn_mode — OFF / ADMIN / ALL). T52–T62 run with ALL.
- * T82–T89 for 1.3.1 (the project box, lib 1.4.1), rewritten for 1.3.2 (stage and start only, posted values, reply line;
- * lib 1.4.2); T28, T46, T52, T61, T70, T74, T75 and the previews updated for them.
+ * T82–T89 for 1.3.1 (the project box, lib 1.4.1), rewritten for 1.3.2 (lib 1.4.2) and again for 1.3.3 (the full box,
+ * no Project row; eyebrow "A quick update"; the call-to-action line only without a message). T28, T46, T52, T61, T70,
+ * T74, T75 and the previews updated for them.
  * T74–T81 for 1.3.0 (the v2 customer email design, lib 1.4.0); T28, T37, T41, T42, T45, T60, T61, T69, T70 updated for it.
  * T68–T73 for 1.2.2 (amendment 2: "Write an email" / "Request an update", custpage_email_kind). T52–T67 updated:
  * the tick box became the choice (custpage_email_updbtn=T → custpage_email_kind=update), and the fixed line now
@@ -204,7 +205,7 @@ var searchStub = {
         charge(1);
         state.calls.push('lookupFields:' + o.type + ':' + o.columns.join(','));
         if (o.type === 'opportunity') {
-            if (state.projectThrows && o.columns.join() === 'custbody_build_stage,custbody_opp_del_date') throw new Error(state.projectThrows);
+            if (state.projectThrows && o.columns.indexOf('custbody_opp_site_adress') !== -1) throw new Error(state.projectThrows);
             var out = {};
             o.columns.forEach(function (c) {
                 if (c === 'entity') out.entity = [{ value: state.oppValues.entity, text: 'Customer Ltd' }];
@@ -700,7 +701,7 @@ ok(MSG28.replace(/\s+/g, ' ').trim().length > 90 && pre28 === LIB.escapeHtml(MSG
    'preheader: the first 90 characters of the message, plain text, escaped');
 ok(state.calls.indexOf('lookupFields:employee:firstname,lastname,entityid,email,phone,isinactive,custentity_employee_photo_link') !== -1 &&   // changed in amendment 3: + isinactive
    !state.calls.some(function (c) { return /custbody_sales_rep_phone/.test(c); }) &&
-   state.calls.filter(function (c) { return /^lookupFields:opportunity:/.test(c) && !/custbody_next_contact/.test(c); }).join() === 'lookupFields:opportunity:entity,salesrep,custbody_pe,lookupFields:opportunity:custbody_build_stage,custbody_opp_del_date',   // changed in 1.3.1: + the project box lookup (1.3.2: stage and date only)
+   state.calls.filter(function (c) { return /^lookupFields:opportunity:/.test(c) && !/custbody_next_contact/.test(c); }).join() === 'lookupFields:opportunity:entity,salesrep,custbody_pe,lookupFields:opportunity:tranid,title,custbody_opp_site_adress,custbody_build_stage,custbody_opp_del_date',   // changed in 1.3.1: + the project box lookup
    'one employee lookup (the current user); no opportunity phone override read');   // changed in amendment 2: the opportunity lookup now reads salesrep / custbody_pe for "From" (was: no salesrep anywhere)
 var w28 = b28.match(/<[a-z]+[^>]*style="[^"]*display:\s*none[^"]*"[^>]*>/gi) || [];
 ok(w28.length === 1 && /^<span/.test(w28[0]) && (b28.match(/<!--\[if !mso\]><!-- -->/g) || []).length === 2, 'pitfall 25: only the preheader is display:none; one [if !mso]/[if mso] pair per button');
@@ -1303,7 +1304,8 @@ ok(audit('UpdateOppSL.Email').some(function (l) { return l.details === 'Opportun
 // 1.3.0: SHA-256 of the v2 email (lib 1.4.0), captured when the design changed — any later change to it shows here.
 // changed in 1.3.1: re-captured with the "Your project" box (lib 1.4.1); 1.3.0 was 874f94b6… / 04fdb98c….
 // changed in 1.3.2: re-captured with the slim box and the reply line (lib 1.4.2); 1.3.1 was cde02343… / f6c94d45….
-var EMAIL_130 = { write: 'db5193c982a5e0d50752a5371711f5a696a7efa6c8ca8f5b1910992aa4db2a8e', multi: 'be2d82f1ad0f45e199a9b73cfbcb20b1581b7c9fc446970dd46edc5b0c58b312' };
+// changed in 1.3.3: re-captured with the full box back (no Project row); 1.3.2 was db5193c9… / be2d82f1….
+var EMAIL_130 = { write: '3e5e7ce3246c514a4e1102d7f566b7d8b76498e4f32c88c4990b788ec3dc67c0', multi: '48a44dd2cd124a66f1d4702f12842a7e5b19688aec386adbf6a08389e80528bb' };
 console.log('T61. "Write an email" (or no kind) → one email; changed in 1.3.0: the v2 design (was: byte-identical to 1.1.1)');
 function sha(s) { return require('crypto').createHash('sha256').update(String(s)).digest('hex'); }
 resetState(); withLink(); state.contacts[0].company = '55';
@@ -1728,7 +1730,7 @@ var PREFILL_V2 = 'Hi Ann,\n\nWe’d love to know where your project is up to, so
 console.log('T74. Both modes: logo · band (the subject as headline) · hero · message · sender card · teal footer; no "Best wishes"');
 var v74 = [
     ['write', v2Write({ custpage_email_subject: 'Your heat pump options' }), 'An update from Nu-Heat', 'Your heat pump options', 'The quote is attached to your account.'],
-    ['update', v2Update({ custpage_email_subject: 'Could you give us a quick update on OPP123?', custpage_email_message: PREFILL_V2 }), 'Your project', 'Could you give us a quick update on OPP123?', 'It only takes a minute.']
+    ['update', v2Update({ custpage_email_subject: 'Could you give us a quick update on OPP123?', custpage_email_message: PREFILL_V2 }), 'A quick update', 'Could you give us a quick update on OPP123?', 'It only takes a minute.']
 ];
 v74.forEach(function (c) {
     var h = c[1];
@@ -1855,109 +1857,117 @@ Object.keys(PREVIEWS).forEach(function (f) {
     ok(fs.existsSync(file) && fs.readFileSync(file, 'utf8') === body, f + ' is the current email');
 });
 
-// ═══ T82–T89 — 1.3.1 (PR #37 amendment 1) the project box; rewritten for 1.3.2 (amendment 2: stage and start only) ═══
+// ═══ T82–T89 — the project box: 1.3.1 (amendment 1), 1.3.2 (amendment 2), rewritten for 1.3.3 (amendment 3) ═══
+// The full box (YOUR PROJECT, title, Project stage, Expected start — no Project row); the band's eyebrow
+// "A quick update"; the call-to-action line only for an update request with no message.
 
 /** The box table (from its border style to its closing tag), or ''. */
-function boxOf(h) { var m = /<table [^>]*border:1px solid #e2ded9;border-radius:10px;[\s\S]*?<\/td><\/tr>\n<\/table>\n/.exec(h); return m ? m[0] : ''; }
+function boxOf(h) { var m = /<table [^>]*border:1px solid #e2ded9;border-radius:10px;[\s\S]*?<\/td><\/tr>\n<\/table>\n(?=<\/td><\/tr><\/table>)/.exec(h); return m ? m[0] : ''; }   // up to the SL's wrapper
 /** The box's fact rows as [[label, value]]. */
 function factsOf(h) {
     var out = []; boxOf(h).replace(/<tr><td align="left"[^>]*><font [^>]*>([^<]*)<\/font><\/td><td align="right"[^>]*><font [^>]*><b>([^<]*)<\/b><\/font><\/td><\/tr>/g, function (m, l, v) { out.push([l, v]); });
     return out;
 }
+function boxTitle(h) { return (/font-size:19px;line-height:27px;font-weight:bold;color:#2b2a2e;"><font [^>]*><b>([^<]*)<\/b><\/font><\/p>/.exec(boxOf(h)) || [])[1]; }
 function proj(over) { return function () { Object.keys(over).forEach(function (k) { state.project[k] = over[k]; }); }; }
 function inOrder(h, list) { var from = h.indexOf('<body'); return list.every(function (t) { var n = h.indexOf(t, from); if (n === -1) return false; from = n; return true; }); }
 var CTA = 'Has anything changed? Let us know with the button below.', CTA0 = 'Tell us where your project is up to with the button below.';
 var STAGE_ROWS = JSON.stringify([['Project stage', 'Roof, Doors, Windows'], ['Expected start', 'Mar 2027']]);
+/** The body cell's content between the end of the box and the first button. */
+function betweenBoxAndButton(h) { var box = boxOf(h), at = h.indexOf(box) + box.length; return h.substring(at, h.indexOf('<!--[if !mso]><!-- -->', at)); }
 
-console.log('T82. The box in both modes: after the hero, before the message; Project stage and Expected start only');
+console.log('T82. The full box in both modes: YOUR PROJECT, the title, stage and start; no Project row');
 [['write', v2Write()], ['update', v2Update({ custpage_email_message: PREFILL_V2 })]].forEach(function (c) {
     var h = c[1], box = boxOf(h);
     ok(!!box && /<table [^>]*bgcolor="#ffffff" style="background-color:#ffffff;border:1px solid #e2ded9;border-radius:10px;border-collapse:separate;">/.test(box), c[0] + ': the bordered, rounded box (the dashboard\'s markup)');
+    ok(box.indexOf('font-size:12px;line-height:17px;font-weight:bold;color:#25847a;"><font face="Calibri, Arial, sans-serif" color="#25847a"><b>YOUR PROJECT</b>') !== -1, c[0] + ': bold teal label YOUR PROJECT');
+    ok(boxTitle(h) === 'Barn conversion', c[0] + ': bold title = the opportunity title');
     ok(JSON.stringify(factsOf(h)) === STAGE_ROWS, c[0] + ': rows ' + JSON.stringify(factsOf(h)));
-    ok(box.indexOf('YOUR PROJECT') === -1 && box.indexOf('#25847a') === -1 && box.indexOf('font-size:19px') === -1 && box.indexOf('>Project<') === -1 &&
-       box.indexOf('Barn conversion') === -1 && box.indexOf('OPP123') === -1 && box.indexOf('Test Street') === -1, c[0] + ': no label, no title, no Project row');
-    ok(/<tr><td align="left" valign="top" style="padding:10px 12px 10px 0;font-family/.test(box) && countOf(box, 'border-top:1px solid #ece8e3;') === 2, c[0] + ': the first row has no top rule; the second has');
+    ok(box.indexOf('>Project<') === -1 && box.indexOf('OPP123') === -1 && box.indexOf('Test Street') === -1, c[0] + ': no Project row (no QR, no site)');
+    ok(countOf(box, 'border-top:1px solid #ece8e3;') === 4 && /padding:20px 22px 12px 22px;/.test(box), c[0] + ': every row ruled under the heading (the 1.3.1 layout)');
     var msg = c[0] === 'write' ? 'The quote is attached to your account.</font></p>' : 'It only takes a minute.</font></p>';
     ok(inOrder(h, [HERO_V2, box, msg]), c[0] + ': hero, then the box, then the message');
-    ok(/<td align="left" valign="top" style="padding:10px 12px 10px 0;[^"]*color:#5f5b66;white-space:nowrap;"><font [^>]*color="#5f5b66">Project stage<\/font><\/td><td align="right" valign="top" style="padding:10px 0;[^"]*text-align:right;"><font [^>]*color="#2b2a2e"><b>Roof, Doors, Windows<\/b>/.test(box), c[0] + ': muted label left, bold value right');
 });
-ok(state.calls.indexOf('lookupFields:opportunity:custbody_build_stage,custbody_opp_del_date') !== -1, 'one lookup of the stored stage and date');
-var t82l = LIB.emailFactBoxV2('YOUR ORDER', 'A title', [['Order', 'SO1']]);
-ok(/color="#25847a"><b>YOUR ORDER<\/b>/.test(t82l) && /<b>A title<\/b>/.test(t82l) && countOf(t82l, 'border-top:1px solid #ece8e3;') === 2, 'lib: the full box (label, title, ruled rows) is still available');
+ok(state.calls.indexOf('lookupFields:opportunity:tranid,title,custbody_opp_site_adress,custbody_build_stage,custbody_opp_del_date') !== -1, 'one lookup of the stored values');
 
-console.log('T83. Each row only with a value; neither → no box');
-var t83a = v2Write({}, proj({ custbody_build_stage: [] }));
-ok(JSON.stringify(factsOf(t83a)) === JSON.stringify([['Expected start', 'Mar 2027']]), 'no stage → Expected start only');
-var t83b = v2Write({}, proj({ custbody_opp_del_date: '' }));
-ok(JSON.stringify(factsOf(t83b)) === JSON.stringify([['Project stage', 'Roof, Doors, Windows']]), 'no date → Project stage only');
-var t83c = v2Write({}, proj({ custbody_build_stage: [], custbody_opp_del_date: '' }));
-ok(boxOf(t83c) === '' && t83c.indexOf('border:1px solid #e2ded9') === -1, 'neither → no box at all');
-var t83d = v2Write({}, function () { state.projectThrows = 'no permission'; });
-ok(state.emails.length === 1 && boxOf(t83d) === '' && state.logs.some(function (l) { return l.level === 'error' && /project lookup failed; no project box: no permission/.test(l.details); }), 'lookup fails → the email still goes, without the box (logged)');
+console.log('T83. Title fallback: title → site address → QR number; the box always shows');
+var t83a = v2Write({}, proj({ title: '' }));
+ok(boxTitle(t83a) === '1 Test Street, Testville', 'no title → the site address on one line');
+var t83b = v2Write({}, proj({ title: '  ', custbody_opp_site_adress: '' }));
+ok(boxTitle(t83b) === 'OPP123', 'no title, no site → the QR number');
+var t83c = v2Write({}, proj({ title: '', custbody_opp_site_adress: '  Unit 4\r\n\r\n  Mill Road \nExeter  ' }));
+ok(boxTitle(t83c) === 'Unit 4, Mill Road, Exeter', 'Long Text site: lines trimmed, blanks dropped, joined with ", "');
+var t83d = v2Write({}, proj({ custbody_build_stage: [], custbody_opp_del_date: '' }));
+ok(!!boxOf(t83d) && boxTitle(t83d) === 'Barn conversion' && factsOf(t83d).length === 0, 'no stage, no date → the box still shows (label and title), no rows');
+var t83e = v2Write({}, function () { state.projectThrows = 'no permission'; });
+ok(state.emails.length === 1 && boxOf(t83e) === '' && state.logs.some(function (l) { return l.level === 'error' && /project lookup failed; no project box: no permission/.test(l.details); }), 'lookup fails → the email still goes, without the box (logged)');
 
-console.log('T84. The stage number is stripped (the dashboard\'s stageLabel)');
+console.log('T84. Stage and start: each row only with a value; the number stripped; month and year');
+ok(JSON.stringify(factsOf(v2Write({}, proj({ custbody_build_stage: [] })))) === JSON.stringify([['Expected start', 'Mar 2027']]), 'no stage → Expected start only');
+ok(JSON.stringify(factsOf(v2Write({}, proj({ custbody_opp_del_date: '' })))) === JSON.stringify([['Project stage', 'Roof, Doors, Windows']]), 'no date → Project stage only');
 [['7 - Roof, Doors, Windows', 'Roof, Doors, Windows'], ['First fix', 'First fix'], ['12–Second fix', 'Second fix'], ['10 - 2nd fix', '2nd fix']].forEach(function (c) {
-    var h = v2Write({}, proj({ custbody_build_stage: [{ value: '1', text: c[0] }] }));
-    var row = factsOf(h).filter(function (r) { return r[0] === 'Project stage'; })[0];
-    ok(row && row[1] === c[1], '"' + c[0] + '" → "' + c[1] + '"');
+    var row = factsOf(v2Write({}, proj({ custbody_build_stage: [{ value: '1', text: c[0] }] }))).filter(function (r) { return r[0] === 'Project stage'; })[0];
+    ok(row && row[1] === c[1], 'stage "' + c[0] + '" → "' + c[1] + '"');
 });
-
-console.log('T85. Expected start: month and year');
-[[new Date(2027, 2, 10), 'Mar 2027'], [new Date(2026, 0, 31), 'Jan 2026'], [new Date(2020, 11, 1), 'Dec 2020']].forEach(function (c) {
-    var h = v2Write({}, proj({ custbody_opp_del_date: c[0] }));
-    var row = factsOf(h).filter(function (r) { return r[0] === 'Expected start'; })[0];
-    ok(row && row[1] === c[1], c[1] + (c[0] < new Date() ? ' (a past date is still shown)' : ''));
+[[new Date(2027, 2, 10), 'Mar 2027'], [new Date(2020, 11, 1), 'Dec 2020']].forEach(function (c) {
+    var row = factsOf(v2Write({}, proj({ custbody_opp_del_date: c[0] }))).filter(function (r) { return r[0] === 'Expected start'; })[0];
+    ok(row && row[1] === c[1], 'start ' + c[1] + (c[0] < new Date() ? ' (a past date is still shown)' : ''));
 });
-ok(!factsOf(v2Write({}, proj({ custbody_opp_del_date: 'not a date' }))).some(function (r) { return r[0] === 'Expected start'; }), 'unparseable → no row');
+ok(!factsOf(v2Write({}, proj({ custbody_opp_del_date: 'not a date' }))).some(function (r) { return r[0] === 'Expected start'; }), 'an unparseable date → no row');
 
-console.log('T86. The call-to-action line: Request an update only; one line above the button');
-var t86u = v2Update({ custpage_email_message: PREFILL_V2 });
-ok(inOrder(t86u, [boxOf(t86u), CTA, 'Hi Ann,', 'GIVE US AN UPDATE']) && t86u.indexOf(CTA0) === -1, 'with a message: the box, the line, the message, then the button');
-ok(/<p style="margin:0 0 16px 0;[^"]*font-size:17px;line-height:25px;color:#2b2a2e;text-align:left;"><font [^>]*>Has anything changed\?/.test(t86u), 'the line in the v2 body style');
-var t86w = v2Write();
-ok(t86w.indexOf(CTA) === -1 && t86w.indexOf(CTA0) === -1, 'write: the box only, no line');
-ok(v2Update({ custpage_email_message: PREFILL_V2 }, proj({ custbody_build_stage: [] })).indexOf(CTA) !== -1, 'update, a date but no stage → the usual line');
-var t86e = v2Update({ custpage_email_message: PREFILL_V2 }, proj({ custbody_build_stage: [], custbody_opp_del_date: '' }));
-ok(boxOf(t86e) === '' && t86e.indexOf(CTA0) !== -1 && t86e.indexOf(CTA) === -1, 'update, neither → no box; "Tell us where your project is up to…"');
-var t86m = v2Update({ custpage_email_message: '' });
-var between = t86m.substring(t86m.indexOf(boxOf(t86m)) + boxOf(t86m).length, t86m.indexOf('<!--[if !mso]><!-- -->', t86m.indexOf(boxOf(t86m))));
-ok((between.match(/<p\b/g) || []).length === 1 && between.indexOf(CTA) !== -1 && between.indexOf('When you have a moment') === -1, 'empty message: exactly one line (the call-to-action) between the box and the button');
-ok(t86m.indexOf('overflow:hidden;">When you have a moment, let us know where your project is up to. It only takes a minute, a</span>') !== -1, 'empty message: the preheader is still "When you have a moment…"');
-var t86n = v2Update({ custpage_email_message: '' }, proj({ custbody_build_stage: [], custbody_opp_del_date: '' }));
-var between0 = t86n.substring(t86n.indexOf('<td align="left" valign="top" class="pad"'), t86n.indexOf('<!--[if !mso]><!-- -->'));
-ok((between0.match(/<p\b/g) || []).length === 1 && between0.indexOf(CTA0) !== -1, 'empty message, no box: the one "Tell us…" line, then the button');
-
-console.log('T87. A posted stage or date change shows in the box');
-var t87a = v2Write({ custpage_upd_build_stage: '4' });
-ok(JSON.stringify(factsOf(t87a)) === JSON.stringify([['Project stage', 'Roof on'], ['Expected start', 'Mar 2027']]) && state.calls.filter(function (c) { return /^load:opportunity$/.test(c); }).length >= 1, 'posted stage 4 → its option text "Roof on" (fieldOptions)');
+console.log('T85. Posted stage / date changes show in the box (as 1.3.2)');
+ok(JSON.stringify(factsOf(v2Write({ custpage_upd_build_stage: '4' }))) === JSON.stringify([['Project stage', 'Roof on'], ['Expected start', 'Mar 2027']]) &&
+   state.calls.filter(function (c) { return /^load:opportunity$/.test(c); }).length === 1, 'posted stage 4 → its option text "Roof on" (one options read)');
 resetState(); state.options.custbody_build_stage.push({ value: '9', text: '9 - Second fix' });
 emailPost({ custpage_upd_build_stage: '9' });
-ok(factsOf(String(state.emails[0].body))[0][1] === 'Second fix', 'the option text has its number stripped');
-var t87c = v2Write({ custpage_upd_build_stage: '99' });
-ok(factsOf(t87c)[0][1] === 'Roof, Doors, Windows' && state.logs.some(function (l) { return /posted build stage 99 not among the options; the box shows the stored stage/.test(l.details); }), 'posted stage not among the options → the stored text');
-var t87d = v2Write({ custpage_upd_del_date: '2027-08-15' });
-ok(JSON.stringify(factsOf(t87d)) === JSON.stringify([['Project stage', 'Roof, Doors, Windows'], ['Expected start', 'Aug 2027']]), 'posted date → Aug 2027');
-var t87e = v2Write({ custpage_upd_del_date: '2027-02-30' });
-ok(factsOf(t87e)[1][1] === 'Mar 2027', 'an invalid posted date → the stored date');
-var loads87 = function () { return state.calls.filter(function (c) { return /^load:opportunity$/.test(c); }).length; };
+ok(factsOf(String(state.emails[0].body))[0][1] === 'Second fix', 'the posted option text has its number stripped');
+var t85c = v2Write({ custpage_upd_build_stage: '99' });
+ok(factsOf(t85c)[0][1] === 'Roof, Doors, Windows' && state.logs.some(function (l) { return /posted build stage 99 not among the options; the box shows the stored stage/.test(l.details); }), 'posted stage not among the options → the stored text');
+ok(factsOf(v2Write({ custpage_upd_del_date: '2027-08-15' }))[1][1] === 'Aug 2027', 'posted date → Aug 2027');
+ok(factsOf(v2Write({ custpage_upd_del_date: '2027-02-30' }))[1][1] === 'Mar 2027', 'an invalid posted date → the stored date');
 v2Write({ custpage_upd_build_stage: '7' }, function () { state.options.custbody_build_stage.push({ value: '7', text: '7 - Roof, Doors, Windows' }); });
-ok(loads87() === 0, 'stage posted equal to the stored one → no options read (no record.load)');
-var t87f = v2Write({ custpage_upd_fields: 'entitystatus', custpage_upd_build_stage: '4' });
-ok(factsOf(t87f)[0][1] === 'Roof, Doors, Windows', 'a stage field not shown on the page is ignored (pendingChanges) → the stored text');
+ok(state.calls.filter(function (c) { return /^load:opportunity$/.test(c); }).length === 0, 'stage posted equal to the stored one → no options read');
+ok(factsOf(v2Write({ custpage_upd_fields: 'entitystatus', custpage_upd_build_stage: '4' }))[0][1] === 'Roof, Doors, Windows', 'a stage field not shown on the page is ignored → the stored text');
+
+console.log('T86. The band eyebrow in each mode');
+var t86w = v2Write(), t86u = v2Update({ custpage_email_message: PREFILL_V2 });
+ok(t86w.indexOf('color="#e7d9ea"><b>An update from Nu-Heat</b>') !== -1, 'write: "An update from Nu-Heat"');
+ok(t86u.indexOf('color="#e7d9ea"><b>A quick update</b>') !== -1 && t86u.indexOf('<b>Your project</b>') === -1, 'update: "A quick update" (no "Your project" in the band)');
+var band86 = (/bgcolor="#59315f" class="pad"[^>]*>([\s\S]*?)<\/td><\/tr>/.exec(t86u) || [])[1] || '';
+ok(countOf(t86u, 'YOUR PROJECT') === 1 && band86.toUpperCase().indexOf('YOUR PROJECT') === -1, 'update: YOUR PROJECT once (the box label); not in the band');
+
+console.log('T87. The call-to-action line only for an update request with no message');
+var t87m = betweenBoxAndButton(t86u);
+ok(t87m.indexOf(CTA) === -1 && t87m.indexOf(CTA0) === -1 && t86u.indexOf(CTA) === -1, 'update with a message: no call-to-action line');
+ok(inOrder(t86u, [boxOf(t86u), 'Hi Ann,', 'It only takes a minute.</font></p>', 'GIVE US AN UPDATE']) && (t87m.match(/<p\b/g) || []).length === 2, 'update with a message: the box, the message (its 2 paragraphs only), then the button');
+var t87e = v2Update({ custpage_email_message: '' });
+var t87eb = betweenBoxAndButton(t87e);
+ok((t87eb.match(/<p\b/g) || []).length === 1 && t87eb.indexOf(CTA) !== -1, 'update, no message: exactly one line — "Has anything changed?…"');
+ok(/<p style="margin:0 0 16px 0;[^"]*font-size:17px;line-height:25px;color:#2b2a2e;text-align:left;"><font [^>]*>Has anything changed\?/.test(t87e), 'the line in the v2 body style');
+ok(t87e.indexOf('overflow:hidden;">When you have a moment, let us know where your project is up to. It only takes a minute, a</span>') !== -1 && countOf(t87e, 'When you have a moment') === 1, 'update, no message: "When you have a moment…" is the preheader only');
+var t87s = v2Update({ custpage_email_message: '' }, proj({ custbody_build_stage: [] }));
+ok(betweenBoxAndButton(t87s).indexOf(CTA) !== -1, 'update, no message, a date but no stage → the usual line');
+var t87n = v2Update({ custpage_email_message: '' }, proj({ custbody_build_stage: [], custbody_opp_del_date: '' }));
+var t87nb = betweenBoxAndButton(t87n);
+ok((t87nb.match(/<p\b/g) || []).length === 1 && t87nb.indexOf(CTA0) !== -1 && t87n.indexOf(CTA) === -1, 'update, no message, no stage and no start → "Tell us where your project is up to…" only');
+ok(t86w.indexOf(CTA) === -1 && t86w.indexOf(CTA0) === -1, 'write: the message only, no line');
+var t87x = v2Write({ custpage_email_message: '' });
+ok(state.emails.length === 0, 'write with no message → still refused (message required)');
 
 console.log('T88. Escaping in the box');
-var t88 = v2Write({}, proj({ custbody_build_stage: [{ value: '1', text: '2 - <i>Slab</i> & {{X}}' }] }));
-ok(factsOf(t88)[0][1] === '&lt;i&gt;Slab&lt;/i&gt; &amp; &#123;&#123;X}}' && !/\{\{/.test(t88), 'stage text escaped, {{ neutralised');
+var t88 = v2Write({}, proj({ title: 'Smith <b>& Sons</b> {{X}}', custbody_build_stage: [{ value: '1', text: '2 - <i>Slab</i>' }] }));
+ok(boxTitle(t88) === 'Smith &lt;b&gt;&amp; Sons&lt;/b&gt; &#123;&#123;X}}' && t88.indexOf('<b>& Sons') === -1, 'title with <b>& escaped, {{ neutralised');
+ok(factsOf(t88)[0][1] === '&lt;i&gt;Slab&lt;/i&gt;' && !/\{\{/.test(t88), 'stage text escaped');
 
-console.log('T89. Footer and Outlook safety with the box, both modes');
-[['write', t86w, 2], ['update', t86u, 3]].forEach(function (c) {
+console.log('T89. Footer and Outlook safety with the box, both modes; Send Quote unchanged');
+[['write', t86w, 2], ['update', t86u, 3], ['update, no message', t87e, 3]].forEach(function (c) {
     var h = c[1];
-    ok(inOrder(h, ['bgcolor="#25847a"', 'Any questions at all, just reply to this email – it comes straight to me.', '<br>', FOOTER_V2 + '</font></p>']), c[0] + ': footer — the reply line, then the generic line, in one small footer paragraph');
+    ok(inOrder(h, ['bgcolor="#25847a"', 'Any questions at all, just reply to this email – it comes straight to me.', '<br>', FOOTER_V2 + '</font></p>']), c[0] + ': footer — the reply line, then the generic line');
     ok(!/display:\s*(flex|grid|inline-flex)|grid-template|flex-direction|float\s*:/i.test(h) && !/<div\b/i.test(h), c[0] + ': tables only');
     ok((h.match(/<table\b[^>]*>/g) || []).every(function (t) { return /role="presentation"/.test(t) && /cellpadding=/.test(t) && /border="0"/.test(t); }), c[0] + ': every table role="presentation", cellpadding, border');
     ok((h.match(/<(p|h1)\b[^>]*>/g) || []).every(function (t) { return / style="[^"]*font-family:/.test(t); }), c[0] + ': every <p> / <h1> has an inline font');
     ok(countOf(h, '<!--[if !mso]><!-- -->') === c[2], c[0] + ': button pairs unchanged (' + c[2] + ')');
-    ok(/Roof, Doors, Windows/.test(fullyStrippedV2(h)) && /Roof, Doors, Windows/.test(outlookViewV2(h)), c[0] + ': the box survives stripped styles and Outlook');
+    ok(/YOUR PROJECT/.test(fullyStrippedV2(h)) && /Roof, Doors, Windows/.test(outlookViewV2(h)), c[0] + ': the box survives stripped styles and Outlook');
 });
 ok(sha(LIB.emailShell(SQ80) + LIB.emailButton('h', 'l')) === SQ80_HASH, 'Send Quote: the 1.3.0 shell output still the same SHA-256');
 
