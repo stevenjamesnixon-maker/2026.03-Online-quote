@@ -1,3 +1,17 @@
+## [Update Opportunity SL v1.3.1 / Opportunity Update Library v1.4.1] — 2 October 2026 (PR #37 amendment 1: a "Your project" box)
+**Status:** 🔶 In review — not deployed. Upload the library (1.4.1) before the Suitelet.
+**Components:** `nuheat_opp_update_lib.js`, `nuheat_update_opp_sl.js`, `test/update-opp.js`, `test/opp-lib-customer.js`, `docs/email-previews/`
+
+- ADDED (lib 1.4.1): `emailFactBoxV2(label, title, rows)` — the dashboard's delivery-link "Your order" box.
+- ADDED (SL 1.3.1, both modes): a **YOUR PROJECT** box after the hero, before the message. Title: the
+  opportunity title, else the site address (line breaks → ", "), else the QR number. Rows (each only
+  with a value): Project ("QR · site", the site left out when it's the title), Project stage (leading
+  number removed — the dashboard's `stageLabel`), Expected start (`custbody_opp_del_date`, "Mar 2027").
+- ADDED (Request an update only): under the box, "Has anything changed? Let us know with the button
+  below." — "Tell us where your project is up to with the button below." with no stage and no start.
+- The values are the opportunity's current ones (one extra `lookupFields`, 1 unit), so a field changed in
+  the same save shows its value from before the save. A failed lookup → no box; the email still goes.
+
 ## [Update Opportunity SL v1.3.0 / Opportunity Update Library v1.4.0] — 2 October 2026 (Customer email family v2, step 1)
 **Status:** 🔶 In review — not deployed. Upload the library (1.4.0) before the Suitelet.
 **Components:** `nuheat_opp_update_lib.js`, `nuheat_update_opp_sl.js`, `test/update-opp.js`, `test/opp-lib-customer.js`, `docs/email-previews/`

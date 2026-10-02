@@ -7,7 +7,7 @@
  *              and Update Opportunity (nuheat_update_opp_sl.js): field rules, preparing and writing
  *              the Opportunity fields, the required-field gate, redirect codes, text cleaning, and
  *              the page building blocks (CSS, header, update section, error page, page-script core).
- * @version     1.4.0
+ * @version     1.4.1
  * @author      Nu-Heat Development
  *
  * ⚠️ EXTERNAL CONSUMER: the customer dashboard (NS-Customer-Dashboard) requires this library by
@@ -18,6 +18,11 @@
  * ⚠️ DEPLOYMENT: a shared AMD module — no script record, no deployment. Upload it to
  *    SuiteScripts/NuHeat/2026 Quote/ BEFORE either Suitelet is redeployed; both define() it as
  *    './nuheat_opp_update_lib' and fail at load time without it.
+ *
+ * CHANGELOG v1.4.1 (PR #37 amendment 1 — a "Your project" box; additive only):
+ *   - ADDED: emailFactBoxV2(label, title, rows) — the dashboard's delivery-link "Your order" box (border,
+ *     radius, teal label, bold title, muted-label / bold-value fact rows), plain text escaped here.
+ *     Nothing else changed: Send Quote's email stays byte-identical.
  *
  * CHANGELOG v1.4.0 (Customer email family v2, step 1 — Update Opportunity's email; additive only):
  *   - ADDED: emailShellV2({ preheader, eyebrow, headline, heroUrl, bodyHtml, senderCard, footerLine }),
@@ -101,7 +106,7 @@ function (serverWidget, search, record, log, url, format, email, runtime) {
 
     'use strict';
 
-    var LIB_VERSION = '1.4.0';
+    var LIB_VERSION = '1.4.1';
 
     // ─── Field rules ──────────────────────────────────────────────────────────────
 
@@ -1422,7 +1427,9 @@ function (serverWidget, search, record, log, url, format, email, runtime) {
         footerText: '#e6f3f1',
         cardBg:     '#f6f2f7',
         buttonBg:   '#ffb500',
-        buttonText: '#3e3b39'
+        buttonText: '#3e3b39',
+        teal:       '#25847a',   // v1.4.1: the fact box's label
+        muted:      '#5f5b66'    // v1.4.1: the fact box's row labels
     };
 
     /** Send Quote 2.2.0's hero ("Order conformation.jpg", 600 × 337) — the delivery-link email's hero. */
@@ -1649,6 +1656,39 @@ function (serverWidget, search, record, log, url, format, email, runtime) {
             '</table>\n' +
             '</body>\n' +
             '</html>\n';
+    }
+
+    /**
+     * v1.4.1: the dashboard's "Your order" box (deliveryLinkEmail in cdb_lib_render.js), as a reusable
+     * fact box: a bordered, rounded card with a small teal capitals label, a bold title, then one row per
+     * fact — the muted label on the left, the bold value on the right. Rows with an empty value are left
+     * out; no title and no rows → ''. Every argument is PLAIN text, escaped here.
+     *
+     * @param {string} label - e.g. "YOUR PROJECT"
+     * @param {string} title
+     * @param {Array<Array<string>>} rows - [[label, value], …]
+     * @returns {string} a table for the body cell (the caller adds any spacing after it)
+     */
+    function emailFactBoxV2(label, title, rows) {
+        var p = function (margin, size, color, text) {
+            return '<p style="margin:' + margin + ';' + EMAIL_FONT + 'font-size:' + size + 'px;line-height:' + Math.round(size * 1.4) + 'px;' +
+                'font-weight:bold;color:' + color + ';">' + emailFontV2(color, '<b>' + emailTextV2(text) + '</b>') + '</p>\n';
+        };
+        var facts = (rows || []).filter(function (r) { return r && String(r[1] == null ? '' : r[1]).trim(); }).map(function (r) {
+            return '<tr><td align="left" valign="top" style="padding:10px 12px 10px 0;border-top:1px solid #ece8e3;' + EMAIL_FONT +
+                'font-size:16px;line-height:22px;color:' + EMAIL_V2.muted + ';white-space:nowrap;">' + emailFontV2(EMAIL_V2.muted, emailTextV2(r[0])) +
+                '</td><td align="right" valign="top" style="padding:10px 0;border-top:1px solid #ece8e3;' + EMAIL_FONT +
+                'font-size:16px;line-height:22px;color:' + EMAIL_V2.text + ';text-align:right;">' + emailFontV2(EMAIL_V2.text, '<b>' + emailTextV2(r[1]) + '</b>') +
+                '</td></tr>\n';
+        }).join('');
+        if (!String(title || '').trim() && !facts) return '';
+        return '<table role="presentation" width="100%" align="center" cellpadding="0" cellspacing="0" border="0" bgcolor="#ffffff" ' +
+            'style="background-color:#ffffff;border:1px solid #e2ded9;border-radius:10px;border-collapse:separate;">\n' +
+            '<tr><td align="left" valign="top" style="padding:20px 22px 12px 22px;">\n' +
+            p('0 0 6px 0', 12, EMAIL_V2.teal, label) +
+            (String(title || '').trim() ? p('0 0 8px 0', 19, EMAIL_V2.text, title) : '') +
+            (facts ? '<table role="presentation" width="100%" align="center" cellpadding="0" cellspacing="0" border="0">\n' + facts + '</table>\n' : '') +
+            '</td></tr>\n</table>\n';
     }
 
     /**
@@ -2003,6 +2043,7 @@ function (serverWidget, search, record, log, url, format, email, runtime) {
         emailSenderCardV2:      emailSenderCardV2,
         emailButtonV2:          emailButtonV2,
         emailParagraphV2:       emailParagraphV2,
+        emailFactBoxV2:         emailFactBoxV2,      // v1.4.1
         EMAIL_HERO_V2:          EMAIL_HERO_V2,
         sendEmail:              sendEmail,
         loadSender:             loadSender,

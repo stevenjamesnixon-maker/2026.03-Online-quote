@@ -234,6 +234,9 @@ Navigate to **Customization > Scripting > Scripts > New** for each:
   uploaded, every "Write an email" from every rep uses the new design (logo, purple band, hero, sender
   card, teal footer; no "Best wishes" sign-off). No new parameters or permissions. Previews:
   `docs/email-previews/`. Send Quote's email is unchanged (byte-identical; Send Quote needs no redeploy).
+- **1.3.1 — the "Your project" box (needs library 1.4.1):** the role must be able to read the
+  opportunity's `title`, `custbody_opp_site_adress`, `custbody_build_stage` and `custbody_opp_del_date`
+  (one extra lookup when an email is sent). No new parameters.
 
 #### 2g. Opportunity User Event
 - **Name:** Nu-Heat Opportunity UE

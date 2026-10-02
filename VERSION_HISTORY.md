@@ -361,6 +361,11 @@
 
 ## Send Quote Suitelet (`nuheat_send_quote_sl.js`) & Client Script (`nuheat_send_quote_cs.js`)
 
+### Update Opportunity SL v1.3.1 / Opportunity Update Library v1.4.1 — 2 October 2026 🔶 In review
+
+- ADDED: the "Your project" box (title, Project, Project stage, Expected start) above the message, both
+  modes; for Request an update, a call-to-action line under it. `lib.emailFactBoxV2`.
+
 ### Update Opportunity SL v1.3.0 / Opportunity Update Library v1.4.0 — 2 October 2026 🔶 In review
 
 - CHANGED: the email (both modes) moves to the v2 customer email design (the dashboard's "Book your

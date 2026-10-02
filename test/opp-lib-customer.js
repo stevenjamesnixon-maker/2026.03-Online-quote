@@ -1,5 +1,5 @@
 /**
- * Tests for nuheat_opp_update_lib.js 1.2.0 (run against 1.4.0) — the customer-safe server functions (Release 2.1 part A):
+ * Tests for nuheat_opp_update_lib.js 1.2.0 (run against 1.4.1) — the customer-safe server functions (Release 2.1 part A):
  * fieldOptions, writeOppUpdate, createObjections. C1–C12 follow the brief's table; C13+ are extra
  * edge cases.
  *
@@ -177,8 +177,8 @@ var ALLOWED = { build_stage: ['3', '4'], entitystatus: ['12', '14'] };
 // ─── C0. Version and exports ──────────────────────────────────────────────────
 
 console.log('C0. Version and exports');
-// changed in lib 1.3.0 and 1.4.0: the version (the 1.2.0 functions are unchanged)
-ok(LIB.LIB_VERSION === '1.4.0', 'LIB_VERSION is 1.4.0 (' + LIB.LIB_VERSION + ')');
+// changed in lib 1.3.0, 1.4.0 and 1.4.1: the version (the 1.2.0 functions are unchanged)
+ok(LIB.LIB_VERSION === '1.4.1', 'LIB_VERSION is 1.4.1 (' + LIB.LIB_VERSION + ')');
 ok(typeof LIB.fieldOptions === 'function' && typeof LIB.writeOppUpdate === 'function' && typeof LIB.createObjections === 'function', 'fieldOptions, writeOppUpdate, createObjections exported');
 ok(['updateFields', 'pendingChanges', 'prepareFields', 'validateRequired', 'parseIsoDate', 'FIELDS'].every(function (k) { return k in LIB; }), 'existing exports still there');
 ok(LIB.FIELDS.length === 5 && !LIB.FIELDS.some(function (d) { return d.fieldId === 'custbody_opportunity_sub_status'; }), 'FIELDS unchanged: five fields, no sub-status');
@@ -384,8 +384,8 @@ function suiteletLoop110(opportunityId, ids, params, contextLine, quoteId, userI
 var suite = childProcess.spawnSync(process.execPath, [path.join(__dirname, 'update-opp.js')], { encoding: 'utf8' });
 var tail = (suite.stdout || '').trim().split('\n').pop();
 // changed in lib 1.3.0: update-opp.js gained T52–T62, T63–T67 with SL 1.2.1 and T68–T73 with SL 1.2.2 (523 checks); the 293 earlier checks are still in it
-// changed in lib 1.4.0: + T74–T81 with SL 1.3.0 (615 checks)
-ok(suite.status === 0 && tail === '615 passed, 0 failed', 'test/update-opp.js passing (' + tail + ')');
+// changed in lib 1.4.0: + T74–T81 with SL 1.3.0 (615 checks); lib 1.4.1: + T82–T89 with SL 1.3.1 (665)
+ok(suite.status === 0 && tail === '665 passed, 0 failed', 'test/update-opp.js passing (' + tail + ')');
 
 // ─── C13+. Extra edge cases ───────────────────────────────────────────────────
 
