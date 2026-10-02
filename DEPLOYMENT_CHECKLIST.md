@@ -230,6 +230,17 @@ Navigate to **Customization > Scripting > Scripts > New** for each:
     the dashboard go-live and team training. `ADMIN` = the Administrator role only (Steve's testing);
     `ALL` = everyone. Anything else, or an unreadable value, is OFF (logged at debug).
   - OFF gives exactly the 1.1.1 email section; the customer lookup reads only `email`.
+- **1.3.0 — the v2 email design (needs library 1.4.0, uploaded first):** not behind the switch — once
+  uploaded, every "Write an email" from every rep uses the new design (logo, purple band, hero, sender
+  card, teal footer; no "Best wishes" sign-off). No new parameters or permissions. Previews:
+  `docs/email-previews/`. Send Quote's email is unchanged (byte-identical; Send Quote needs no redeploy).
+- **1.3.1 — the "Your project" box (needs library 1.4.1):** the role must be able to read the
+  opportunity's `title`, `custbody_opp_site_adress`, `custbody_build_stage` and `custbody_opp_del_date`
+  (one extra lookup when an email is sent). No new parameters.
+- **1.3.2 (needs library 1.4.2):** the box reads only `custbody_build_stage` and `custbody_opp_del_date`.
+  When a save changes the build stage, the email reads the stage options (one record load, 10 units).
+- **1.3.3 (library 1.4.2, unchanged):** the box reads `tranid`, `title` and `custbody_opp_site_adress` again
+  (for its title) as well as the stage and the date — the same one lookup.
 
 #### 2g. Opportunity User Event
 - **Name:** Nu-Heat Opportunity UE

@@ -1,3 +1,64 @@
+## [Update Opportunity SL v1.3.3] — 2 October 2026 (PR #37 amendment 3: the full box back; the band changes instead)
+**Status:** 🔶 In review — not deployed. Library unchanged (1.4.2).
+**Components:** `nuheat_update_opp_sl.js`, `test/update-opp.js`, `test/opp-lib-customer.js`, `docs/email-previews/`
+
+- RESTORED: the full box (both modes) — YOUR PROJECT, the title (title → site address → QR number),
+  Project stage, Expected start — with **no Project row**. Posted stage / date changes still show.
+- CHANGED: Request an update's band eyebrow is "A quick update" (was "Your project", the duplicate).
+- CHANGED: the call-to-action line only for Request an update with **no** message; with a message, the
+  box is followed by the message and the button.
+
+## [Update Opportunity SL v1.3.2 / Opportunity Update Library v1.4.2] — 2 October 2026 (PR #37 amendment 2: a slimmer box, tidier wording)
+**Status:** 🔶 In review — not deployed. Upload the library (1.4.2) before the Suitelet.
+**Components:** `nuheat_opp_update_lib.js`, `nuheat_update_opp_sl.js`, `test/update-opp.js`, `test/opp-lib-customer.js`, `docs/email-previews/`
+
+- CHANGED: the box keeps only **Project stage** and **Expected start** (no YOUR PROJECT label, title or
+  Project row — the band and the subject name the project). Neither → no box; Request an update then says
+  "Tell us where your project is up to with the button below."
+- CHANGED: Request an update with an empty message no longer has the "When you have a moment…" line in the
+  body; the call-to-action line is the one line above the button. That text stays as the preheader.
+- ADDED: a posted, validated stage or date change shows in the box. The stage text comes from
+  `lib.fieldOptions('build_stage')` (10 units, only when the posted stage differs from the stored one);
+  not found → the stored text.
+- RESTORED: the 1.1.1 reply line in the footer, above the generic line.
+- lib 1.4.2: `emailFactBoxV2` label and title optional (with a label, the HTML is as 1.4.1).
+
+## [Update Opportunity SL v1.3.1 / Opportunity Update Library v1.4.1] — 2 October 2026 (PR #37 amendment 1: a "Your project" box)
+**Status:** 🔶 In review — not deployed. Upload the library (1.4.1) before the Suitelet.
+**Components:** `nuheat_opp_update_lib.js`, `nuheat_update_opp_sl.js`, `test/update-opp.js`, `test/opp-lib-customer.js`, `docs/email-previews/`
+
+- ADDED (lib 1.4.1): `emailFactBoxV2(label, title, rows)` — the dashboard's delivery-link "Your order" box.
+- ADDED (SL 1.3.1, both modes): a **YOUR PROJECT** box after the hero, before the message. Title: the
+  opportunity title, else the site address (line breaks → ", "), else the QR number. Rows (each only
+  with a value): Project ("QR · site", the site left out when it's the title), Project stage (leading
+  number removed — the dashboard's `stageLabel`), Expected start (`custbody_opp_del_date`, "Mar 2027").
+- ADDED (Request an update only): under the box, "Has anything changed? Let us know with the button
+  below." — "Tell us where your project is up to with the button below." with no stage and no start.
+- The values are the opportunity's current ones (one extra `lookupFields`, 1 unit), so a field changed in
+  the same save shows its value from before the save. A failed lookup → no box; the email still goes.
+
+## [Update Opportunity SL v1.3.0 / Opportunity Update Library v1.4.0] — 2 October 2026 (Customer email family v2, step 1)
+**Status:** 🔶 In review — not deployed. Upload the library (1.4.0) before the Suitelet.
+**Components:** `nuheat_opp_update_lib.js`, `nuheat_update_opp_sl.js`, `test/update-opp.js`, `test/opp-lib-customer.js`, `docs/email-previews/`
+
+**Why (Steve, 2 Oct):** the Update Opportunity email should match the v2 customer email design of the
+dashboard's "Book your delivery" (Send delivery link) email.
+
+- ADDED (lib 1.4.0): `emailShellV2({ preheader, eyebrow, headline, heroUrl, bodyHtml, senderCard, footerLine })`,
+  `emailSenderCardV2(sender, cardEmail, label)`, `emailButtonV2(href, label)`, `emailParagraphV2(html)` and
+  `EMAIL_HERO_V2` — markup copied from NS-Customer-Dashboard `cdb_lib_render.js` (no dashboard file is
+  required). `emailShell` / `emailRepCard` / `emailButton` are unchanged, so Send Quote's email is
+  byte-identical (its hashes pass). `emailShellV2` also takes `bodyRows`, so Send Quote can switch later.
+- CHANGED (SL 1.3.0): both modes use the v2 shell — coloured logo, purple band (eyebrow "An update from
+  Nu-Heat", or "Your project" for Request an update; headline = the subject; no greeting), the hero, the
+  message in the v2 body style, the GIVE US AN UPDATE button in the v2 yellow style (Request an update),
+  the sender card (CALL filled, EMAIL outlined) and the teal `#25847a` footer: "You’re receiving this
+  because you have a project with Nu-Heat."
+- REMOVED: the separate "Best wishes, <name>" paragraph (the card signs off), the footer's "just reply to
+  this email" line, and "Thanks," at the end of the Request an update prefill.
+- Unchanged: the card label (YOUR NU-HEAT CONTACT for every sender), https-only photo, no phone → email
+  alone and no CALL button, the PE's design@ address, escaping, the fixed line rule, the button URL.
+
 ## [Update Opportunity SL v1.2.2] — 2 October 2026 (PR #36 amendment 2: "Write an email" or "Request an update")
 **Status:** 🔶 In review — not deployed. Library unchanged (1.3.0); the 1.2.1 switch still applies.
 **Components:** `nuheat_update_opp_sl.js`, `test/update-opp.js`, `test/opp-lib-customer.js`

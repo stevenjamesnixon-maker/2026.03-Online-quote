@@ -361,6 +361,27 @@
 
 ## Send Quote Suitelet (`nuheat_send_quote_sl.js`) & Client Script (`nuheat_send_quote_cs.js`)
 
+### Update Opportunity SL v1.3.3 — 2 October 2026 🔶 In review
+
+- CHANGED: the full project box back (label, title, stage, start; no Project row); Request an update's
+  eyebrow "A quick update"; the call-to-action line only without a message.
+
+### Update Opportunity SL v1.3.2 / Opportunity Update Library v1.4.2 — 2 October 2026 🔶 In review
+
+- CHANGED: the box is Project stage and Expected start only; posted changes show in it; one line above the
+  button for an empty update request; the 1.1.1 reply line back in the footer.
+
+### Update Opportunity SL v1.3.1 / Opportunity Update Library v1.4.1 — 2 October 2026 🔶 In review
+
+- ADDED: the "Your project" box (title, Project, Project stage, Expected start) above the message, both
+  modes; for Request an update, a call-to-action line under it. `lib.emailFactBoxV2`.
+
+### Update Opportunity SL v1.3.0 / Opportunity Update Library v1.4.0 — 2 October 2026 🔶 In review
+
+- CHANGED: the email (both modes) moves to the v2 customer email design (the dashboard's "Book your
+  delivery"): `lib.emailShellV2`, `emailSenderCardV2`, `emailButtonV2`. No "Best wishes" paragraph; the
+  prefill no longer ends "Thanks,". Send Quote unchanged (byte-identical).
+
 ### Update Opportunity SL v1.2.2 — 2 October 2026 🔶 In review
 
 - CHANGED: the tick box became a choice, "Write an email" (default, 1.1.1) / "Request an update"
