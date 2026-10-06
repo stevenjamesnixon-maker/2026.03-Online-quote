@@ -1,3 +1,14 @@
+## [Create Order SL v1.2.1 / Order Library v1.2.1] — 6 October 2026 (Create order amendment 3: partner commission always written as £)
+**Status:** 🔶 In review — not deployed (PR #38). Opportunity UE (1.5.2) and CS (1.3.0) unchanged.
+**Components:** `nuheat_order_lib.js`, `nuheat_create_order_sl.js`, `test/create-order.js`
+
+- CHANGED: Partner Comm (£) (`custbody_partner_commission_amount`) is written on every new SO, as a number —
+  the £ entered, the £ worked out from a % (`round(% × (total − taxtotal) / 100, 2)`), or 0. The % field only
+  for a %. A % with no readable base is refused ("commission could not be calculated").
+- ADDED: the page shows "= £…" under the commission input for a % (display only).
+- ROOT CAUSE (6 Oct, 17:10): the code already set the number 0; NetSuite rejected 0 in the mandatory field.
+  Open for Steve: make the field non-mandatory on NH Sales Order (2026).
+
 ## [Create Order SL v1.2.0 / Order Library v1.2.0 / Opportunity UE v1.5.2] — 6 October 2026 (Create order amendment 2: Steve's first Production test)
 **Status:** 🔶 In review — not deployed (PR #38). Opportunity CS unchanged (1.3.0).
 **Components:** `nuheat_create_order_sl.js`, `nuheat_order_lib.js`, `nuheat_opportunity_ue.js`, `test/create-order.js`

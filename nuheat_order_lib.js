@@ -8,7 +8,7 @@
  *              order log), project-type inference and the settings record. Used by the
  *              reps' "Create order" page (nuheat_create_order_sl.js); written for reuse by the
  *              customer version (part 2), which will run as Administrator.
- * @version     1.2.0
+ * @version     1.2.1
  * @author      Nu-Heat Development
  *
  * ⚠️ DEPLOYMENT: a shared AMD module — no script record, no deployment. Upload it to
@@ -25,6 +25,14 @@
  *    record dependency, not a code dependency: nothing of the dashboard is required. The rules mirror
  *    the dashboard's cdb_lib_config.js 3.x (trimmed Name, blank = missing, two active rows = that key
  *    missing, a failed search = every key missing).
+ *
+ * CHANGELOG v1.2.1 (Create order amendment 3 — partner commission always as £, Steve 6 Oct 2026):
+ *   - custbody_partner_commission_amount (£) is written on EVERY new SO, as a number: the £ entered; or,
+ *     for a %, round(% × base / 100, 2); or 0 when nothing was entered. custbody_partner_commission (%) is
+ *     written only when the rep chose %, holding the % entered.
+ *   - Base = the transformed SO's total − taxtotal, read before save (ex VAT, after discounts — the same total
+ *     the 1p check reads). With a % and no readable base → not saved: "commission could not be calculated".
+ *   - Audit: "commission: 5% → £64.33 (base £1,286.61)" or "commission: £250.00".
  *
  * CHANGELOG v1.2.0 (Create order amendment 2 — template emails, 6 Oct 2026):
  *   - REMOVED: orderConfirmationEmail and EMAIL_COPY (with their emailText / messageParagraphs helpers).
@@ -63,7 +71,7 @@ function (record, search, log, cache, format, lib) {
 
     'use strict';
 
-    var LIB_VERSION = '1.2.0';
+    var LIB_VERSION = '1.2.1';
 
     // ─── Account objects (script IDs only) ────────────────────────────────────────
 
@@ -97,7 +105,7 @@ function (record, search, log, cache, format, lib) {
     /** Body fields reported after the transform (carried or blank) — the audit log's evidence. */
     var CARRY_REPORT = ['entity', 'opportunity', 'custbody_quote_type', 'salesrep', 'department', 'class', 'location',
         'terms', 'custbody_qdt_number_of_units', 'custbody_deposit', 'custbody_bund_proj_type', 'custbody_finance_status',
-        'custbody_partner_commission', 'custbody_partner_commission_amount', 'total'];
+        'custbody_partner_commission', 'custbody_partner_commission_amount', 'total', 'taxtotal'];
 
     var LOCK_CACHE = 'nh_order_estimate_lock';   // PUBLIC: the customer version must see the reps' locks
     var LOCK_TTL   = 300;                         // seconds (N/cache minimum)
@@ -453,18 +461,44 @@ function (record, search, log, cache, format, lib) {
 
     // ─── Conversion ───────────────────────────────────────────────────────────────
 
-    /** The commission as { fieldId, value } or null. Throws ORDERLIB_BAD_INPUT on a bad value. */
-    function commissionField(c) {
+    /**
+     * 1.2.1: the commission as entered — { kind: 'pct'|'amt', n } — or null for none (blank or absent). Shape
+     * only; no I/O. Throws ORDERLIB_BAD_INPUT on a bad value.
+     */
+    function commissionInput(c) {
         if (!c || c.value === null || c.value === undefined || str(c.value).trim() === '') return null;
         var v = str(c.value).trim();
         if (!/^\d{1,9}(\.\d{1,2})?$/.test(v)) throw orderLibError('ORDERLIB_BAD_INPUT', 'Partner commission must be a number with up to 2 decimal places.');
         var n = parseFloat(v);
         if (c.kind === 'pct') {
             if (n > 100) throw orderLibError('ORDERLIB_BAD_INPUT', 'Partner commission % must be between 0 and 100.');
-            return { fieldId: SO.commPct, value: n, label: 'pct' };
+            return { kind: 'pct', n: n };
         }
-        if (c.kind === 'amt') return { fieldId: SO.commAmt, value: n, label: 'amt' };
+        if (c.kind === 'amt') return { kind: 'amt', n: n };
         throw orderLibError('ORDERLIB_BAD_INPUT', 'Partner commission must be % or £.');
+    }
+
+    /** round(x, 2) without the binary drift of x * 100 (1.005 → 1.01). */
+    function round2(x) {
+        return Math.round((x + (x >= 0 ? 1 : -1) * 1e-9) * 100) / 100;
+    }
+
+    /**
+     * 1.2.1 — PURE. Steve's rule: the £ field is ALWAYS written (a number): the £ entered; for a %,
+     * round(% × base / 100, 2); none → 0. The % field only for a %.
+     * @param {{kind, n}|null} input - commissionInput()
+     * @param {number|null} base - the SO's ex VAT total after discounts (total − taxtotal); needed only for a %
+     * @returns {{ amount: number, pct: (number|null), log: string }}
+     * @throws ORDERLIB_COMMISSION when a % has no base
+     */
+    function commissionValues(input, base) {
+        if (!input) return { amount: 0, pct: null, log: 'commission: ' + money(0) };
+        if (input.kind === 'amt') return { amount: round2(input.n), pct: null, log: 'commission: ' + money(input.n) };
+        if (base === null || base === undefined || !isFinite(base)) {
+            throw orderLibError('ORDERLIB_COMMISSION', 'commission could not be calculated (the order’s ex VAT total could not be read)');
+        }
+        var amount = round2(input.n * base / 100);
+        return { amount: amount, pct: input.n, log: 'commission: ' + input.n + '% → ' + money(amount) + ' (base ' + money(base) + ')' };
     }
 
     /**
@@ -552,7 +586,8 @@ function (record, search, log, cache, format, lib) {
      *   2. Re-check: the Estimate must be OPEN and on oppId (one search; see recheckEstimate).
      *   3. record.transform Estimate → Sales Order, standard mode, customform = cfg.soForm (set first,
      *      through defaultValues).
-     *   4. Set: Record Status = cfg.recordStatus; project type; ONE commission field; opportunity and
+     *   4. Set: Record Status = cfg.recordStatus; project type; the commission (1.2.1: the £ field always, the %
+     *      field for a %); opportunity and
      *      quote type ONLY when they came across blank (copied from the Estimate). Every CARRY_REPORT
      *      field is reported (carried / blank) in the audit log.
      *   5. Total check before save: the SO's total against the Estimate's; more than 1p apart (or either
@@ -595,7 +630,7 @@ function (record, search, log, cache, format, lib) {
         var units = str(o.units).trim();
         if (!/^\d{1,6}$/.test(units) || parseInt(units, 10) < 1) throw orderLibError('ORDERLIB_BAD_INPUT', 'Units must be a whole number of 1 or more.');
         units = parseInt(units, 10);
-        var comm = commissionField(o.commission);
+        var comm = commissionInput(o.commission);   // 1.2.1: shape now; the £ after the transform (it needs the base)
 
         // ── 1. Lock ──
         var lock = takeLock(estimateId, logKey);
@@ -630,7 +665,20 @@ function (record, search, log, cache, format, lib) {
             var set = [];
             so.setValue({ fieldId: SO.recordStatus, value: str(cfg.recordStatus) }); set.push(SO.recordStatus);
             so.setValue({ fieldId: SO.projectType, value: str(o.projectType) }); set.push(SO.projectType);
-            if (comm) { so.setValue({ fieldId: comm.fieldId, value: comm.value }); set.push(comm.fieldId); }
+            // 1.2.1: the base and the commission — before the total check, so a % with no base is refused like it
+            var soTotal = num(so.getValue({ fieldId: 'total' }));
+            var taxTotal = num(so.getValue({ fieldId: 'taxtotal' }));
+            var base = (soTotal === null || taxTotal === null) ? null : round2(soTotal - taxTotal);
+            var cv;
+            try {
+                cv = commissionValues(comm, base);
+            } catch (e) {
+                log.audit(logKey, 'Estimate ' + estimateId + ' — commission ' + comm.n + '% NOT calculated; not saved. total ' + str(so.getValue({ fieldId: 'total' })) +
+                    ', taxtotal ' + str(so.getValue({ fieldId: 'taxtotal' })));
+                throw e;
+            }
+            so.setValue({ fieldId: SO.commAmt, value: cv.amount }); set.push(SO.commAmt + '=' + cv.amount);   // always, a number (0 included)
+            if (cv.pct !== null) { so.setValue({ fieldId: SO.commPct, value: cv.pct }); set.push(SO.commPct + '=' + cv.pct); }
             if (!firstValue(so.getValue({ fieldId: SO.opportunity }))) {
                 so.setValue({ fieldId: SO.opportunity, value: oppId }); set.push(SO.opportunity + ' (copied)');
             }
@@ -639,7 +687,6 @@ function (record, search, log, cache, format, lib) {
             }
 
             // ── 5. Total check before save ──
-            var soTotal = num(so.getValue({ fieldId: 'total' }));
             if (soTotal === null || est.total === null || Math.abs(soTotal - est.total) > TOTAL_TOLERANCE + 1e-9) {
                 log.audit(logKey, 'Estimate ' + estimateId + ' — TOTAL MISMATCH before save; not saved. SO ' + str(soTotal) + ' vs quote ' + str(est.total));
                 throw orderLibError('ORDERLIB_TOTAL', 'total differs from the quote (' + (soTotal === null ? 'unreadable' : money(soTotal)) +
@@ -649,6 +696,7 @@ function (record, search, log, cache, format, lib) {
             // ── 6. Save ──
             soId = str(so.save({ ignoreMandatoryFields: false }));
             log.audit(logKey, 'Estimate ' + estimateId + ' (' + est.tranId + ') → SO ' + soId + ' saved | set: ' + set.join(', '));
+            log.audit(logKey, 'SO ' + soId + ' — ' + cv.log);   // 1.2.1: "commission: 5% → £64.33 (base £1,286.61)" / "commission: £250.00"
         } catch (e) {
             releaseLock(lock.key, logKey);   // nothing was saved — the rep may retry
             throw e;
@@ -703,6 +751,7 @@ function (record, search, log, cache, format, lib) {
         SO_FIELDS:              SO,
         LOG_FIELDS:             LOG,
         money:                  money,
+        commissionValues:       commissionValues,
         paysUpFront:            paysUpFront,
         SETTING_RECORD:         SETTING,
         parseSettingRows:       parseSettingRows,

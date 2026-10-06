@@ -361,6 +361,11 @@
 
 ## Create order (`nuheat_create_order_sl.js`, `nuheat_order_lib.js`) & Opportunity UE / CS
 
+### Create Order SL v1.2.1 / Order Library v1.2.1 — 6 October 2026 🔶 In review (amendment 3)
+
+- Partner Comm (£) always written (a number; from a % via total − taxtotal; 0 for none); % field only for a %;
+  "= £…" on the page. lib: `commissionValues` (pure).
+
 ### Create Order SL v1.2.0 / Order Library v1.2.0 / Opportunity UE v1.5.2 — 6 October 2026 🔶 In review (amendment 2)
 
 - Rep list fixed (`salesrep` search filter; the opportunity's rep always offered; server checks membership).

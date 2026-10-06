@@ -11,7 +11,7 @@
  *              Creates one Sales Order and one order log per ticked quote (nuheat_order_lib.convertQuote),
  *              sends the confirmation only when switched on, writes the Opportunity LAST, and returns to
  *              the Opportunity with the result banner (nuheat_opportunity_ue.js, nsqs=ord).
- * @version     1.2.0
+ * @version     1.2.1
  * @author      Nu-Heat Development
  *
  * Script ID:      customscript_nuheat_create_order_sl
@@ -36,6 +36,11 @@
  *   ORDER_EMAIL_TEMPLATES    idlist (1.2.0)      → the email switch is disabled ("No confirmation templates are set up")
  *   The settings search failing (no View permission on the record, no record type) → the page refuses:
  *   "Create order can’t run: its settings can’t be read. Ask an administrator."
+ *
+ * CHANGELOG v1.2.1 (amendment 3 — partner commission always written as £, 6 Oct 2026):
+ *   - The page shows the worked-out £ under the commission input as soon as a % is entered ("= £154.39",
+ *     from the row's ex VAT). Display only: the server (order lib 1.2.1) recalculates from the new SO.
+ *   - A blank commission is "no commission": the order lib writes £0 (the £ field is always written).
  *
  * CHANGELOG v1.2.0 (amendment 2 — Steve's first Production test, 6 Oct 2026):
  *   - FIXED: the sales rep list was empty — "invalid search criteria: issalesrep". The Employee SEARCH filter
@@ -103,7 +108,7 @@ define([
 
     'use strict';
 
-    var SCRIPT_VERSION = '1.2.0';
+    var SCRIPT_VERSION = '1.2.1';
 
     /** Page rules for the shared update fields: Next contact must end up set (D3, as Update Opportunity). */
     var RULES = { required: ['next_contact'], logKey: 'CreateOrderSL.OppUpdate' };
@@ -631,7 +636,7 @@ define([
             '<label class="nsq-seg"><input type="radio" class="nsq-comm-kind" name="custpage_comm_kind_' + id + '" value="pct"' + (kind === 'pct' ? ' checked' : '') + '><span>%</span></label>' +
             '<label class="nsq-seg"><input type="radio" class="nsq-comm-kind" name="custpage_comm_kind_' + id + '" value="amt"' + (kind === 'amt' ? ' checked' : '') + '><span>£</span></label>' +
             '</span><input type="text" inputmode="decimal" class="nsq-input nsq-comm" id="' + cid + '" name="custpage_comm_' + id +
-            '" maxlength="12" autocomplete="off" value="' + escapeHtml(comm) + '"></div>');
+            '" maxlength="12" autocomplete="off" value="' + escapeHtml(comm) + '"><span class="nsq-comm-calc" aria-live="polite"></span></div>');
         h.push('<label class="nsq-qf nsq-qf-tpl" for="' + tid + '"' + (emailOn ? '' : ' hidden') + '><span class="nsq-sr">' + escapeHtml(COPY.tplLabel) + '</span>' +
             '<select class="nsq-input nsq-tpl" id="' + tid + '" name="custpage_tpl_' + id + '">' + optionsHTML(page.templates, tplSel, COPY.tplLabel + '…') + '</select></label>');
         h.push('</div>');
@@ -764,7 +769,9 @@ define([
         '.nsq-ql-short{display:none;}' +
         '.nsq-qin{display:contents;}' +
         '.nsq-qf{display:inline-flex;align-items:center;gap:6px;margin:0;}' +
-        '.nsq-qf-units{grid-area:units;}.nsq-qf-comm{grid-area:comm;}.nsq-qf-tpl{grid-area:tpl;}' +
+        '.nsq-qf-units{grid-area:units;}.nsq-qf-comm{grid-area:comm;position:relative;}.nsq-qf-tpl{grid-area:tpl;}' +
+        // 1.2.1: "= £154.39" under the commission input — absolutely placed, so the row keeps its height
+        '.nsq-comm-calc{position:absolute;right:0;top:100%;font-size:10px;line-height:12px;color:' + lib.PAGE_COLORS.accent + ';white-space:nowrap;}' +
         '.nsq-qf[hidden]{display:none;}' +
         '.nsq-ql{font-size:12px;color:' + lib.PAGE_COLORS.muted + ';white-space:nowrap;}' +
         '.nsq-qrow .nsq-input{min-height:32px;height:32px;padding:4px 8px;font-size:14px;text-align:right;}' +
@@ -913,7 +920,14 @@ define([
         '    var exLine = !t.length ? "" : (exMissing ? "ex VAT not available for every quote" : money(ex) + " ex VAT");',
         '    return { line: line, ex: exLine };',
         '  }',
-        '  function summary() {',   // also refreshes the section 1 total and the footer's ex VAT line (display only)
+        '  function commCalc(r) {',   // 1.2.1: % × the row's ex VAT, display only (the server recalculates from the SO)
+        '    var out = r.querySelector(".nsq-comm-calc"); if (!out) return;',
+        '    var k = r.querySelector(".nsq-comm-kind:checked"), c = r.querySelector(".nsq-comm").value.trim(), ex = r.getAttribute("data-exvat");',
+        '    var ok = k && k.value === "pct" && /^\\d+(\\.\\d{1,2})?$/.test(c) && parseFloat(c) <= 100 && ex !== "";',
+        '    out.textContent = ok ? "= " + money(Math.round(parseFloat(c) * parseFloat(ex)) / 100) : "";',
+        '  }',
+        '  function summary() {',   // also refreshes the section 1 total, the footer's ex VAT line and the commission £ (display only)
+        '    each(rows(), commCalc);',
         '    var tt = totals();',
         '    if ($("nsq-qtotal-line")) { $("nsq-qtotal-line").textContent = tt.line; $("nsq-qtotal-ex").textContent = tt.ex; }',
         '    $("nsq-sum-ex").textContent = tt.ex;',

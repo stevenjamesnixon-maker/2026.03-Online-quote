@@ -40,8 +40,8 @@
 | Analytics Suitelet | `nuheat_analytics_sl.js` | v1.0.1 |
 | Opportunity UE | `nuheat_opportunity_ue.js` | 1.5.2 — 🔶 in review (Create order button, `ORDER_MODE`). 1.4.0 in Production (1 Oct 2026) |
 | Opportunity CS | `nuheat_opportunity_cs.js` | 1.3.0 — 🔶 in review. 1.2.0 in Production (29 Sep 2026) |
-| **Order Library** | `nuheat_order_lib.js` | 1.2.0 — 🔶 new, in review |
-| Create Order SL | `nuheat_create_order_sl.js` | 1.2.0 — 🔶 new, in review |
+| **Order Library** | `nuheat_order_lib.js` | 1.2.1 — 🔶 new, in review |
+| Create Order SL | `nuheat_create_order_sl.js` | 1.2.1 — 🔶 new, in review |
 
 > Read each version from the `SCRIPT_VERSION` / `MODULE_VERSION` constant in the file, not from the
 > JSDoc header — the two drift. `nuheat_quote_ue.js` is currently out by one patch version
@@ -130,8 +130,8 @@
 > | # | File | Version |
 > |---|---|---|
 > | 1 | `nuheat_opp_update_lib.js` — already in place (unchanged by this release; the order library requires it) | as live |
-> | 2 | `nuheat_order_lib.js` — **before the Suitelet** | 1.2.0 |
-> | 3 | `nuheat_create_order_sl.js` | 1.2.0 |
+> | 2 | `nuheat_order_lib.js` — **before the Suitelet** | 1.2.1 |
+> | 3 | `nuheat_create_order_sl.js` | 1.2.1 |
 > | 4 | `nuheat_opportunity_cs.js` | 1.3.0 |
 > | 5 | `nuheat_opportunity_ue.js` — **last** (no `ORDER_MODE` row = no button) | 1.5.2 |
 >
@@ -283,6 +283,11 @@ Navigate to **Customization > Scripting > Scripts > New** for each:
 | `PREPAY_TERMS` | **existing dashboard row** (idlist; `9`) — the same value the dashboard uses | no deposit shown |
 | `ORDER_PARENT_OPP_FIELD` | field ID of the opportunity field holding a parent opportunity, if there is one | the order log's parent is this opportunity |
 | `ORDER_EMAIL_TEMPLATES` | idlist: the email template internal IDs offered for the confirmation, in display order (Steve: `3198,4186,3182,4185,3185`). **FreeMarker templates only** — a legacy CRMSDK template can't be merged | the email switch is shown disabled: "No confirmation templates are set up (ORDER_EMAIL_TEMPLATES)." |
+
+- **NH Sales Order (2026) — Partner Comm (£) (`custbody_partner_commission_amount`) is mandatory.** Create order 1.2.1
+  always writes it (0 when no commission). On 6 Oct NetSuite rejected the number 0 as "Please enter value(s) for:
+  Partner Comm (£)". **Steve to decide:** make the field non-mandatory on the form (then 0 saves), or keep it
+  mandatory (then every order needs a non-zero commission). Until then, orders with no commission are refused.
 
 - **After changing `ORDER_MODE`**, the button can take **up to 5 minutes** to appear or disappear (the UE caches the
   value); the page itself reads the record on every request.

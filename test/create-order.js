@@ -18,6 +18,7 @@
  *   C51      governance
  *   C52      no change to the live pages (amendment 1: the Send Quote suite gains only an N/cache stub)
  *   C53–C61  amendment 1: settings from customrecord_cdb_setting (page, POST, UE cache, the pure parser)
+ *   C62–C64  amendment 3: partner commission always written as £ (C22 updated: % now writes both fields)
  *
  *   node test/create-order.js
  */
@@ -199,7 +200,8 @@ function makeSoRecord(est) {
     var v = {
         entity: '55', opportunity: est.opp, custbody_quote_type: est.qt, salesrep: '30', department: '3', terms: '9',
         custbody_qdt_number_of_units: est.units, custbody_deposit: est.deposit,
-        total: est.total + (state.soTotalDelta[est.id] || 0)
+        total: est.total + (state.soTotalDelta[est.id] || 0),
+        taxtotal: state.taxBlank ? '' : Math.round((est.total - est.exvat) * 100) / 100   // amendment 3: base = total − taxtotal = the ex VAT
     };
     state.carryBlank.forEach(function (f) { v[f] = ''; });
     return {
@@ -668,7 +670,7 @@ var so22 = writesOf('create', 'salesorder')[0];
 ok(state.lastTransform.fromType === 'estimate' && state.lastTransform.toType === 'salesorder' && state.lastTransform.isDynamic === false &&
    state.lastTransform.defaultValues.customform === '150', 'transform Estimate → SO, standard mode, customform first (defaultValues)');
 ok(so22.values.custbody_finance_status === '7' && so22.values.custbody_bund_proj_type === '1', 'Record Status and project type');
-ok(so22.values.custbody_partner_commission === 5 && so22.values.custbody_partner_commission_amount === undefined, 'only the % commission field');
+ok(so22.values.custbody_partner_commission === 5 && so22.values.custbody_partner_commission_amount === 500, '5% → both fields: 5 and £500 (5% of the £10,000 ex VAT base) — amendment 3');
 ok(state.lastSaveOptions && state.lastSaveOptions.ignoreMandatoryFields === false, 'saved with ignoreMandatoryFields: false');
 var log22 = writesOf('create', 'customrecord_order_log')[0];
 ok(log22 && log22.values.custrecord_order_so === c22.soId && log22.values.custrecord_parent_opp === '123' && log22.values.custrecord_order_units === 4 &&
@@ -679,11 +681,11 @@ ok(logged('T.Convert', /carried: .*entity=55.*\| blank: .*class/), 'the transfor
 resetState();
 convert({ commission: { kind: 'amt', value: '250.50' } });
 var so22b = writesOf('create', 'salesorder')[0];
-ok(so22b.values.custbody_partner_commission_amount === 250.5 && so22b.values.custbody_partner_commission === undefined, 'only the £ commission field');
+ok(so22b.values.custbody_partner_commission_amount === 250.5 && so22b.values.custbody_partner_commission === undefined, '£ entered → the £ field only');
 resetState();
 convert({ commission: null });
 var so22c = writesOf('create', 'salesorder')[0];
-ok(so22c.values.custbody_partner_commission === undefined && so22c.values.custbody_partner_commission_amount === undefined, 'no commission → neither field');
+ok(so22c.values.custbody_partner_commission === undefined && so22c.values.custbody_partner_commission_amount === 0, 'no commission → £0, the % field not written — amendment 3');
 console.log('C23. convertQuote: blank opportunity and quote type are copied');
 resetState(); state.carryBlank = ['opportunity', 'custbody_quote_type'];
 convert();
@@ -1152,6 +1154,53 @@ var p61 = orderLib.parseSettingRows([
 ok(p61.values.ORDER_SO_FORM === '150' && Object.keys(p61.values).join() === 'ORDER_SO_FORM', 'trimmed Name and value; only clean keys have values');
 ok(p61.missing.join() === 'ORDER_RECORD_STATUS,ORDER_MODE,PREPAY_TERMS' && p61.duplicates.join() === 'ORDER_MODE (3, 4)', 'blank, duplicate and absent are missing');
 ok(p61.found.join() === 'ORDER_SO_FORM', 'case as typed (order_so_form is not ORDER_SO_FORM), other rows ignored');
+
+// ═══ Amendment 3: partner commission always written as £ ════════════════════════
+
+console.log('C62. Commission: the £ field always, as a number');
+function soOf(estId) { return writesOf('create', 'salesorder').filter(function (w) { return w.from === estId; })[0]; }
+resetState();
+var r62 = runPost(post({ custpage_q_sel: '["901","902"]', custpage_units_902: '1', custpage_comm_kind_901: 'amt', custpage_comm_901: '0', custpage_comm_kind_902: 'amt', custpage_comm_902: '0' }));
+ok(r62.redirect && soOf('901').values.custbody_partner_commission_amount === 0 && soOf('902').values.custbody_partner_commission_amount === 0, 'Steve’s 6 Oct case (two quotes, £ 0): £ = 0 on both');
+ok(typeof soOf('901').values.custbody_partner_commission_amount === 'number' && soOf('901').values.custbody_partner_commission === undefined, '… a number, not a string; no % field');
+resetState();
+runPost(post({ custpage_comm_kind_901: 'amt', custpage_comm_901: '250' }));
+ok(soOf('901').values.custbody_partner_commission_amount === 250 && soOf('901').values.custbody_partner_commission === undefined, '£ 250 entered → £ field 250 only');
+resetState();
+runPost(post({ custpage_comm_kind_901: 'pct', custpage_comm_901: '' }));
+ok(soOf('901').values.custbody_partner_commission_amount === 0 && !('custbody_partner_commission' in soOf('901').values), 'blank (with % chosen) → £0, the % field not written');
+resetState();
+runPost(post({ custpage_comm_kind_901: 'pct', custpage_comm_901: '2.5' }));
+ok(soOf('901').values.custbody_partner_commission === 2.5 && soOf('901').values.custbody_partner_commission_amount === 250, '2.5% of £10,000 → % 2.5 and £250');
+ok(typeof soOf('901').values.custbody_partner_commission === 'number' && typeof soOf('901').values.custbody_partner_commission_amount === 'number', 'both numbers');
+ok(logged('CreateOrderSL.Convert', /^SO 7000 — commission: 2\.5% → £250\.00 \(base £10,000\.00\)$/), 'audit: "commission: 2.5% → £250.00 (base £10,000.00)"');
+resetState();
+runPost(post({ custpage_comm_kind_901: 'amt', custpage_comm_901: '250' }));
+ok(logged('CreateOrderSL.Convert', /^SO 7000 — commission: £250\.00$/), 'audit: "commission: £250.00"');
+resetState();
+runPost(post({ custpage_comm_kind_901: 'pct', custpage_comm_901: '100' }));
+ok(soOf('901').values.custbody_partner_commission === 100 && soOf('901').values.custbody_partner_commission_amount === 10000, '100% → £ = the base');
+resetState(); state.estimates[2].exvat = 416.67;
+runPost(post({ custpage_q_sel: '["903"]', custpage_units_903: '1', custpage_projtype: '4', custpage_comm_kind_903: 'pct', custpage_comm_903: '37' }));
+ok(soOf('903').values.custbody_partner_commission_amount === 154.17, '37% of £416.67 = 154.1679 → £154.17 (rounded to 2 dp)');
+console.log('C63. A % with no readable base → refused, nothing saved');
+resetState(); state.taxBlank = true;
+var r63 = runPost(post({ custpage_comm_kind_901: 'pct', custpage_comm_901: '5' }));
+ok(!r63.redirect && writesOf('create', 'salesorder').length === 0 && writesOf('create', 'customrecord_order_log').length === 0, 'not saved');
+ok(r63.html.indexOf('Nothing was created:') !== -1 && r63.html.indexOf('EST901 commission could not be calculated') !== -1, '"commission could not be calculated" on the page');
+ok(logged('CreateOrderSL.Convert', /commission 5% NOT calculated; not saved\. total 12000, taxtotal $/), 'both raw figures logged');
+resetState(); state.taxBlank = true;
+var r63b = runPost(post({ custpage_comm_kind_901: 'amt', custpage_comm_901: '50' }));
+ok(r63b.redirect && soOf('901').values.custbody_partner_commission_amount === 50, 'a £ amount needs no base: saved');
+console.log('C64. commissionValues (pure) and the page');
+ok(JSON.stringify(orderLib.commissionValues(null, null)) === JSON.stringify({ amount: 0, pct: null, log: 'commission: £0.00' }), 'none → £0');
+ok(orderLib.commissionValues({ kind: 'pct', n: 5 }, 1286.61).amount === 64.33 && orderLib.commissionValues({ kind: 'pct', n: 5 }, 1286.61).log === 'commission: 5% → £64.33 (base £1,286.61)', 'the brief’s example: 5% of £1,286.61 → £64.33');
+ok(orderLib.commissionValues({ kind: 'pct', n: 0 }, 1000).amount === 0 && orderLib.commissionValues({ kind: 'pct', n: 0 }, 1000).pct === 0, '0% → £0 and % 0');
+var e64 = null; try { orderLib.commissionValues({ kind: 'pct', n: 5 }, null); } catch (e) { e64 = e; }
+ok(e64 && e64.name === 'ORDERLIB_COMMISSION', 'no base → ORDERLIB_COMMISSION');
+var g64 = runGet();
+ok(g64.indexOf('<span class="nsq-comm-calc" aria-live="polite"></span>') !== -1, 'each row has the "= £…" slot');
+ok(g64.indexOf('out.textContent = ok ? "= " + money(Math.round(parseFloat(c) * parseFloat(ex)) / 100) : "";') !== -1, 'the page works it out from the row’s ex VAT (display only)');
 
 // ═══ Governance ══════════════════════════════════════════════════════════════════
 

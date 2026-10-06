@@ -95,7 +95,7 @@ record; unknown values are dropped.
 | `nsqef` | comma list of SO IDs | *(ord, UE 1.5.2)* Orders whose confirmation email was not sent (merge or send failed) — verified against this opportunity like `nsqso`: "Confirmation email not sent for SO…" |
 | `nsqf` / `nsqff` keys `sub_status`, `value_prop` | — | *(UE 1.5.0)* Sub-status (`custbody_opportunity_sub_status`) and Value proposition (`custbody_value_proposition`), read from the record. `nsqe` / `nsqen` with `ord` → "Confirmation email sent to N recipient(s)" / "The confirmation email was not sent." |
 
-## Create order (Create Order SL 1.2.0 / order library 1.2.0) — 6 Oct 2026
+## Create order (Create Order SL 1.2.1 / order library 1.2.1) — 6 Oct 2026
 
 ### Estimate (read: two searches, no loads)
 
@@ -118,7 +118,8 @@ record; unknown values are dropped.
 | `customform` | `ORDER_SO_FORM` ("NH Sales Order (2026)"), set first through the transform's `defaultValues` |
 | `custbody_finance_status` (Record Status) | `ORDER_RECORD_STATUS` (Awaiting Design Info) |
 | `custbody_bund_proj_type` | The project type (list `customlist_bund_proj_type`). The same value on every SO of one submission |
-| `custbody_partner_commission` (%) **or** `custbody_partner_commission_amount` (£) | Only the chosen one; blank → neither. % 0–100, £ ≥ 0, 2 dp |
+| `custbody_partner_commission_amount` (£, **mandatory on the form**) | *(1.2.1)* **Always**, a number: the £ entered; for a %, `round(% × (total − taxtotal) / 100, 2)` from the transformed SO; blank → `0`. A % with no readable base → not saved |
+| `custbody_partner_commission` (%) | *(1.2.1)* Only when the rep chose %: the % entered (0–100, 2 dp) |
 | `opportunity`, `custbody_quote_type` | Only when the transform left them blank (copied from the Estimate) |
 
 ### Order log (`customrecord_order_log`, form "NH Order Log Administration")
