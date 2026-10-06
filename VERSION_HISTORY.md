@@ -361,6 +361,12 @@
 
 ## Create order (`nuheat_create_order_sl.js`, `nuheat_order_lib.js`) & Opportunity UE / CS
 
+### Create Order SL v1.2.0 / Order Library v1.2.0 / Opportunity UE v1.5.2 — 6 October 2026 🔶 In review (amendment 2)
+
+- Rep list fixed (`salesrep` search filter; the opportunity's rep always offered; server checks membership).
+- Compact rows, live totals, template email per Sales Order with attachments, `ORDER_EMAIL_TEMPLATES`,
+  `MAX_QUOTES` 6. lib: `orderConfirmationEmail` / `EMAIL_COPY` removed. UE: `nsqef`, `nsqen` = emails sent.
+
 ### Create Order SL v1.1.0 / Order Library v1.1.0 / Opportunity UE v1.5.1 — 6 October 2026 🔶 In review (amendment 1)
 
 - Settings from `customrecord_cdb_setting` rows (`ORDER_*`, `NEEDINFO_SUBSTATUS`, `PREPAY_TERMS`); no script

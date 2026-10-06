@@ -74,6 +74,7 @@ var DEFAULT_SETTINGS = {
     ORDER_PROJTYPE_MIXED:    '2',
     PREPAY_TERMS:            '9',
     ORDER_PARENT_OPP_FIELD:  '',
+    ORDER_EMAIL_TEMPLATES:   '3198,4186,3182,9999',   // amendment 2: 3182 inactive, 9999 missing
     WON_STATUSES:            '13',
     ORDER_MODE_OLD:          'OFF'
 };
@@ -136,8 +137,13 @@ function resetState() {
             '7':  { firstname: 'Sam', lastname: 'Taylor', entityid: 'Sam Taylor', email: 'sam.taylor@nu-heat.co.uk', phone: '01404 549 770', issalesrep: true, isinactive: false },
             '30': { firstname: 'Rita', lastname: 'Rep', entityid: 'Rita Rep', email: 'rita@nu-heat.co.uk', phone: '01404 000 111', issalesrep: true, isinactive: false },
             '31': { firstname: 'Old', lastname: 'Rep', entityid: 'Old Rep', email: 'old@nu-heat.co.uk', phone: '', issalesrep: true, isinactive: true },
-            '32': { firstname: 'Not', lastname: 'Arep', entityid: 'Not Arep', email: 'not@nu-heat.co.uk', phone: '', issalesrep: false, isinactive: false }
-        }
+            '32': { firstname: 'Not', lastname: 'Arep', entityid: 'Not Arep', email: 'not@nu-heat.co.uk', phone: '', issalesrep: false, isinactive: false },
+            '33': { firstname: 'Una', lastname: 'Flagged', entityid: 'Una Flagged', email: 'una@nu-heat.co.uk', phone: '', issalesrep: false, isinactive: false }
+        },
+        // amendment 2: email templates (the emailtemplate search), merges, uploads
+        templates: { '3198': { name: 'Order confirmation – UFH', inactive: false }, '4186': { name: 'Order confirmation – Heat pump', inactive: false },
+                     '3182': { name: 'Old confirmation', inactive: true }, '4185': { name: 'Order confirmation – Parts', inactive: false } },
+        templateSearchThrows: null, repSearchThrows: null, mergeThrows: {}, merges: [], files: {}
     };
 }
 
@@ -359,9 +365,18 @@ var searchStub = {
             return resultSet((state.lists[o.type] || []).map(function (l) { return row({ internalid: l.id, name: l.name }); }));
         }
         if (o.type === 'employee') {
-            var reps = Object.keys(state.employees).filter(function (id) { var e = state.employees[id]; return e.issalesrep && !e.isinactive; })
+            // As Production (6 Oct): issalesrep is not a valid Employee search filter; salesrep is
+            if (fval(o.filters, 'issalesrep') !== undefined) throw new Error('An nlobjSearchFilter contains invalid search criteria: issalesrep.');
+            state.repFilter = fval(o.filters, 'salesrep');
+            var reps = Object.keys(state.employees).filter(function (id) { var e = state.employees[id]; return (state.repFilter !== 'T' || e.issalesrep) && !e.isinactive; })
                 .map(function (id) { return row({ internalid: id, entityid: state.employees[id].entityid }); });
-            return resultSet(reps);
+            return resultSet(reps, state.repSearchThrows);
+        }
+        if (o.type === 'emailtemplate') {
+            var tids = fval(o.filters, 'internalid') || [];
+            return resultSet(Object.keys(state.templates).filter(function (id) { return anyof(tids, id); }).map(function (id) {
+                return row({ internalid: id, name: state.templates[id].name, isinactive: state.templates[id].inactive ? 'T' : 'F' });
+            }), state.templateSearchThrows);
         }
         if (o.type === 'opportunity') {
             return resultSet(state.contacts.map(function (c) { return row({ internalid: c.id, firstname: c.first, lastname: c.last, email: c.email, company: c.company }); }));
@@ -394,9 +409,19 @@ var modules = {
         }
     },
     'N/ui/message': { Type: { CONFIRMATION: 'confirmation', WARNING: 'warning', INFORMATION: 'information' } },
+    // amendment 2: mergeEmail and email.send charged 20 each (the conservative figures)
+    'N/render': {
+        mergeEmail: function (o) {
+            charge(20);
+            state.calls.push('render.mergeEmail:' + o.templateId + ':' + o.transactionId);
+            state.merges.push(o);
+            if (state.mergeThrows[String(o.templateId)]) throw new Error(state.mergeThrows[String(o.templateId)]);
+            return { subject: 'Your order ' + o.transactionId, body: '<p>Template ' + o.templateId + ' for SO ' + o.transactionId + '</p>' };
+        }
+    },
     'N/email': {
         send: function (o) {
-            charge(10);
+            charge(20);
             state.calls.push('email.send');
             if (state.emailThrows) throw new Error(state.emailThrows);
             state.emails.push(o);
@@ -447,10 +472,15 @@ function post(overrides) {
     Object.keys(overrides || {}).forEach(function (k) {
         if (overrides[k] === undefined) delete p[k]; else p[k] = overrides[k];
     });
+    // amendment 2: with the email on, every ticked quote gets template 3198 unless the test sets one
+    if (p.custpage_email_on === 'T') {
+        try { JSON.parse(p.custpage_q_sel).forEach(function (id) { if (!Object.prototype.hasOwnProperty.call(overrides, 'custpage_tpl_' + id)) p['custpage_tpl_' + id] = '3198'; }); } catch (e) { /* bad selection tests */ }
+    }
     return p;
 }
-function runPost(params) {
-    var ctx = { request: { method: 'POST', parameters: params }, response: { page: null, writePage: function (f) { this.page = f; } } };
+function upload(name, size) { return { name: name, size: size, fileType: 'PDF' }; }
+function runPost(params, files) {
+    var ctx = { request: { method: 'POST', parameters: params, files: files || {} }, response: { page: null, writePage: function (f) { this.page = f; } } };
     sl.onRequest(ctx);
     return { html: html(ctx.response.page), redirect: state.redirect };
 }
@@ -482,14 +512,14 @@ ok(l1.quotes[0].id === '901' && l1.quotes[0].total === 12000 && l1.quotes[0].exV
 ok(l1.quotes[0].description === 'UFH ground floor', 'description cleaned (entities decoded, tags stripped)');
 ok(g1.indexOf('<a href="/app/accounting/transactions/estimate.nl?id=901" target="_blank" rel="noopener">EST901</a>') !== -1, 'quote number links to the quote in a new tab');
 ok(g1.indexOf('£12,000.00') !== -1 && g1.indexOf('£10,000.00 ex VAT') !== -1, 'values inc and ex VAT');
-ok(g1.indexOf('Created 02/10/2026') !== -1, 'date created');
+ok(/<div class="nsq-qmeta">UFH · 02\/10\/2026<\/div>/.test(g1), 'type · date created');
 
 console.log('C2. Listing: Expired tag when duedate is before today');
-var r902 = between(g1, 'data-qid="902" data-tranid', 'nsq-qin');
-var r901 = between(g1, 'data-qid="901" data-tranid', 'nsq-qin');
+var r902 = between(g1, 'data-qid="902" data-tranid', 'data-qid="903" data-tranid');
+var r901 = between(g1, 'data-qid="901" data-tranid', 'data-qid="902" data-tranid');
 ok(r902.indexOf('<span class="nsq-tag-exp">Expired</span>') !== -1, 'EST902 (due in the past) is tagged Expired');
 ok(r901.indexOf('Expired') === -1, 'EST901 (due in future) is not');
-ok(between(g1, 'data-qid="903" data-tranid', 'nsq-qin').indexOf('Expired') === -1, 'EST903 (no due date) is not');
+ok(between(g1, 'data-qid="903" data-tranid', 'nsq-qtotal').indexOf('Expired') === -1, 'EST903 (no due date) is not');
 ok(l1.quotes[1].expired === true && l1.quotes[0].expired === false, 'lib: expired flag');
 
 console.log('C3. Listing: deposit only for customers who pay up front');
@@ -511,7 +541,7 @@ ok(r902.indexOf('name="custpage_units_902" maxlength="6" autocomplete="off" valu
 resetState(); state.extrasThrows = 'SSS_INVALID_SRCH_COL';
 var g4 = runGet();
 ok(g4.indexOf('data-qid="901"') !== -1 && g4.indexOf('name="custpage_units_901" maxlength="6" autocomplete="off" value=""') !== -1, 'extras search fails → listed, units blank');
-ok(g4.indexOf('Deposit £') === -1 && g4.indexOf('ex VAT') === -1, '… no deposit, no ex VAT');
+ok(g4.indexOf('Deposit £') === -1 && g4.indexOf(' ex VAT</span>') === -1, '… no deposit, no ex VAT');
 ok(logged('CreateOrderSL.List', /extras .* could not be read/), '… logged at error');
 resetState(); state.estimates = state.estimates.filter(function (e) { return e.opp !== '123' || e.status !== 'A'; });
 var g4b = runGet();
@@ -600,9 +630,9 @@ ok(orderLib.inferProjectType([], MAP, '2') === '' && orderLib.inferProjectType([
 console.log('C19. The page carries the inference data (no data in the script)');
 resetState();
 var g19 = runGet();
-ok(/data-qid="901" data-tranid="EST901" data-total="12000" data-projtype="1"/.test(g19), 'UFH row → data-projtype 1');
-ok(/data-qid="902" data-tranid="EST902" data-total="2250" data-projtype="3"/.test(g19), 'HP row → 3');
-ok(/data-qid="903" data-tranid="EST903" data-total="500" data-projtype=""/.test(g19), 'unmapped → empty');
+ok(/data-qid="901" data-tranid="EST901" data-total="12000" data-exvat="10000" data-deposit="1200" data-projtype="1"/.test(g19), 'UFH row → data-projtype 1');
+ok(/data-qid="902" data-tranid="EST902" data-total="2250" data-exvat="2142.86" data-deposit="" data-projtype="3"/.test(g19), 'HP row → 3');
+ok(/data-qid="903" data-tranid="EST903" data-total="500" data-exvat="416.67" data-deposit="" data-projtype=""/.test(g19), 'unmapped → empty');
 ok(/id="nsq-projtype" name="custpage_projtype" class="nsq-input" data-mixed="2"/.test(g19), 'the mixed id on the select');
 var s19 = between(g19, '<script>', '</script>');
 ok(s19.indexOf('EST901') === -1 && s19.indexOf('12000') === -1 && s19.indexOf('Customer Ltd') === -1, 'no record data inside the <script>');
@@ -712,7 +742,7 @@ ok(writesOf('create', 'salesorder').length === 1 && writesOf('create', 'salesord
 ok(writesOf('create', 'customrecord_order_log').length === 1, 'and its log');
 var p29 = r29.redirect && r29.redirect.parameters;
 ok(p29 && p29.nsqs === 'ord' && p29.nsq === 'warn' && p29.nsqso === '7000' && p29.nsqqf === '902', 'redirect: both outcomes as codes (nsqso, nsqqf)');
-ok(state.emails.length === 1 && state.emails[0].body.indexOf('SO239950') !== -1 && state.emails[0].body.indexOf('ASHP') === -1, 'the email lists only the created order');
+ok(state.emails.length === 1 && state.emails[0].relatedRecords.transactionId === 7000, 'one email, for the created order only');
 ok(logged('CreateOrderSL.Summary', /failed EST902: Please enter value\(s\) for: Lead Source/), 'the reason is logged');
 console.log('C30. Nothing created: no email, no opportunity write, the token is released');
 resetState(); state.soSaveThrows['901'] = 'boom';
@@ -804,35 +834,128 @@ ok(g40.indexOf('custpage_upd_next_contact') !== -1 && g40.indexOf('custpage_upd_
 
 // ═══ The email ═══════════════════════════════════════════════════════════════════
 
-console.log('C41. Sent only when switched on');
+console.log('C41. Sent only when switched on; one email per SO, each from its own template');
 resetState();
 runPost(post());
-ok(state.emails.length === 0, 'switch off → no email');
+ok(state.emails.length === 0 && state.merges.length === 0, 'switch off → nothing merged, nothing sent');
 var g41 = runGet();
 ok(/<input type="checkbox" id="nsq-email-on"> Send the customer an order confirmation/.test(g41) && /<div id="nsq-email-body" hidden>/.test(g41), 'the switch is off by default');
 ok(/<option value="rep" selected>Sales rep \(Rita Rep\)/.test(g41), 'From defaults to the sales rep');
 ok(/data-customer="1" data-email="cust@example.com" checked/.test(g41), 'To defaults to the Customer');
+ok(g41.indexOf('nsq-email-message') === -1 && g41.indexOf('custpage_email_message') === -1, 'no free-text message box');
+ok(/<input type="file" id="nsq-att" class="nsq-att" multiple>/.test(g41) && g41.indexOf('Up to 5 files, 10 MB in total. They are attached to every confirmation email sent now.') !== -1, 'the attachments input, multiple, with its limits');
+ok((g41.match(/<input type="file" name="custpage_att_\d" class="nsq-att-slot" hidden>/g) || []).length === 5, 'five hidden slots custpage_att_1…5');
+ok(g41.indexOf('f.enctype = "multipart/form-data"') !== -1, 'the page sets the form to multipart/form-data');
 resetState();
-var r41 = runPost(post({ custpage_email_on: 'T', custpage_rcpt_customer: 'T', custpage_email_from: 'rep' }));
-ok(state.emails.length === 1 && state.emails[0].author === '30' && state.emails[0].recipients.join() === 'cust@example.com' && state.emails[0].subject === 'Your Nu-Heat order confirmation', 'from the rep, to the customer');
-ok(r41.redirect.parameters.nsqe === 'sent' && r41.redirect.parameters.nsqen === '1', 'nsqe=sent, nsqen=1');
-var b41 = state.emails[0].body;
-ok(b41.indexOf('ORDER CONFIRMATION') !== -1 || b41.indexOf('Order confirmation') !== -1, 'eyebrow "Order confirmation"');
-ok(b41.indexOf('Thank you for your order') !== -1 && b41.indexOf('YOUR ORDER') !== -1 && b41.indexOf('UFH ground floor') !== -1 && b41.indexOf('SO239950') !== -1 && b41.indexOf('£12,000.00') !== -1, 'headline, box, description, SO, total');
-console.log('C42. The deposit row only for up-front customers');
-ok(b41.indexOf('Deposit due') !== -1 && b41.indexOf('£1,200.00') !== -1, 'up front → Deposit due £1,200.00');
+var r41 = runPost(post({ custpage_q_sel: '["901","902"]', custpage_units_902: '1', custpage_email_on: 'T', custpage_rcpt_customer: 'T', custpage_email_from: 'rep',
+                         custpage_tpl_901: '3198', custpage_tpl_902: '4186' }));
+ok(state.merges.length === 2 && state.merges[0].templateId === 3198 && state.merges[0].transactionId === 7000 && state.merges[1].templateId === 4186 && state.merges[1].transactionId === 7001,
+   'one merge per SO with its own template and transactionId');
+ok(state.merges[0].entity.type === 'customer' && state.merges[0].entity.id === 55 && state.merges[0].recipient.type === 'customer' && state.merges[0].recipient.id === 55, 'entity and recipient = the customer');
+ok(state.emails.length === 2 && state.emails[0].author === '30' && state.emails[0].recipients.join() === 'cust@example.com', 'two emails, from the rep, to the customer');
+ok(state.emails[0].subject === 'Your order 7000' && state.emails[0].body === '<p>Template 3198 for SO 7000</p>' && state.emails[1].body === '<p>Template 4186 for SO 7001</p>', 'subject and body from the merge');
+ok(state.emails[0].relatedRecords.transactionId === 7000 && state.emails[1].relatedRecords.transactionId === 7001 && state.emails[0].relatedRecords.entityId === 55, 'each filed against its own SO and the customer');
+ok(!state.emails[0].attachments, 'no attachments chosen → none sent');
+ok(r41.redirect.parameters.nsqe === 'sent' && r41.redirect.parameters.nsqen === '2' && !r41.redirect.parameters.nsqef, 'nsqe=sent, nsqen=2 (emails sent)');
+ok(logged('CreateOrderSL.Email', /SO239950 \(SO 7000\) — template 3198 merged; from rep \(employee 30\), 1 recipient, 0 attachments \(0 bytes\)/), 'each merge logged at audit: SO, template, recipients, attachments');
+ok(!state.logs.some(function (l) { return /Template 3198 for SO/.test(l.details); }), 'the body is never logged');
+
+console.log('C42. Attachments: passed to every email; the limits');
+resetState();
+var files42 = { custpage_att_1: upload('a.pdf', 1000), custpage_att_2: upload('b.pdf', 2000) };
+runPost(post({ custpage_q_sel: '["901","902"]', custpage_units_902: '1', custpage_email_on: 'T', custpage_rcpt_customer: 'T' }), files42);
+ok(state.emails.length === 2 && state.emails.every(function (e) { return e.attachments && e.attachments.length === 2 && e.attachments[0] === files42.custpage_att_1; }), 'the uploaded file objects go to every email, unsaved');
+ok(!state.calls.some(function (c) { return /save:file|create:file/.test(c); }), 'nothing saved to the File Cabinet');
+ok(logged('CreateOrderSL.Email', /2 attachments \(3000 bytes\)/), 'count and total size logged');
+var six = {};
+[1, 2, 3, 4, 5, 6].forEach(function (n) { six['custpage_att_' + n] = upload('f' + n + '.pdf', 10); });
+resetState(); nothingWritten(runPost(post({ custpage_email_on: 'T', custpage_rcpt_customer: 'T' }), six), '6 files');
+resetState(); nothingWritten(runPost(post({ custpage_email_on: 'T', custpage_rcpt_customer: 'T' }), { custpage_att_1: upload('big.pdf', 6 * 1024 * 1024), custpage_att_2: upload('big2.pdf', 5 * 1024 * 1024) }), 'more than 10 MB');
+resetState(); nothingWritten(runPost(post({ custpage_email_on: 'T', custpage_rcpt_customer: 'T' }), { custpage_att_1: upload('empty.pdf', 0) }), 'an empty file');
+resetState();
+var r42 = runPost(post({ custpage_email_on: 'T', custpage_rcpt_customer: 'T' }), { custpage_att_1: { name: '', size: 0 } });
+ok(r42.redirect && state.emails.length === 1 && !state.emails[0].attachments, 'an unused slot (no name, no content) is ignored');
+resetState();
+runPost(post({ custpage_email_on: 'F' }), files42);
+ok(state.emails.length === 0 && state.merges.length === 0, 'email off → files ignored, nothing sent');
+
+console.log('C43. Templates: options, order, and the server check');
+resetState();
+var t43 = between(runGet(), 'id="nsq-tpl-901"', '</select>');
+ok(/<option value="">Confirmation email…<\/option><option value="3198">Order confirmation – UFH<\/option><option value="4186">Order confirmation – Heat pump<\/option>$/.test(t43), 'ORDER_EMAIL_TEMPLATES order; inactive 3182 and missing 9999 dropped; no pre-selection (' + t43.substring(t43.length - 140) + ')');
+ok(logged('CreateOrderSL.Config', /template 3182 is inactive; not offered/) && logged('CreateOrderSL.Config', /template 9999 not found; not offered/), 'inactive and missing logged');
+ok(state.calls.some(function (c) { return c === 'search:emailtemplate:internalid,name,isinactive'; }), 'one emailtemplate search: name, isinactive');
+var g43 = runGet();
+ok(/<label class="nsq-qf nsq-qf-tpl" for="nsq-tpl-901" hidden>/.test(g43), 'the per-row select is hidden while the email is off');
+ok(g43.indexOf('if (emailOn() && !r.querySelector(".nsq-tpl").value) return "Choose the confirmation email for " + name + ".";') !== -1, 'required on the page for every ticked row');
+resetState(); setSetting('ORDER_EMAIL_TEMPLATES', '');
+var g43b = runGet();
+ok(/<input type="checkbox" id="nsq-email-on" disabled> Send the customer an order confirmation/.test(g43b) && g43b.indexOf('No confirmation templates are set up (ORDER_EMAIL_TEMPLATES).') !== -1, 'empty setting → switch disabled, with the reason');
+resetState(); setSetting('ORDER_EMAIL_TEMPLATES', '');
+nothingWritten(runPost(post({ custpage_email_on: 'T', custpage_rcpt_customer: 'T' })), 'email posted on with no templates set');
+resetState(); setSetting('ORDER_EMAIL_TEMPLATES', '3182');
+ok(/id="nsq-email-on" disabled/.test(runGet()), 'only inactive templates → disabled too');
+resetState(); nothingWritten(runPost(post({ custpage_email_on: 'T', custpage_rcpt_customer: 'T', custpage_tpl_901: '' })), 'missing template');
+resetState(); nothingWritten(runPost(post({ custpage_email_on: 'T', custpage_rcpt_customer: 'T', custpage_tpl_901: '3182' })), 'inactive (unoffered) template');
+resetState(); nothingWritten(runPost(post({ custpage_email_on: 'T', custpage_rcpt_customer: 'T', custpage_tpl_901: '4185' })), 'a template not in ORDER_EMAIL_TEMPLATES');
+resetState();
+var r43 = runPost(post({ custpage_email_on: 'T', custpage_rcpt_customer: 'T', custpage_tpl_901: '9999' }));
+ok(r43.html.indexOf('is not one of the offered templates') !== -1, 'the refusal names the reason');
+
+console.log('C43b. One merge fails: the other emails still go; the banner names the failed order');
+resetState(); state.mergeThrows['4186'] = 'INVALID_TEMPLATE: legacy CRMSDK template';
+var r43b = runPost(post({ custpage_q_sel: '["901","902"]', custpage_units_902: '1', custpage_email_on: 'T', custpage_rcpt_customer: 'T', custpage_tpl_901: '3198', custpage_tpl_902: '4186' }));
+ok(state.emails.length === 1 && state.emails[0].relatedRecords.transactionId === 7000, 'SO 7000’s email sent');
+var p43b = r43b.redirect.parameters;
+ok(p43b.nsqe === 'sent' && p43b.nsqen === '1' && p43b.nsqef === '7001' && p43b.nsq === 'warn', 'nsqen=1, nsqef=7001, amber');
+ok(logged('CreateOrderSL.Email', /SO239951 — template 4186 could not be merged \(a legacy CRMSDK template can’t be; it must be FreeMarker\); not sent: INVALID_TEMPLATE/), 'the failed merge logged');
+ok(logged('CreateOrderSL.Summary', /email sent for 7000, NOT sent for 7001/), 'the summary says which');
+resetState(); state.emailThrows = 'SSS_EMAIL_FAILED';
+var p43c = runPost(post({ custpage_email_on: 'T', custpage_rcpt_customer: 'T' })).redirect.parameters;
+ok(p43c.nsqe === 'fail' && p43c.nsqef === '7000' && !p43c.nsqen && writesOf('create', 'salesorder').length === 1, 'every send fails → nsqe=fail, nsqef; the SO stands');
+var u43 = (function () {
+    resetState();
+    state.salesOrders.push({ id: '7000', tranid: 'SO239950', createdfrom: '901', opportunity: '123', total: 1 },
+                           { id: '7001', tranid: 'SO239951', createdfrom: '902', opportunity: '123', total: 1 },
+                           { id: '7009', tranid: 'SO999999', createdfrom: '950', opportunity: '777', total: 1 });
+    return runUe({ nsqs: 'ord', nsq: 'warn', nsqt: String(Math.floor(Date.now() / 1000)), nsqso: '7000,7001', nsqe: 'sent', nsqen: '1', nsqef: '7001,7009' }, 'ALL').msg;
+})();
+ok(u43 && u43.message === 'Confirmation email not sent for SO239951.<br>Created SO239950, SO239951<br>Confirmation email sent for 1 order', 'banner: "Confirmation email not sent for SO239951" (another opportunity’s SO dropped) (' + (u43 && u43.message) + ')');
+
+console.log('C43c. Live totals (display only)');
+resetState();
+var g43c = runGet();
+ok(/data-qid="901" data-tranid="EST901" data-total="12000" data-exvat="10000" data-deposit="1200" data-projtype="1"/.test(g43c), 'row carries total, ex VAT and deposit (up front)');
+ok(/id="nsq-root" class="nsq" data-opp-url="[^"]*" data-upfront="1"/.test(g43c) && g43c.indexOf('id="nsq-qtotal-line"') !== -1 && g43c.indexOf('id="nsq-sum-ex"') !== -1, 'the section 1 total and the footer ex VAT line');
+ok(g43c.indexOf('(root.getAttribute("data-upfront") === "1" ? " · Deposit " + money(dep) : "")') !== -1, 'deposit part only for up-front customers');
 resetState(); state.customer.terms = [{ value: '4', text: '30 days' }];
-runPost(post({ custpage_email_on: 'T', custpage_rcpt_customer: 'T' }));
-ok(state.emails[0].body.indexOf('Deposit due') === -1, 'credit terms → no deposit row');
-ok(!state.calls.some(function (c) { return c.indexOf('custbody_deposit') !== -1 && c.indexOf('search:') === 0; }), '… and no extras search');
-var e42 = orderLib.orderConfirmationEmail({ orders: [{ tranId: 'SO1', description: 'X', quoteTypeText: 'UFH', total: 10, deposit: '0' }], customerPaysUpFront: true, sender: {} });
-ok(e42.indexOf('Deposit due') === -1, 'a zero deposit → no row');
-console.log('C43. Escaping');
-var e43 = orderLib.orderConfirmationEmail({ orders: [{ tranId: 'SO1', description: '<script>x</script>', quoteTypeText: 'A & B', total: 10 }], customerPaysUpFront: false,
-    sender: { fullName: 'Rita <Rep>', email: 'rita@nu-heat.co.uk' }, message: 'Hi <b>there</b>\n{{TOKEN}}' });
-ok(e43.indexOf('<script>x') === -1 && e43.indexOf('&lt;script&gt;x&lt;/script&gt;') !== -1, 'description escaped');
-ok(e43.indexOf('A &amp; B') !== -1 && e43.indexOf('Rita &lt;Rep&gt;') !== -1, 'quote type and sender escaped');
-ok(e43.indexOf('<b>there</b>') === -1 && e43.indexOf('Hi &lt;b&gt;there&lt;/b&gt;<br>&#123;&#123;TOKEN}}') !== -1, 'message escaped, {{ neutralised');
+var g43d = runGet();
+ok(/id="nsq-root" class="nsq" data-opp-url="[^"]*" data-upfront="0"/.test(g43d) && /data-qid="901"[^>]*data-deposit=""/.test(g43d), 'account customer: no deposit data, data-upfront 0');
+resetState();
+runPost(post({ custpage_q_sel: '["901"]', custpage_total: '1', custpage_qtotal: '1' }));
+ok(writesOf('create', 'salesorder').length === 1, 'a posted total is ignored (the server never reads totals)');
+
+console.log('C43d. The rep list (Production defect, 6 Oct)');
+resetState();
+var g43e = runGet();
+ok(state.repFilter === 'T', 'the Employee search filters on salesrep (not issalesrep)');
+ok(!state.logs.some(function (l) { return /Sales reps could not be read/.test(l.details); }), 'no search error');
+var rep43 = between(g43e, 'id="nsq-rep"', '</select>');
+ok(/<option value="30" selected>Rita Rep<\/option>/.test(rep43) && rep43.indexOf('value="7"') !== -1 && rep43.indexOf('value="32"') === -1 && rep43.indexOf('value="31"') === -1, 'active sales reps offered; inactive and unflagged not');
+resetState(); state.oppValues.salesrep = '33'; state.oppTexts.salesrep = 'Una Flagged';
+var rep43b = between(runGet(), 'id="nsq-rep"', '</select>');
+ok(/^id="nsq-rep" name="custpage_rep" class="nsq-input"><option value=""><\/option><option value="33" selected>Una Flagged<\/option>/.test(rep43b), 'an unflagged opportunity rep is offered first and pre-selected');
+resetState(); state.oppValues.salesrep = '33'; state.oppTexts.salesrep = 'Una Flagged';
+var r43e = runPost(post({ custpage_rep: '33' }));
+ok(r43e.redirect && writesOf('create', 'customrecord_order_log')[0].values.custrecord_order_rep === '33', '… and accepted by the server');
+resetState(); nothingWritten(runPost(post({ custpage_rep: '33' })), 'an employee who was not offered (33 on another opportunity)');
+resetState(); state.repSearchThrows = 'boom';
+var rep43c = between(runGet(), 'id="nsq-rep"', '</select>');
+ok(/^id="nsq-rep" name="custpage_rep" class="nsq-input"><option value=""><\/option><option value="30" selected>Rita Rep<\/option>$/.test(rep43c), 'search fails → only the opportunity’s rep, pre-selected (never an empty select)');
+ok(logged('CreateOrderSL.Lists', /Sales reps could not be read: boom — offering the opportunity’s sales rep only/), 'logged');
+resetState(); state.repSearchThrows = 'boom';
+nothingWritten(runPost(post({ custpage_rep: '7' })), 'search fails → any other rep refused');
+ok(!fs.readFileSync(path.join(ROOT, 'nuheat_create_order_sl.js'), 'utf8').match(/['"]issalesrep['"]/), 'issalesrep appears nowhere in the Suitelet');
 
 // ═══ The mode switch ═════════════════════════════════════════════════════════════
 
@@ -906,7 +1029,7 @@ resetState();
 state.salesOrders.push({ id: '7000', tranid: 'SO239950', createdfrom: '901', opportunity: '123', total: 1 });
 var b49 = runUe({ nsqs: 'ord', nsq: 'warn', nsqt: NOW, nsqso: '7000', nsqqf: '902,950', nsqlf: '7000', nsqtm: '7000', nsqe: 'sent', nsqen: '2' }, 'ALL').msg;
 ok(b49 && b49.type === 'warning' && b49.title === 'Orders created — but not everything saved', 'WARNING title');
-ok(b49 && b49.message === 'Not created: EST902.<br>Order log not created for SO239950 — please add it.<br>Total differs from the quote on SO239950 — please check.<br>Created SO239950<br>Confirmation email sent to 2 recipients',
+ok(b49 && b49.message === 'Not created: EST902.<br>Order log not created for SO239950 — please add it.<br>Total differs from the quote on SO239950 — please check.<br>Created SO239950<br>Confirmation email sent for 2 orders',
    'the outcomes (' + (b49 && b49.message) + ')');
 resetState();
 state.salesOrders.push({ id: '7000', tranid: 'SO239950', createdfrom: '901', opportunity: '123', total: 1 });
@@ -929,7 +1052,7 @@ var g53 = runGet();
 ok(g53.indexOf('nsq-qrow') !== -1 && state.settingsSearches === 1, 'the page renders; one settings search per request');
 ok(!state.calls.some(function (c) { return c.indexOf('getParameter:') === 0; }), 'no script parameter is read');
 var sl53 = state.logs.filter(function (l) { return l.title === 'CreateOrderSL.Settings'; });
-ok(sl53.length === 1 && /found: ORDER_MODE, ORDER_SO_FORM, ORDER_RECORD_STATUS, NEEDINFO_SUBSTATUS, ORDER_PROJTYPE_MAP, ORDER_PROJTYPE_MIXED, PREPAY_TERMS \| missing: ORDER_SUBSTATUS_OPTIONS, ORDER_OPP_STATUS, ORDER_PARENT_OPP_FIELD$/.test(sl53[0].details) && sl53[0].level === 'audit',
+ok(sl53.length === 1 && /found: ORDER_MODE, ORDER_SO_FORM, ORDER_RECORD_STATUS, NEEDINFO_SUBSTATUS, ORDER_PROJTYPE_MAP, ORDER_PROJTYPE_MIXED, PREPAY_TERMS, ORDER_EMAIL_TEMPLATES \| missing: ORDER_SUBSTATUS_OPTIONS, ORDER_OPP_STATUS, ORDER_PARENT_OPP_FIELD$/.test(sl53[0].details) && sl53[0].level === 'audit',
    'audit once: found and missing keys (' + (sl53[0] && sl53[0].details) + ')');
 ok(sl53.length === 1 && sl53[0].details.indexOf('150') === -1 && sl53[0].details.indexOf('{"5"') === -1, 'no value in the log');
 var srch53 = state.calls.filter(function (c) { return c.indexOf('search:customrecord_cdb_setting') === 0; })[0];
@@ -975,7 +1098,7 @@ ok(!state.cache[uiCacheKey()], 'a failed search is not cached');
 console.log('C57. A blank value counts as missing');
 resetState(); setSetting('ORDER_PROJTYPE_MAP', '   ');
 var g57 = runGet();
-ok(/data-qid="901" data-tranid="EST901" data-total="12000" data-projtype=""/.test(g57), 'blank ORDER_PROJTYPE_MAP → no inference');
+ok(/data-qid="901" data-tranid="EST901" data-total="12000" data-exvat="10000" data-deposit="1200" data-projtype=""/.test(g57), 'blank ORDER_PROJTYPE_MAP → no inference');
 resetState(); setSetting('ORDER_MODE', '');
 ok(runGet().indexOf('switched off') !== -1, 'blank ORDER_MODE → OFF');
 resetState(); setSetting('ORDER_PROJTYPE_MAP', '{"5": "x"}');
@@ -1032,24 +1155,30 @@ ok(p61.found.join() === 'ORDER_SO_FORM', 'case as typed (order_so_form is not OR
 
 // ═══ Governance ══════════════════════════════════════════════════════════════════
 
-console.log('C51. Governance');
-function postUnits(p) { resetState(); setSetting('ORDER_OPP_STATUS', '13'); runPost(p); return state.units; }
-var g1q = postUnits(post({ custpage_upd_next_contact: '2026-11-01' }));
-var g1qe = postUnits(post({ custpage_upd_next_contact: '2026-11-01', custpage_email_on: 'T', custpage_rcpt_customer: 'T', custpage_rcpt_ccme: 'T', custpage_email_from: 'rep' }));
-var three = { custpage_q_sel: '["901","902","903"]', custpage_units_902: '1', custpage_units_903: '1', custpage_projtype: '2', custpage_upd_next_contact: '2026-11-01' };
-var g3q = postUnits(post(three));
-var three_e = JSON.parse(JSON.stringify(three)); three_e.custpage_email_on = 'T'; three_e.custpage_rcpt_customer = 'T'; three_e.custpage_email_from = 'rep';
-var g3qe = postUnits(post(three_e));
-console.log('       units: 1 quote ' + g1q + ' (with email ' + g1qe + '), 3 quotes ' + g3q + ' (with email ' + g3qe + ')');
-ok(g1q < 150, '1 quote stays under 150 units (every write, no email)');
-ok(g3q < 250, '3 quotes stay under 250 units (every write, no email)');
-// Amendment 1 adds the settings search (~10 units) to every request. With the email on (customer pays
-// up front, so the deposit's extras search runs; CC me from the rep) this goes 5 / 2 units over the part 1
-// targets — reported to Steve with the fix (one opportunity write, −10). Until he decides:
-ok(g1qe < 160, '1 quote with the email stays under 160 units (part 1 target 150 + the settings search)');
-ok(g3qe < 260, '3 quotes with the email stay under 260 units (part 1 target 250 + the settings search)');
-resetState(); state.salesOrders = [];
-ok(writesOf('create', 'salesorder').length === 0, '(ledger reset)');
+console.log('C51. Governance (mergeEmail and email.send counted at 20 units each)');
+function addQuotes(n) {
+    for (var k = 0; k < n; k++) state.estimates.push({ id: String(910 + k), opp: '123', tranid: 'EST' + (910 + k), title: 'Extra', desc: '', status: 'A', qt: '5', qtText: 'UFH',
+        total: 1000, exvat: 833.33, units: '1', deposit: '', due: '', created: '01/10/2026 07:00' });
+}
+function scenario(n, emailOn) {
+    resetState(); setSetting('ORDER_OPP_STATUS', '13');
+    addQuotes(Math.max(0, n - 3));
+    var ids = ['901', '902', '903'].concat(state.estimates.filter(function (e) { return e.opp === '123' && +e.id >= 910; }).map(function (e) { return e.id; })).slice(0, n);
+    var o = { custpage_q_sel: JSON.stringify(ids), custpage_projtype: '2', custpage_upd_next_contact: '2026-11-01' };
+    ids.forEach(function (id) { o['custpage_units_' + id] = '1'; });
+    if (emailOn) { o.custpage_email_on = 'T'; o.custpage_rcpt_customer = 'T'; o.custpage_rcpt_ccme = 'T'; o.custpage_email_from = 'rep'; }
+    var r = runPost(post(o), emailOn ? { custpage_att_1: upload('a.pdf', 1000) } : {});
+    return { units: state.units, created: writesOf('create', 'salesorder').length, emails: state.emails.length, ok: !!r.redirect, html: r.html };
+}
+var G = {};
+[[1, false], [1, true], [3, false], [3, true], [6, false], [6, true]].forEach(function (c) { G[c[0] + (c[1] ? 'e' : '')] = scenario(c[0], c[1]); });
+console.log('       units: 1 quote ' + G['1'].units + ' (with emails ' + G['1e'].units + '), 3 quotes ' + G['3'].units + ' (with emails ' + G['3e'].units +
+    '), 6 quotes ' + G['6'].units + ' (with emails ' + G['6e'].units + ')');
+ok(G['1'].units < 150 && G['3'].units < 250, '1 quote < 150, 3 quotes < 250 without emails');
+ok(G['6e'].created === 6 && G['6e'].emails === 6 && G['6e'].units < 800, 'MAX_QUOTES (6) with emails: every order and email, under 800 units');
+var s8 = scenario(8, true);
+ok(!s8.ok && s8.html.indexOf('Create up to 6 orders at a time.') !== -1 && s8.created === 0, '8 quotes → refused before any write (MAX_QUOTES 6)');
+console.log('       (8 quotes with emails, if allowed, would cost about ' + (G['6e'].units + 2 * Math.round((G['6e'].units - G['3e'].units) / 3)) + ' units)');
 
 // ═══ No change to the live pages ═════════════════════════════════════════════════
 

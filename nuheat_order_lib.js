@@ -5,10 +5,10 @@
  * @name        Nu-Heat Order Library
  * @description Turning open quotes (Estimates) into Sales Orders: the orderable-quote listing, the
  *              conversion (lock → re-check → transform → set fields → total check → save → total check →
- *              order log), project-type inference and the order confirmation email. Used by the
+ *              order log), project-type inference and the settings record. Used by the
  *              reps' "Create order" page (nuheat_create_order_sl.js); written for reuse by the
  *              customer version (part 2), which will run as Administrator.
- * @version     1.1.0
+ * @version     1.2.0
  * @author      Nu-Heat Development
  *
  * ⚠️ DEPLOYMENT: a shared AMD module — no script record, no deployment. Upload it to
@@ -17,7 +17,7 @@
  *
  * ⚠️ EXTERNAL CONSUMER (planned): the customer version of Create order (part 2) will require this
  *    library. Don't rename, move or change the signatures of listOrderableQuotes, convertQuote,
- *    inferProjectType, orderConfirmationEmail, paysUpFront, loadListOptions, loadOrderSettings,
+ *    inferProjectType, paysUpFront, loadListOptions, loadOrderSettings,
  *    parseSettingRows or LIB_VERSION without a matching change there.
  *
  * ⚠️ RECORD DEPENDENCY (1.1.0): the settings live on the customer dashboard's settings record,
@@ -25,6 +25,11 @@
  *    record dependency, not a code dependency: nothing of the dashboard is required. The rules mirror
  *    the dashboard's cdb_lib_config.js 3.x (trimmed Name, blank = missing, two active rows = that key
  *    missing, a failed search = every key missing).
+ *
+ * CHANGELOG v1.2.0 (Create order amendment 2 — template emails, 6 Oct 2026):
+ *   - REMOVED: orderConfirmationEmail and EMAIL_COPY (with their emailText / messageParagraphs helpers).
+ *     The confirmation is now a NetSuite email template per order, merged and sent by the Suitelet
+ *     (render.mergeEmail + email.send); the template owns the wording. Nothing else changed.
  *
  * CHANGELOG v1.1.0 (Create order amendment 1 — settings from the settings record, 6 Oct 2026):
  *   - ADDED: loadOrderSettings(keys, logKey) — one search of customrecord_cdb_setting (~10 units),
@@ -38,7 +43,7 @@
  *   - convertQuote(o): see its comment. TRUSTS NO INPUT: it re-checks that the Estimate is open and on
  *     the given opportunity itself, and checks the shape of every value it writes.
  *   - inferProjectType(quoteTypeIds, map, mixedId): pure.
- *   - orderConfirmationEmail(o): the v2 customer email (lib.emailShellV2, emailFactBoxV2,
+ *   - orderConfirmationEmail(o) [removed in 1.2.0]: the v2 customer email (lib.emailShellV2, emailFactBoxV2,
  *     emailSenderCardV2) — one YOUR ORDER box per Sales Order.
  *   - paysUpFront(customerTermsId, prepayTermsIds): the customer dashboard's terms rule.
  *   - loadListOptions(listScriptId, logKey): a custom list's active options, read at run time.
@@ -58,7 +63,7 @@ function (record, search, log, cache, format, lib) {
 
     'use strict';
 
-    var LIB_VERSION = '1.1.0';
+    var LIB_VERSION = '1.2.0';
 
     // ─── Account objects (script IDs only) ────────────────────────────────────────
 
@@ -692,90 +697,11 @@ function (record, search, log, cache, format, lib) {
         return out;
     }
 
-    // ─── Order confirmation email ─────────────────────────────────────────────────
-
-    /** The email's fixed copy. Steve may reword these — keep them in this one block. */
-    var EMAIL_COPY = {
-        subject:   'Your Nu-Heat order confirmation',
-        eyebrow:   'Order confirmation',
-        headline:  'Thank you for your order',
-        boxLabel:  'YOUR ORDER',
-        factOrder: 'Order',
-        factType:  'Quote type',
-        factTotal: 'Total inc VAT',
-        factDeposit: 'Deposit due',
-        cardLabel: 'YOUR NU-HEAT CONTACT',
-        replyLine: 'Any questions at all, just reply to this email – it comes straight to me.',
-        footer:    'You’re receiving this because you have a project with Nu-Heat.',
-        nameFallback: 'Nu-Heat'
-    };
-
-    function emailText(s) {
-        return lib.escapeHtml(str(s)).replace(/\{\{/g, '&#123;&#123;');
-    }
-
-    /** Plain-text message → v2 paragraphs (a blank line starts a paragraph, a newline is <br>). */
-    function messageParagraphs(message) {
-        return str(message).replace(/\r\n?/g, '\n').split(/\n[ \t]*\n\s*/)
-            .map(function (p) { return p.replace(/^\n+|\n+$/g, ''); })
-            .filter(function (p) { return p.trim(); })
-            .map(function (p) { return lib.emailParagraphV2(p.split('\n').map(emailText).join('<br>')); })
-            .join('');
-    }
-
-    /**
-     * The order confirmation (v2 customer email): eyebrow "Order confirmation", headline "Thank you for
-     * your order", the rep's message, one YOUR ORDER box per Sales Order (description; Order SO…; quote
-     * type; Total inc VAT; Deposit due — only when the customer pays up front and the deposit is > 0),
-     * the sender card and the footer. Every value is PLAIN text, escaped here; no merge pass runs.
-     *
-     * @param {Object} o
-     * @param {Array<{tranId, description, quoteTypeText, total, deposit}>} o.orders - ONLY the orders created
-     * @param {boolean} o.customerPaysUpFront
-     * @param {Object} o.sender - lib.loadSender(); o.sender.cardEmail overrides the card's address
-     * @param {string} [o.message]
-     * @param {Object} [o.opp] - { tranId } (accepted for the customer version; not shown)
-     * @returns {string} HTML
-     */
-    function orderConfirmationEmail(o) {
-        o = o || {};
-        var sender = o.sender || {};
-        var boxes = (o.orders || []).map(function (ord) {
-            var rows = [
-                [EMAIL_COPY.factOrder, str(ord.tranId)],
-                [EMAIL_COPY.factType, str(ord.quoteTypeText)],
-                [EMAIL_COPY.factTotal, ord.total === null || ord.total === undefined ? '' : money(ord.total)]
-            ];
-            var dep = num(ord.deposit);
-            if (o.customerPaysUpFront === true && dep !== null && dep > 0) rows.push([EMAIL_COPY.factDeposit, money(dep)]);
-            var box = lib.emailFactBoxV2(EMAIL_COPY.boxLabel, str(ord.description), rows);
-            return box ? '<table role="presentation" width="100%" align="center" cellpadding="0" cellspacing="0" border="0"><tr><td align="left" valign="top" style="padding:0 0 24px 0;">\n' +
-                box + '</td></tr></table>\n' : '';
-        }).join('');
-        var preheader = str(o.message).replace(/\s+/g, ' ').trim().substring(0, 90) || EMAIL_COPY.headline;
-        var card = lib.emailSenderCardV2({
-            fullName:  sender.fullName || EMAIL_COPY.nameFallback,
-            firstName: sender.firstName,
-            phone:     sender.phone,
-            photoUrl:  sender.photoUrl
-        }, sender.cardEmail || sender.email, EMAIL_COPY.cardLabel);
-        return lib.emailShellV2({
-            preheader:  emailText(preheader),
-            eyebrow:    emailText(EMAIL_COPY.eyebrow),
-            headline:   emailText(EMAIL_COPY.headline),
-            heroUrl:    lib.EMAIL_HERO_V2,
-            bodyHtml:   messageParagraphs(o.message) + boxes,
-            senderCard: card,
-            footerLine: emailText(EMAIL_COPY.replyLine) + '<br>' + emailText(EMAIL_COPY.footer)
-        });
-    }
-
     return {
         LIB_VERSION:            LIB_VERSION,
         EST_FIELDS:             EST,
         SO_FIELDS:              SO,
         LOG_FIELDS:             LOG,
-        EMAIL_COPY:             EMAIL_COPY,
         money:                  money,
         paysUpFront:            paysUpFront,
         SETTING_RECORD:         SETTING,
@@ -785,8 +711,7 @@ function (record, search, log, cache, format, lib) {
         listOrderableQuotes:    listOrderableQuotes,
         inferProjectType:       inferProjectType,
         findExistingOrders:     findExistingOrders,
-        convertQuote:           convertQuote,
-        orderConfirmationEmail: orderConfirmationEmail
+        convertQuote:           convertQuote
     };
 
 });

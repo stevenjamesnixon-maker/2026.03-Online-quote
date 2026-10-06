@@ -11,7 +11,7 @@
  *              Creates one Sales Order and one order log per ticked quote (nuheat_order_lib.convertQuote),
  *              sends the confirmation only when switched on, writes the Opportunity LAST, and returns to
  *              the Opportunity with the result banner (nuheat_opportunity_ue.js, nsqs=ord).
- * @version     1.1.0
+ * @version     1.2.0
  * @author      Nu-Heat Development
  *
  * Script ID:      customscript_nuheat_create_order_sl
@@ -33,8 +33,27 @@
  *   ORDER_PROJTYPE_MIXED     id                  → no "mixed" inference
  *   PREPAY_TERMS             idlist (dashboard)  → no deposit is shown anywhere
  *   ORDER_PARENT_OPP_FIELD   field ID            → the order log's parent opportunity = this one
+ *   ORDER_EMAIL_TEMPLATES    idlist (1.2.0)      → the email switch is disabled ("No confirmation templates are set up")
  *   The settings search failing (no View permission on the record, no record type) → the page refuses:
  *   "Create order can’t run: its settings can’t be read. Ask an administrator."
+ *
+ * CHANGELOG v1.2.0 (amendment 2 — Steve's first Production test, 6 Oct 2026):
+ *   - FIXED: the sales rep list was empty — "invalid search criteria: issalesrep". The Employee SEARCH filter
+ *     is `salesrep` (issalesrep is the record field). The opportunity's own rep is always offered first and
+ *     pre-selected (ticked Sales Rep or not); a failed search offers that rep alone. The POST no longer looks the
+ *     rep up (issalesrep isn't a lookupFields column either): it rebuilds the same list and accepts only a rep in it.
+ *   - CHANGED: compact quote rows — one line (~56px) on desktop, fixed columns so rows line up; the inputs wrap
+ *     to a second line on phones; an unticked row greys its inputs at the same height.
+ *   - ADDED: live totals of the ticked quotes in section 1 and the footer ("2 orders · £… inc VAT · Deposit £…",
+ *     deposit only for up-front customers; ex VAT beneath). Display only: the server never reads a total.
+ *   - CHANGED: the confirmation email. ORDER_EMAIL_TEMPLATES (idlist, a new settings row) names the templates
+ *     offered; each ticked row chooses one (required while the email is on). One email per Sales Order:
+ *     render.mergeEmail (customer, the SO) + email.send filed against the SO and the customer, with the optional
+ *     attachments (≤ 5 files, ≤ 10 MB, none empty; request.files, never saved). One failure never stops the
+ *     others (nsqef). The free-text message is gone (the template owns the wording); lib 1.2.0 removed
+ *     orderConfirmationEmail. The page's form is multipart/form-data.
+ *   - CHANGED: on the POST the listing needs no extras search (no deposit is used any more).
+ *   - CHANGED: MAX_QUOTES 8 → 6; each conversion reserves room for the emails still to send.
  *
  * CHANGELOG v1.1.0 (amendment 1 — settings from the settings record, 6 Oct 2026):
  *   - The ten custscript_nuheat_co_* parameters are gone. readConfig() reads the rows above through
@@ -56,7 +75,7 @@
  *     search), every list value must be an option read at run time, the rep must be an active sales rep.
  *     No posted price, total or ID is trusted.
  *   - Order: validate → token → duplicate guard (SO createdfrom) → one Sales Order + order log per quote
- *     (each in its own try/catch) → the email (only if switched on; only the orders created) → the
+ *     (each in its own try/catch) → the emails (only if switched on; one per order created, from its template) → the
  *     Opportunity LAST. Nothing created → no email, no Opportunity write, the token is released.
  *   - THE EXCEPTION TO THE SUB-STATUS RULE (Steve, 6 Oct): this page writes custbody_opportunity_sub_status,
  *     as the rep chooses it (default Awaiting Design Info). Send Quote and Update Opportunity still never do.
@@ -76,13 +95,15 @@ define([
     'N/runtime',
     'N/cache',
     'N/url',
+    'N/render',
+    'N/email',
     './nuheat_opp_update_lib',
     './nuheat_order_lib'
-], function (serverWidget, search, record, log, redirect, runtime, cache, url, lib, orderLib) {
+], function (serverWidget, search, record, log, redirect, runtime, cache, url, render, email, lib, orderLib) {
 
     'use strict';
 
-    var SCRIPT_VERSION = '1.1.0';
+    var SCRIPT_VERSION = '1.2.0';
 
     /** Page rules for the shared update fields: Next contact must end up set (D3, as Update Opportunity). */
     var RULES = { required: ['next_contact'], logKey: 'CreateOrderSL.OppUpdate' };
@@ -115,16 +136,25 @@ define([
         projTypeMap:     'ORDER_PROJTYPE_MAP',
         projTypeMixed:   'ORDER_PROJTYPE_MIXED',
         prepayTerms:     'PREPAY_TERMS',
-        parentOppField:  'ORDER_PARENT_OPP_FIELD'
+        parentOppField:  'ORDER_PARENT_OPP_FIELD',
+        emailTemplates:  'ORDER_EMAIL_TEMPLATES'   // 1.2.0: the confirmation templates offered, in display order
     };
     var SETTING_KEYS = Object.keys(S).map(function (k) { return S[k]; });
 
     var ADMIN_ROLE_ID = 'administrator';   // the standard Administrator role's script ID (roleId)
 
-    var MAX_QUOTES = 8;           // per submission (governance)
-    var MIN_USAGE_TO_CONVERT = 100;   // units left before another quote is attempted
+    /**
+     * Governance (1.2.0). A quote costs about 50 units to convert (60 with the fallback total search) and,
+     * with the email on, one render.mergeEmail + one email.send — counted as 20 + 20 (the conservative
+     * figures; Sandbox check). 8 quotes with emails came to ~830 units, so MAX_QUOTES is 6 (~660).
+     */
+    var MAX_QUOTES = 6;               // per submission (1.2.0: was 8)
+    var MIN_USAGE_TO_CONVERT = 100;   // a conversion (60) + the opportunity writes (20) + slack (20)
+    var EMAIL_UNITS = 40;             // mergeEmail + email.send, reserved per order while the email is on
     var UNITS_MAX = 999999;
-    var EMAIL_MESSAGE_MAX = 10000;
+
+    /** 1.2.0: the attachments — the page splits the picker into these hidden file inputs. */
+    var ATTACH = { max: 5, maxBytes: 10 * 1024 * 1024, prefix: 'custpage_att_' };
 
     var ID_RE    = /^\d{1,12}$/;
     var FIELD_RE = /^[a-z][a-z0-9_]{2,60}$/;
@@ -144,10 +174,13 @@ define([
         pageNote:     'Sent from you, with your contact details. Replies come to you.',
         pageNoteOtherStart: 'Sent as ',
         pageNoteOtherEnd:   ', with their contact details. Replies go to them.',
-        peCardEmail:  'design@nu-heat.co.uk',   // Update Opportunity's rule for the project engineer's card
         modeOff:      'Create order is switched off.',
         modeAdmin:    'Create order is only available to administrators at the moment.',
-        noSettings:   'Create order can’t run: its settings can’t be read. Ask an administrator.'
+        noSettings:   'Create order can’t run: its settings can’t be read. Ask an administrator.',
+        noTemplates:  'No confirmation templates are set up (ORDER_EMAIL_TEMPLATES).',
+        badTemplates: 'The confirmation templates could not be read.',
+        attachNote:   'Optional. Up to 5 files, 10 MB in total. They are attached to every confirmation email sent now.',
+        tplLabel:     'Confirmation email'
     };
 
     // ─── Save guard (copied from Update Opportunity 1.3.3, D25 — own cache) ───────
@@ -266,6 +299,7 @@ define([
             projTypeMixed:   idSetting(settings, S.projTypeMixed),
             prepayTerms:     idListSetting(settings, S.prepayTerms),
             parentOppField:  '',
+            emailTemplates:  idListSetting(settings, S.emailTemplates),   // 1.2.0
             errors:          []
         };
         var m = setting(settings, S.mode).toUpperCase();
@@ -370,21 +404,66 @@ define([
         }
     }
 
-    /** Active sales reps by name: [{ id, text }]. [] (logged) on failure. */
-    function loadSalesReps() {
+    /**
+     * The reps the page offers (1.2.0): active Employees ticked Sales Rep — the Employee SEARCH filter is
+     * `salesrep` (`issalesrep` is the record field ID and an invalid search criterion) — by name, with the
+     * opportunity's own sales rep always first when it isn't among them (even when not ticked Sales Rep).
+     * A failed search → the opportunity's rep alone (logged). The POST rebuilds this list and accepts
+     * only a rep in it.
+     * @returns {Array<{id: string, text: string}>}
+     */
+    function loadSalesReps(oppRecord) {
         var out = [];
         try {
             search.create({
                 type:    search.Type.EMPLOYEE,
-                filters: [['issalesrep', 'is', 'T'], 'AND', ['isinactive', 'is', 'F']],
+                filters: [['salesrep', 'is', 'T'], 'AND', ['isinactive', 'is', 'F']],
                 columns: [search.createColumn({ name: 'entityid', sort: search.Sort.ASC }), 'internalid']
             }).run().each(function (r) {
                 out.push({ id: String(r.getValue({ name: 'internalid' })), text: lib.cleanText(r.getValue({ name: 'entityid' })) });
                 return true;
             });
         } catch (e) {
-            log.error('CreateOrderSL.Lists', 'Sales reps could not be read: ' + e.message);
+            out = [];
+            log.error('CreateOrderSL.Lists', 'Sales reps could not be read: ' + e.message + ' — offering the opportunity’s sales rep only');
         }
+        var repId = currentValue(oppRecord, 'salesrep');
+        if (ID_RE.test(repId) && !hasOption(out, repId)) {
+            var text = '';
+            try { text = lib.cleanText(oppRecord.getText({ fieldId: 'salesrep' })); } catch (e) { text = ''; }
+            out.unshift({ id: repId, text: text || ('Employee ' + repId) });
+        }
+        return out;
+    }
+
+    /**
+     * 1.2.0: the confirmation templates — ORDER_EMAIL_TEMPLATES in its order, named from one search of
+     * emailtemplate. Inactive or missing templates are left out (logged). { list, error }.
+     */
+    function loadTemplates(ids) {
+        var out = { list: [], error: '' };
+        if (!ids.length) return out;
+        var byId = {};
+        try {
+            search.create({
+                type:    'emailtemplate',
+                filters: [['internalid', 'anyof', ids]],
+                columns: ['internalid', 'name', 'isinactive']
+            }).run().each(function (r) {
+                byId[String(r.getValue({ name: 'internalid' }))] = { name: lib.cleanText(r.getValue({ name: 'name' })), inactive: isTrue(r.getValue({ name: 'isinactive' })) };
+                return true;
+            });
+        } catch (e) {
+            out.error = e.message || String(e);
+            log.error('CreateOrderSL.Lists', 'Email templates could not be read: ' + out.error);
+            return out;
+        }
+        ids.forEach(function (id) {
+            var t = byId[id];
+            if (!t) log.error('CreateOrderSL.Config', S.emailTemplates + ': template ' + id + ' not found; not offered');
+            else if (t.inactive) log.error('CreateOrderSL.Config', S.emailTemplates + ': template ' + id + ' is inactive; not offered');
+            else out.list.push({ id: id, text: t.name || ('Template ' + id) });
+        });
         return out;
     }
 
@@ -461,7 +540,7 @@ define([
         page.listError    = listing.error;
         page.projTypes    = orderLib.loadListOptions(LISTS.projType, 'CreateOrderSL.Lists');
         page.auths        = orderLib.loadListOptions(LISTS.auth, 'CreateOrderSL.Lists');
-        page.reps         = loadSalesReps();
+        page.reps         = loadSalesReps(opp);
         page.repDefault   = currentValue(opp, 'salesrep');
         page.subStatuses  = subStatusOffered(opp, cfg);
         page.subStatusCur = currentValue(opp, OPP_FIELDS.subStatus);
@@ -473,6 +552,9 @@ define([
         page.valueProps   = fieldOptions(opp, OPP_FIELDS.valueProp);
         page.valuePropCur = currentValue(opp, OPP_FIELDS.valueProp);
         page.senders      = senderOptions(opp);
+        var tpl           = loadTemplates(cfg.emailTemplates);   // 1.2.0
+        page.templates    = tpl.list;
+        page.emailBlocked = !cfg.emailTemplates.length ? COPY.noTemplates : (tpl.error ? COPY.badTemplates : (!tpl.list.length ? COPY.noTemplates : ''));
         page.mixed        = cfg.projTypeMixed;
         page.projTypeMap  = cfg.projTypeMap;
         page.saveToken    = (restore && TOKEN_RE.test(restore.token || '')) ? restore.token : newSaveToken();
@@ -508,53 +590,65 @@ define([
             '<span class="nsq-off" id="' + offId + '"' + (on ? ' hidden' : '') + '>Off</span>';
     }
 
-    function quoteRowHTML(q, page, r) {
+    /**
+     * 1.2.0: one compact row per quote (~56px): tick · number + description (one line, ellipsis, full text on
+     * hover) · type · created · Units · Commission · [Confirmation email] · total (ex VAT and deposit small
+     * beneath). The inputs sit inline; an unticked row greys them out (disabled) at the same height. At phone
+     * width the inputs wrap to a second line. Totals sit in data- attributes for the live totals only.
+     */
+    function quoteRowHTML(q, page, r, emailOn) {
         var sel = (r.sel || []).indexOf(q.id) !== -1;
         var restoring = !!r.sel;
         var units = restoring && r.units[q.id] !== undefined ? r.units[q.id] : q.units;
         var kind = restoring && r.commKind[q.id] === 'amt' ? 'amt' : 'pct';
         var comm = restoring && r.comm[q.id] !== undefined ? r.comm[q.id] : '';
+        var tplSel = restoring && r.tpl && r.tpl[q.id] ? r.tpl[q.id] : '';
         var pt = Object.prototype.hasOwnProperty.call(page.projTypeMap, q.quoteTypeId) ? page.projTypeMap[q.quoteTypeId] : '';
         var link = estimateUrl(q.id);
         var name = q.tranId || ('Quote ' + q.id);
         var text = q.description || q.title;
+        var deposit = page.upFront && q.deposit !== null && q.deposit > 0 ? q.deposit : null;
+        var id = escapeHtml(q.id);
+        var uid = 'nsq-units-' + q.id, cid = 'nsq-comm-' + q.id, tid = 'nsq-tpl-' + q.id;
         var h = [];
-        h.push('<div class="nsq-qrow' + (sel ? ' nsq-qrow-on' : '') + '" data-qid="' + escapeHtml(q.id) + '" data-tranid="' + escapeHtml(name) +
-            '" data-total="' + escapeHtml(q.total === null ? '' : String(q.total)) + '" data-projtype="' + escapeHtml(pt) + '">');
-        h.push('<label class="nsq-qtick"><input type="checkbox" class="nsq-qsel" data-qid="' + escapeHtml(q.id) + '"' + (sel ? ' checked' : '') +
+        h.push('<div class="nsq-qrow' + (sel ? ' nsq-qrow-on' : '') + '" data-qid="' + id + '" data-tranid="' + escapeHtml(name) +
+            '" data-total="' + escapeHtml(q.total === null ? '' : String(q.total)) + '" data-exvat="' + escapeHtml(q.exVat === null ? '' : String(q.exVat)) +
+            '" data-deposit="' + escapeHtml(deposit === null ? '' : String(deposit)) + '" data-projtype="' + escapeHtml(pt) + '">');
+        h.push('<label class="nsq-qtick"><input type="checkbox" class="nsq-qsel" data-qid="' + id + '"' + (sel ? ' checked' : '') +
             ' aria-label="Order ' + escapeHtml(name) + '"></label>');
-        h.push('<div class="nsq-q"><div class="nsq-q-title">' +
+        var full = name + (text ? ' · ' + text : '');
+        h.push('<div class="nsq-qmain" title="' + escapeHtml(full) + '">' +
             (link ? '<a href="' + escapeHtml(link) + '" target="_blank" rel="noopener">' + escapeHtml(name) + '</a>' : escapeHtml(name)) +
-            (text ? ' · ' + escapeHtml(text) : '') +
-            (q.expired ? ' <span class="nsq-tag-exp">' + escapeHtml(COPY.expired) + '</span>' : '') + '</div>' +
-            '<div class="nsq-q-desc">' + [q.dateCreated ? 'Created ' + q.dateCreated : '', q.quoteTypeText].filter(function (s) { return s; }).map(escapeHtml).join(' · ') + '</div></div>');
-        h.push('<div class="nsq-price"><strong>' + escapeHtml(q.total === null ? '—' : orderLib.money(q.total)) + '</strong>' +
-            (q.exVat === null ? '' : '<span class="nsq-exvat">' + escapeHtml(orderLib.money(q.exVat)) + ' ex VAT</span>') +
-            (page.upFront && q.deposit !== null && q.deposit > 0 ? '<span class="nsq-dep">Deposit ' + escapeHtml(orderLib.money(q.deposit)) + '</span>' : '') +
-            '</div>');
-        var uid = 'nsq-units-' + q.id, cid = 'nsq-comm-' + q.id;
-        h.push('<div class="nsq-qin">' +
-            '<div class="nsq-field"><label class="nsq-label" for="' + uid + '">Units <span class="nsq-req" aria-hidden="true">*</span></label>' +
-            '<input type="text" inputmode="numeric" class="nsq-input nsq-units" id="' + uid + '" name="custpage_units_' + escapeHtml(q.id) +
-            '" maxlength="6" autocomplete="off" value="' + escapeHtml(units) + '"></div>' +
-            '<div class="nsq-field"><label class="nsq-label" for="' + cid + '">Partner commission <span class="nsq-opt">(optional)</span></label>' +
-            '<div class="nsq-comm-row"><span class="nsq-seg-row" role="radiogroup" aria-label="Commission as">' +
-            '<label class="nsq-seg"><input type="radio" class="nsq-comm-kind" name="custpage_comm_kind_' + escapeHtml(q.id) + '" value="pct"' + (kind === 'pct' ? ' checked' : '') + '><span>%</span></label>' +
-            '<label class="nsq-seg"><input type="radio" class="nsq-comm-kind" name="custpage_comm_kind_' + escapeHtml(q.id) + '" value="amt"' + (kind === 'amt' ? ' checked' : '') + '><span>£</span></label>' +
-            '</span><input type="text" inputmode="decimal" class="nsq-input nsq-comm" id="' + cid + '" name="custpage_comm_' + escapeHtml(q.id) +
-            '" maxlength="12" autocomplete="off" value="' + escapeHtml(comm) + '"></div></div>' +
-            '</div>');
+            (q.expired ? ' <span class="nsq-tag-exp">' + escapeHtml(COPY.expired) + '</span>' : '') +
+            (text ? ' · ' + escapeHtml(text) : '') + '</div>');
+        h.push('<div class="nsq-qmeta">' + [q.quoteTypeText, q.dateCreated].filter(function (x) { return x; }).map(escapeHtml).join(' · ') + '</div>');
+        h.push('<div class="nsq-qin">');
+        h.push('<label class="nsq-qf nsq-qf-units" for="' + uid + '"><span class="nsq-ql">Units</span>' +
+            '<input type="text" inputmode="numeric" class="nsq-input nsq-units" id="' + uid + '" name="custpage_units_' + id +
+            '" maxlength="6" autocomplete="off" value="' + escapeHtml(units) + '"></label>');
+        h.push('<div class="nsq-qf nsq-qf-comm"><label class="nsq-ql" for="' + cid + '"><span class="nsq-ql-long">Commission</span><span class="nsq-ql-short">Comm.</span></label>' +
+            '<span class="nsq-seg-row" role="radiogroup" aria-label="Commission as">' +
+            '<label class="nsq-seg"><input type="radio" class="nsq-comm-kind" name="custpage_comm_kind_' + id + '" value="pct"' + (kind === 'pct' ? ' checked' : '') + '><span>%</span></label>' +
+            '<label class="nsq-seg"><input type="radio" class="nsq-comm-kind" name="custpage_comm_kind_' + id + '" value="amt"' + (kind === 'amt' ? ' checked' : '') + '><span>£</span></label>' +
+            '</span><input type="text" inputmode="decimal" class="nsq-input nsq-comm" id="' + cid + '" name="custpage_comm_' + id +
+            '" maxlength="12" autocomplete="off" value="' + escapeHtml(comm) + '"></div>');
+        h.push('<label class="nsq-qf nsq-qf-tpl" for="' + tid + '"' + (emailOn ? '' : ' hidden') + '><span class="nsq-sr">' + escapeHtml(COPY.tplLabel) + '</span>' +
+            '<select class="nsq-input nsq-tpl" id="' + tid + '" name="custpage_tpl_' + id + '">' + optionsHTML(page.templates, tplSel, COPY.tplLabel + '…') + '</select></label>');
+        h.push('</div>');
+        h.push('<div class="nsq-qprice"><strong>' + escapeHtml(q.total === null ? '—' : orderLib.money(q.total)) + '</strong>' +
+            (q.exVat === null ? '' : '<span class="nsq-qsub">' + escapeHtml(orderLib.money(q.exVat)) + ' ex VAT</span>') +
+            (deposit === null ? '' : '<span class="nsq-qsub nsq-dep">Deposit ' + escapeHtml(orderLib.money(deposit)) + '</span>') + '</div>');
         h.push('</div>');
         return h.join('');
     }
 
     function buildPageHTML(page, restore, error) {
         var r = restore || {};
-        var emailOn = restore ? r.emailOn === true : false;   // off by default; never automatic
+        var emailOn = !page.emailBlocked && (restore ? r.emailOn === true : false);   // off by default; never automatic
         var emailFresh = !restore || !emailOn;
         var h = [];
         h.push(lib.baseCss() + PAGE_CSS);
-        h.push('<div id="nsq-root" class="nsq" data-opp-url="' + escapeHtml(page.oppUrl) + '">');
+        h.push('<div id="nsq-root" class="nsq" data-opp-url="' + escapeHtml(page.oppUrl) + '" data-upfront="' + (page.upFront ? '1' : '0') + '">');
         h.push('<div class="nsq-wrap">');
         h.push(lib.buildHeaderHTML(page, COPY.title));
         if (error) h.push(lib.buildErrorAlertHTML(error.lead, error.message));
@@ -572,7 +666,10 @@ define([
             h.push('<p class="nsq-help" id="nsq-no-quotes">' + escapeHtml(COPY.noQuotes) + '</p>');
         } else {
             h.push('<p class="nsq-help">Tick each quote to order. One sales order is created per quote.</p>');
-            page.quotes.forEach(function (q) { h.push(quoteRowHTML(q, page, r)); });
+            page.quotes.forEach(function (q) { h.push(quoteRowHTML(q, page, r, emailOn)); });
+            // 1.2.0: the live total of the ticked quotes (display only — the server never reads it)
+            h.push('<div class="nsq-qtotal" id="nsq-qtotal" aria-live="polite"><div class="nsq-qtotal-line" id="nsq-qtotal-line"></div>' +
+                '<div class="nsq-qtotal-ex" id="nsq-qtotal-ex"></div></div>');
         }
         h.push('</section>');
 
@@ -599,10 +696,13 @@ define([
         h.push('<input type="hidden" name="' + lib.KEYS_FIELD + '" value="' + escapeHtml(page.updateFields.map(function (p) { return p.def.key; }).join(',')) + '">');
         h.push('</section>');
 
-        // ── 4 Confirmation email ──
+        // ── 4 Confirmation email (1.2.0: a NetSuite template per order, chosen on each quote row) ──
         h.push('<section class="nsq-card"><h2 class="nsq-h2"><span class="nsq-num">4</span>Confirmation email' +
-            switchHTML('nsq-email-on', 'Send the customer an order confirmation', emailOn, 'nsq-email-off') + '</h2>');
+            '<label class="nsq-switch"><input type="checkbox" id="nsq-email-on"' + (emailOn ? ' checked' : '') + (page.emailBlocked ? ' disabled' : '') +
+            '> Send the customer an order confirmation</label><span class="nsq-off" id="nsq-email-off"' + (emailOn ? ' hidden' : '') + '>Off</span></h2>');
+        if (page.emailBlocked) h.push('<p class="nsq-help nsq-bad" id="nsq-email-why">' + escapeHtml(page.emailBlocked) + '</p>');
         h.push('<div id="nsq-email-body"' + (emailOn ? '' : ' hidden') + '>');
+        h.push('<p class="nsq-help">One email per order created, using the template chosen on each quote above.</p>');
         var defaultFrom = page.senders.some(function (o) { return o.code === 'rep'; }) ? 'rep' : 'me';
         var fromCode = (!emailFresh && page.senders.some(function (o) { return o.code === r.from; })) ? r.from : defaultFrom;
         var fromOpt = page.senders.filter(function (o) { return o.code === fromCode; })[0];
@@ -612,20 +712,22 @@ define([
                 return '<option value="' + o.code + '"' + (o.code === fromCode ? ' selected' : '') + '>' + escapeHtml(o.label) + '</option>';
             }).join('') + '</select></div>');
         h.push(lib.buildRecipientsHTML(page.contacts, page.customerEmail, emailFresh ? { customer: !!page.customerEmail } : r.rcpt));
-        h.push('<div class="nsq-field"><label class="nsq-label" for="nsq-email-message">Message <span class="nsq-opt">(optional)</span></label>' +
-            '<textarea class="nsq-input nsq-textarea" id="nsq-email-message" name="custpage_email_message" rows="6" maxlength="' + EMAIL_MESSAGE_MAX + '">' +
-            escapeHtml(emailFresh ? '' : (r.message || '')) + '</textarea></div>');
+        // The picker posts nothing; beforeSubmit() copies each file into its own custpage_att_<n> input
+        h.push('<div class="nsq-field"><label class="nsq-label" for="nsq-att">Attachments <span class="nsq-opt">(optional)</span></label>' +
+            '<input type="file" id="nsq-att" class="nsq-att" multiple>' +
+            '<p class="nsq-help" id="nsq-att-note">' + escapeHtml(COPY.attachNote) + (restore && emailOn ? ' Choose the files again: a page that comes back after a refusal can’t keep them.' : '') + '</p>' +
+            [1, 2, 3, 4, 5].map(function (n) { return '<input type="file" name="' + ATTACH.prefix + n + '" class="nsq-att-slot" hidden>'; }).join('') + '</div>');
         h.push('<p class="nsq-help nsq-email-note" id="nsq-email-note" data-note-me="' + escapeHtml(COPY.pageNote) +
             '" data-note-pre="' + escapeHtml(COPY.pageNoteOtherStart) + '" data-note-post="' + escapeHtml(COPY.pageNoteOtherEnd) + '">' +
             escapeHtml(senderNote(fromOpt)) + '</p>');
-        h.push('<p class="nsq-help">The email lists only the orders actually created' + (page.upFront ? ', with the deposit due.' : '. No deposit is shown: this customer is on account terms.') + '</p>');
         h.push('</div></section>');
 
         h.push('</div>'); // .nsq-wrap
 
         // ── Sticky footer ──
         h.push('<div class="nsq-footer"><div class="nsq-footer-in">');
-        h.push('<div class="nsq-sum"><div class="nsq-sum-main" id="nsq-sum-line"></div><div class="nsq-sum-sub" id="nsq-sum-changes"></div></div>');
+        h.push('<div class="nsq-sum"><div class="nsq-sum-main" id="nsq-sum-line"></div><div class="nsq-sum-ex" id="nsq-sum-ex"></div>' +
+            '<div class="nsq-sum-sub" id="nsq-sum-changes"></div></div>');
         h.push('<div class="nsq-actions"><span class="nsq-reason" id="nsq-reason"></span>' +
             '<a class="nsq-btn nsq-btn-link" href="' + escapeHtml(page.oppUrl) + '">Cancel</a>' +
             '<button type="button" class="nsq-btn nsq-btn-primary" id="nsq-send" disabled>Create orders</button></div>');
@@ -641,7 +743,6 @@ define([
         '.nsq-bad{color:#a4262c;}' +
         '.nsq-opt{font-weight:400;color:' + lib.PAGE_COLORS.muted + ';font-size:14px;}' +
         '.nsq-help{color:' + lib.PAGE_COLORS.muted + ';font-size:14px;margin:0 0 8px;}' +
-        '.nsq-textarea{min-height:100px;resize:vertical;font-family:inherit;}' +
         '.nsq-switch{margin-left:auto;display:inline-flex;align-items:center;gap:6px;font-size:14px;font-weight:400;cursor:pointer;}' +
         '.nsq-switch input{width:18px;height:18px;}' +
         '.nsq-off{font-size:13px;font-weight:600;color:' + lib.PAGE_COLORS.muted + ';}' +
@@ -649,23 +750,47 @@ define([
         '.nsq-tick input{width:18px;height:18px;}' +
         '.nsq-tick-addr{color:' + lib.PAGE_COLORS.muted + ';}' +
         '.nsq-email-note{margin-top:12px;}' +
-        '.nsq-qrow{display:grid;grid-template-columns:auto 1fr auto;gap:8px 16px;align-items:start;border:1px solid ' + lib.PAGE_COLORS.border + ';border-radius:10px;padding:12px 14px;margin-bottom:8px;}' +
-        '.nsq-qrow-on{border:2px solid ' + lib.PAGE_COLORS.accent + ';padding:11px 13px;}' +
-        '.nsq-qtick input{width:22px;height:22px;margin-top:2px;cursor:pointer;}' +
-        '.nsq-qin{grid-column:2 / -1;display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,260px));gap:12px 16px;}' +
-        '.nsq-qin .nsq-field{margin-bottom:0;}' +
-        '.nsq-tag-exp{display:inline-block;background:#fbeaea;color:#7a1d1d;border-radius:999px;padding:1px 8px;font-size:12px;font-weight:600;vertical-align:middle;}' +
-        '.nsq-dep{display:block;color:' + lib.PAGE_COLORS.accent + ';font-size:13px;font-weight:600;}' +
-        '.nsq-comm-row{display:flex;gap:8px;align-items:center;}' +
+        // 1.2.0: compact rows — one line per quote at desktop (~56px), the inputs on a second line at phone width
+        // fixed widths (except the description) so the columns line up from row to row
+        '.nsq-qrow{display:grid;grid-template-columns:24px minmax(120px,1fr) 150px 100px 198px auto 112px;grid-template-areas:"tick main meta units comm tpl price";' +
+            'align-items:center;column-gap:14px;row-gap:6px;min-height:56px;padding:6px 12px;border:1px solid ' + lib.PAGE_COLORS.border + ';border-radius:8px;margin-bottom:6px;background:#fff;}' +
+        '.nsq-qrow-on{border-color:' + lib.PAGE_COLORS.accent + ';box-shadow:inset 0 0 0 1px ' + lib.PAGE_COLORS.accent + ';}' +
+        '.nsq-qtick{grid-area:tick;display:flex;align-items:center;}' +
+        '.nsq-qtick input{width:20px;height:20px;margin:0;cursor:pointer;}' +
+        '.nsq-qmain{grid-area:main;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:14px;}' +
+        '.nsq-qmain a{font-weight:600;}' +
+        '.nsq-qmeta{grid-area:meta;font-size:12px;color:' + lib.PAGE_COLORS.muted + ';white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}' +
+        '.nsq-sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;}' +
+        '.nsq-ql-short{display:none;}' +
+        '.nsq-qin{display:contents;}' +
+        '.nsq-qf{display:inline-flex;align-items:center;gap:6px;margin:0;}' +
+        '.nsq-qf-units{grid-area:units;}.nsq-qf-comm{grid-area:comm;}.nsq-qf-tpl{grid-area:tpl;}' +
+        '.nsq-qf[hidden]{display:none;}' +
+        '.nsq-ql{font-size:12px;color:' + lib.PAGE_COLORS.muted + ';white-space:nowrap;}' +
+        '.nsq-qrow .nsq-input{min-height:32px;height:32px;padding:4px 8px;font-size:14px;text-align:right;}' +
+        '.nsq-qrow .nsq-units{width:56px;}.nsq-qrow .nsq-comm{width:72px;}.nsq-qrow .nsq-tpl{width:200px;text-align:left;}' +
+        '.nsq-qrow:not(.nsq-qrow-on) .nsq-qf{opacity:.45;}' +
+        '.nsq-qprice{grid-area:price;text-align:right;white-space:nowrap;line-height:1.2;}' +
+        '.nsq-qprice strong{display:block;font-size:14px;}' +
+        '.nsq-qsub{display:block;font-size:11px;color:' + lib.PAGE_COLORS.muted + ';}' +
+        '.nsq-dep{color:' + lib.PAGE_COLORS.accent + ';font-weight:600;}' +
+        '.nsq-tag-exp{display:inline-block;background:#fbeaea;color:#7a1d1d;border-radius:999px;padding:0 7px;font-size:11px;font-weight:600;vertical-align:1px;}' +
+        '.nsq-qtotal{margin-top:10px;padding-top:10px;border-top:1px solid ' + lib.PAGE_COLORS.border + ';text-align:right;}' +
+        '.nsq-qtotal-line{font-weight:600;}' +
+        '.nsq-qtotal-ex,.nsq-sum-ex{font-size:12px;color:' + lib.PAGE_COLORS.muted + ';}' +
         '.nsq-seg-row{display:inline-flex;flex:0 0 auto;border:1px solid ' + lib.PAGE_COLORS.border + ';border-radius:8px;overflow:hidden;}' +
         '.nsq-seg{position:relative;cursor:pointer;}' +
         '.nsq-seg input{position:absolute;opacity:0;width:1px;height:1px;}' +
-        '.nsq-seg span{display:inline-flex;align-items:center;min-height:42px;padding:0 12px;font-size:14px;background:#fff;color:' + lib.PAGE_COLORS.text + ';}' +
+        '.nsq-seg span{display:inline-flex;align-items:center;min-height:32px;padding:0 10px;font-size:13px;background:#fff;color:' + lib.PAGE_COLORS.text + ';}' +
         '.nsq-seg + .nsq-seg span{border-left:1px solid ' + lib.PAGE_COLORS.border + ';}' +
         '.nsq-seg input:checked + span{background:' + lib.PAGE_COLORS.accent + ';color:#fff;font-weight:600;}' +
         '.nsq-seg input:focus-visible + span{outline:2px solid ' + lib.PAGE_COLORS.accent + ';outline-offset:-4px;}' +
-        '.nsq-seg input:disabled + span{opacity:.5;cursor:not-allowed;}' +
-        '@media (max-width:700px){.nsq-qrow{grid-template-columns:auto 1fr;}.nsq-qrow .nsq-price{grid-column:2;text-align:left;}}' +
+        '.nsq-seg input:disabled + span{cursor:not-allowed;}' +
+        '@media (max-width:1000px){.nsq-qrow{grid-template-columns:24px minmax(0,1fr) auto;grid-template-areas:"tick main price" "tick meta price" ". in in";}' +
+            '.nsq-qin{grid-area:in;display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px;}' +
+            '.nsq-ql-long{display:none;}.nsq-ql-short{display:inline;}' +
+            '.nsq-qrow .nsq-units{width:44px;}.nsq-qrow .nsq-comm{width:56px;}.nsq-qrow .nsq-seg span{padding:0 7px;}' +
+            '.nsq-qf-tpl{flex:1 1 100%;}.nsq-qrow .nsq-tpl{width:100%;}}' +
         '</style>';
 
     /**
@@ -676,13 +801,14 @@ define([
      */
     var PAGE_PART = [
         '  var ptTouched = false;',
+        '  var MAX_FILES = ' + ATTACH.max + ', MAX_BYTES = ' + ATTACH.maxBytes + ';',
         '  function rows() { return root.querySelectorAll(".nsq-qrow"); }',
         '  function tickedRows() {',
         '    var out = [];',
         '    each(rows(), function (r) { var c = r.querySelector(".nsq-qsel"); if (c && c.checked) out.push(r); });',
         '    return out;',
         '  }',
-        '  function emailOn() { var s = $("nsq-email-on"); return !!(s && s.checked); }',
+        '  function emailOn() { var s = $("nsq-email-on"); return !!(s && s.checked && !s.disabled); }',
         '  function hasOpt(sel, v) { for (var i = 0; i < sel.options.length; i++) { if (sel.options[i].value === v) return true; } return false; }',
         '  function inferPt() {',
         '    var t = tickedRows(), ids = [], unmapped = false;',
@@ -698,29 +824,36 @@ define([
         '    sel.value = hasOpt(sel, v) ? v : "";',
         '  }',
         '  function setRow(r) {',
-        '    var on = r.querySelector(".nsq-qsel").checked;',
+        '    var on = r.querySelector(".nsq-qsel").checked, em = emailOn();',
         '    if (on) r.classList.add("nsq-qrow-on"); else r.classList.remove("nsq-qrow-on");',
-        '    each(r.querySelectorAll(".nsq-qin input"), function (el) { el.disabled = !on; });',
+        '    each(r.querySelectorAll(".nsq-qin input, .nsq-qin select"), function (el) { el.disabled = !on; });',
+        '    var tf = r.querySelector(".nsq-qf-tpl"), ts = r.querySelector(".nsq-tpl");',
+        '    if (tf) tf.hidden = !em;',
+        '    if (ts && !em) ts.disabled = true;',
         '  }',
-        '  function money(n) { return "£" + n.toFixed(2).replace(/\\B(?=(\\d{3})+(?!\\d))/g, ","); }',
+        '  function money(n) { var neg = n < 0; return (neg ? "-£" : "£") + Math.abs(n).toFixed(2).replace(/\\B(?=(\\d{3})+(?!\\d))/g, ","); }',
+        '  function files() { var a = $("nsq-att"); return a && a.files ? Array.prototype.slice.call(a.files) : []; }',
         '  function setEmail() {',
         '    var on = emailOn(), body = $("nsq-email-body");',
         '    body.hidden = !on;',
         '    each(body.querySelectorAll("input, select, textarea"), function (el) { el.disabled = !on; });',
         '    $("nsq-email-off").hidden = on;',
         '    $("nsq-email-on-val").value = on ? "T" : "F";',
+        '    each(body.querySelectorAll(".nsq-att-slot"), function (el) { el.disabled = true; });',   // only a filled slot posts (beforeSubmit)
+        '    each(rows(), setRow);',
         '  }',
         '  function pageInit() {',
+        '    var f = formEl();',
+        '    if (f) { f.enctype = "multipart/form-data"; f.encoding = "multipart/form-data"; }',   // request.files carries the attachments
         '    var pt = $("nsq-projtype");',
         '    if (pt.getAttribute("data-touched") === "1") ptTouched = true;',
         '    pt.addEventListener("change", function () { ptTouched = true; update(); });',
         '    each(rows(), function (r) {',
-        '      setRow(r);',
         '      r.querySelector(".nsq-qsel").addEventListener("change", function () { setRow(r); applyInference(); update(); });',
-        '      each(r.querySelectorAll(".nsq-comm-kind"), function (k) { k.addEventListener("change", update); });',
+        '      each(r.querySelectorAll(".nsq-comm-kind, .nsq-tpl"), function (k) { k.addEventListener("change", update); });',
         '    });',
         '    ["nsq-auth", "nsq-rep", "nsq-substatus", "nsq-valueprop"].forEach(function (id) { $(id).addEventListener("change", update); });',
-        '    $("nsq-email-message").addEventListener("input", update);',
+        '    $("nsq-att").addEventListener("change", update);',
         '    var from = $("nsq-email-from"), note = $("nsq-email-note");',
         '    function setNote() {',
         '      var o = from.options[from.selectedIndex];',
@@ -750,6 +883,7 @@ define([
         '        var k = r.querySelector(".nsq-comm-kind:checked");',
         '        if ((!k || k.value === "pct") && parseFloat(c) > 100) return "Partner commission on " + name + " must be 100% or less.";',
         '      }',
+        '      if (emailOn() && !r.querySelector(".nsq-tpl").value) return "Choose the confirmation email for " + name + ".";',
         '    }',
         '    if (!$("nsq-projtype").value) return "Choose a project type.";',
         '    if (!$("nsq-auth").value) return "Choose the order authority.";',
@@ -757,21 +891,46 @@ define([
         '    if (!$("nsq-substatus").value) return "Choose a sub-status.";',
         '    if (!$("nsq-valueprop").value) return "Choose a value proposition.";',
         '    if (emailOn()) {',
-        '      var msg = $("nsq-email-message");',
-        '      if (msg.value.trim().length > msg.maxLength) return "The message is too long.";',
         '      var rp = recipientsProblem();',
         '      if (rp) return rp;',
+        '      var fl = files(), bytes = 0;',
+        '      if (fl.length > MAX_FILES) return "Attach up to " + MAX_FILES + " files.";',
+        '      for (var j = 0; j < fl.length; j++) { if (!fl[j].size) return "The file " + fl[j].name + " is empty."; bytes += fl[j].size; }',
+        '      if (bytes > MAX_BYTES) return "The attachments come to more than 10 MB.";',
+        '      if (fl.length && typeof DataTransfer !== "function") return "This browser can’t attach files here. Leave the attachments out, or use another browser.";',
         '    }',
         '    return "";',
         '  }',
-        '  function summary() {',
-        '    var t = tickedRows(), sum = 0;',
-        '    t.forEach(function (r) { sum += parseFloat(r.getAttribute("data-total")) || 0; });',
-        '    return t.length + " order" + (t.length === 1 ? "" : "s") + " · " + money(sum) + " inc VAT · email " + (emailOn() ? "on" : "off");',
+        '  function totals() {',
+        '    var t = tickedRows(), sum = 0, ex = 0, dep = 0, exMissing = false;',
+        '    t.forEach(function (r) {',
+        '      sum += parseFloat(r.getAttribute("data-total")) || 0;',
+        '      var e = r.getAttribute("data-exvat"); if (e === "") exMissing = true; else ex += parseFloat(e) || 0;',
+        '      dep += parseFloat(r.getAttribute("data-deposit")) || 0;',
+        '    });',
+        '    var line = t.length + " order" + (t.length === 1 ? "" : "s") + " · " + money(sum) + " inc VAT" +',
+        '      (root.getAttribute("data-upfront") === "1" ? " · Deposit " + money(dep) : "");',
+        '    var exLine = !t.length ? "" : (exMissing ? "ex VAT not available for every quote" : money(ex) + " ex VAT");',
+        '    return { line: line, ex: exLine };',
+        '  }',
+        '  function summary() {',   // also refreshes the section 1 total and the footer's ex VAT line (display only)
+        '    var tt = totals();',
+        '    if ($("nsq-qtotal-line")) { $("nsq-qtotal-line").textContent = tt.line; $("nsq-qtotal-ex").textContent = tt.ex; }',
+        '    $("nsq-sum-ex").textContent = tt.ex;',
+        '    return tt.line;',
         '  }',
         '  function beforeSubmit() {',
         '    $("nsq-q-sel").value = JSON.stringify(tickedRows().map(function (r) { return r.getAttribute("data-qid"); }));',
-        '    if (emailOn()) recipientsBeforeSubmit();',
+        '    if (!emailOn()) return;',
+        '    recipientsBeforeSubmit();',
+        '    var slots = root.querySelectorAll(".nsq-att-slot"), fl = files();',
+        '    for (var i = 0; i < slots.length; i++) {',
+        '      if (!fl[i]) continue;',
+        '      var dt = new DataTransfer();',
+        '      dt.items.add(fl[i]);',
+        '      slots[i].files = dt.files;',
+        '      slots[i].disabled = false;',
+        '    }',
         '  }'
     ].join('\n');
 
@@ -794,9 +953,10 @@ define([
     /** The page state as posted — restored into the page after a refusal. */
     function readRestore(params) {
         var sel = parseSel(params.custpage_q_sel);
-        var units = {}, commKind = {}, comm = {};
+        var units = {}, commKind = {}, comm = {}, tpl = {};
         sel.ids.forEach(function (id) {
             if (!ID_RE.test(id)) return;
+            tpl[id]      = String(params['custpage_tpl_' + id] || '');   // 1.2.0
             units[id]    = String(params['custpage_units_' + id] || '');
             commKind[id] = params['custpage_comm_kind_' + id] === 'amt' ? 'amt' : 'pct';
             comm[id]     = String(params['custpage_comm_' + id] || '');
@@ -806,6 +966,7 @@ define([
             units:     units,
             commKind:  commKind,
             comm:      comm,
+            tpl:       tpl,
             projType:  String(params.custpage_projtype || ''),
             auth:      String(params.custpage_auth || ''),
             rep:       String(params.custpage_rep || ''),
@@ -814,10 +975,34 @@ define([
             upd:       lib.readPostedUpdateValues(params),
             emailOn:   params.custpage_email_on === 'T',
             from:      String(params.custpage_email_from || ''),
-            message:   String(params.custpage_email_message || ''),
             rcpt:      lib.readPostedRecipients(params),
             token:     String(params.custpage_save_token || '')
         };
+    }
+
+    /**
+     * 1.2.0: the uploaded attachments — every request.files entry named custpage_att_<n> (the page's slots),
+     * in slot order. A part with no name and no content (an empty slot) is skipped.
+     * @returns {{ files: Array<file.File>, bytes: number, error: string }}
+     */
+    function readAttachments(request) {
+        var out = { files: [], bytes: 0, error: '' };
+        var all = (request && request.files) || {};
+        var keys = Object.keys(all).filter(function (k) { return k.indexOf(ATTACH.prefix) === 0 && /^\d{1,3}$/.test(k.substring(ATTACH.prefix.length)); })
+            .sort(function (a, b) { return parseInt(a.substring(ATTACH.prefix.length), 10) - parseInt(b.substring(ATTACH.prefix.length), 10); });
+        for (var i = 0; i < keys.length; i++) {
+            var f = all[keys[i]];
+            if (!f) continue;
+            var size = Number(f.size) || 0;
+            var name = String(f.name || '');
+            if (!name && !size) continue;
+            if (!size) { out.error = 'The file ' + (name || keys[i]) + ' is empty.'; return out; }
+            out.files.push(f);
+            out.bytes += size;
+        }
+        if (out.files.length > ATTACH.max) out.error = 'Attach up to ' + ATTACH.max + ' files (' + out.files.length + ' chosen).';
+        else if (out.bytes > ATTACH.maxBytes) out.error = 'The attachments come to more than 10 MB.';
+        return out;
     }
 
     /** A failure reason with the quote's number: "EST901 is not an open quote…" / "EST901: total differs…". */
@@ -829,7 +1014,7 @@ define([
 
     /**
      * Validates everything (no writes), claims the token, guards against duplicates, creates one Sales
-     * Order + order log per ticked quote, sends the email (only if on), writes the Opportunity LAST and
+     * Order + order log per ticked quote, sends one template email per order (only if on), writes the Opportunity LAST and
      * redirects with codes only.
      */
     function handleCreate(context, cfg) {
@@ -865,25 +1050,28 @@ define([
         if (!sel.ids.length) return invalid('Tick at least one quote.');
         if (sel.ids.length > MAX_QUOTES) return invalid('Create up to ' + MAX_QUOTES + ' orders at a time.');
 
-        // Email first: its customer lookup (email + terms) also decides the deposit
+        // Email first (1.2.0: a template per order; the attachments)
         var emailOn = params.custpage_email_on === 'T';
-        var message = '', rcpt = null, sender = null, fromCode = '', ccMeEmail = '', upFront = false;
+        var rcpt = null, sender = null, fromCode = '', ccMeEmail = '', attach = { files: [], bytes: 0 }, templates = [];
         if (emailOn) {
-            message = String(params.custpage_email_message || '').trim();
-            if (message.length > EMAIL_MESSAGE_MAX) return invalid('The message is longer than ' + EMAIL_MESSAGE_MAX + ' characters.');
+            var tpls = loadTemplates(cfg.emailTemplates);
+            templates = tpls.list;
+            if (!cfg.emailTemplates.length || !templates.length) return invalid(tpls.error ? COPY.badTemplates : COPY.noTemplates);
+            attach = readAttachments(context.request);
+            if (attach.error) return invalid(attach.error);
             var cust = {};
-            if (customerId) {
+            var postedR = lib.readPostedRecipients(params);
+            if (customerId && postedR.customer) {
                 try {
-                    cust = search.lookupFields({ type: search.Type.CUSTOMER, id: customerId, columns: ['email', 'terms'] }) || {};
+                    cust = search.lookupFields({ type: search.Type.CUSTOMER, id: customerId, columns: ['email'] }) || {};
                 } catch (e) {
                     log.error('CreateOrderSL.Email', 'Opportunity ' + opportunityId + ' — customer lookup failed: ' + e.message);
                 }
             }
-            upFront = orderLib.paysUpFront(firstId(cust.terms), cfg.prepayTerms);
-            var postedR = lib.readPostedRecipients(params);
             var rcptContacts = postedR.contacts.length ? lib.loadContacts(opportunityId, 'CreateOrderSL') : [];
             rcpt = lib.resolveRecipients(params, rcptContacts, postedR.customer ? lib.lookupText(cust.email) : '');
             if (rcpt.error) return invalid(rcpt.error);
+            if (!ID_RE.test(String(customerId))) return invalid('The opportunity has no customer, so no confirmation email can be sent.');
             fromCode = params.custpage_email_from === undefined || params.custpage_email_from === '' ? 'rep' : String(params.custpage_email_from);
             if (fromCode !== 'me' && !FROM_ROLES.hasOwnProperty(fromCode)) return invalid('Choose who the email is from.');
             if (fromCode === 'me') {
@@ -900,7 +1088,6 @@ define([
                 if (sender.inactive) return invalid(role.label + ' is no longer active, so the email can’t be sent from them.');
                 if (!sender.email || !lib.EMAIL_RE.test(sender.email)) return invalid(noEmail);
             }
-            sender.cardEmail = fromCode === 'pe' ? COPY.peCardEmail : sender.email;
             if (rcpt.ccMe) {
                 if (fromCode === 'me') {
                     ccMeEmail = sender.email;
@@ -915,8 +1102,8 @@ define([
             }
         }
 
-        // Quotes: OPEN Estimates on THIS opportunity (the header search; extras only for the email's deposit)
-        var listing = orderLib.listOrderableQuotes(opportunityId, { extras: emailOn && upFront, logKey: 'CreateOrderSL.List' });
+        // Quotes: OPEN Estimates on THIS opportunity (the header search; 1.2.0: no extras — nothing here needs them)
+        var listing = orderLib.listOrderableQuotes(opportunityId, { extras: false, logKey: 'CreateOrderSL.List' });
         if (listing.error) return invalid('The open quotes could not be read. Please try again.');
         var byId = {};
         listing.quotes.forEach(function (q) { byId[q.id] = q; });
@@ -934,7 +1121,13 @@ define([
                 if (!/^\d{1,9}(\.\d{1,2})?$/.test(c)) return invalid('Partner commission on ' + name + ' must be a number with up to 2 decimal places.');
                 if (kind === 'pct' && parseFloat(c) > 100) return invalid('Partner commission on ' + name + ' must be between 0 and 100%.');
             }
-            quotes.push({ q: q, units: u, commission: c ? { kind: kind, value: c } : null });
+            var tplId = '';
+            if (emailOn) {   // 1.2.0: one of the offered templates, for every ticked quote
+                tplId = String(params['custpage_tpl_' + q.id] || '').trim();
+                if (!tplId) return invalid('Choose the confirmation email for ' + name + '.');
+                if (!hasOption(templates, tplId)) return invalid('The confirmation email chosen for ' + name + ' is not one of the offered templates.');
+            }
+            quotes.push({ q: q, units: u, commission: c ? { kind: kind, value: c } : null, templateId: tplId });
         }
 
         // Order details: options read at run time; the server repeats the inference
@@ -956,16 +1149,10 @@ define([
         if (!auth) return invalid('Choose the order authority.');
         if (!hasOption(orderLib.loadListOptions(LISTS.auth, 'CreateOrderSL.Lists'), auth)) return invalid('Choose an order authority from the list.');
 
+        // 1.2.0: the rep must be one the page offers — the same list, rebuilt here
         var repId = String(params.custpage_rep || '').trim();
         if (!ID_RE.test(repId)) return invalid('Choose the sales rep taking the order.');
-        var repOk = false;
-        try {
-            var rf = search.lookupFields({ type: search.Type.EMPLOYEE, id: repId, columns: ['issalesrep', 'isinactive'] }) || {};
-            repOk = isTrue(rf.issalesrep) && !isTrue(rf.isinactive);
-        } catch (e) {
-            log.debug('CreateOrderSL.Validation', 'Rep ' + repId + ' lookup failed: ' + e.message);
-        }
-        if (!repOk) return invalid('The sales rep taking the order must be an active sales rep.');
+        if (!hasOption(loadSalesReps(opp), repId)) return invalid('The sales rep taking the order must be one of the reps offered.');
 
         // Update the opportunity: the three library fields (key list cut on the server) + D3
         var updParams = updateParams(params);
@@ -1020,7 +1207,7 @@ define([
                 failed.push({ q: x.q, reason: (x.q.tranId || 'Quote ' + x.q.id) + ' already converted to ' + existing[x.q.id].join(', ') });
                 return;
             }
-            if (script.getRemainingUsage() < MIN_USAGE_TO_CONVERT) {
+            if (script.getRemainingUsage() < MIN_USAGE_TO_CONVERT + (emailOn ? EMAIL_UNITS * (created.length + 1) : 0)) {   // room for the emails too
                 failed.push({ q: x.q, reason: (x.q.tranId || 'Quote ' + x.q.id) + ' not attempted (script usage limit) — please create it separately' });
                 return;
             }
@@ -1035,7 +1222,7 @@ define([
                     repId:       repId,
                     cfg:         { soForm: cfg.soForm, recordStatus: cfg.recordStatus, parentOppField: cfg.parentOppField, logKey: 'CreateOrderSL.Convert' }
                 });
-                created.push({ q: x.q, res: res });
+                created.push({ q: x.q, res: res, templateId: x.templateId });
             } catch (e) {
                 var why = reasonFor(x.q, e);
                 log.error('CreateOrderSL.Convert', 'Opportunity ' + opportunityId + ' — ' + why);
@@ -1051,36 +1238,54 @@ define([
             return;
         }
 
-        // ── The email — only if switched on; only the orders created ──────────────
-        var emailState = 'off', emailCount = 0;
+        // ── The emails (1.2.0) — only if switched on; one per order created, each from its template ──
+        var emailState = 'off', emailsSent = [], emailsFailed = [];
         if (emailOn) {
             var cc = [];
             var me = ccMeEmail.toLowerCase();
             if (rcpt.ccMe && !rcpt.to.some(function (a) { return a.toLowerCase() === me; })) cc.push(ccMeEmail);
-            var body = null;
-            try {
-                body = orderLib.orderConfirmationEmail({
-                    orders: created.map(function (c) {
-                        return { tranId: c.res.tranId || ('SO ' + c.res.soId), description: c.q.description || c.q.title || c.q.tranId,
-                                 quoteTypeText: c.q.quoteTypeText, total: c.res.total !== null ? c.res.total : c.q.total, deposit: c.q.deposit };
-                    }),
-                    customerPaysUpFront: upFront,
-                    sender:  sender,
-                    message: message,
-                    opp:     { tranId: currentValue(opp, 'tranid') }
-                });
-            } catch (e) {
-                log.error('CreateOrderSL.Email', 'Opportunity ' + opportunityId + ' — email body could not be built; not sent: ' + ((e && e.message) || String(e)));
-            }
-            log.audit('CreateOrderSL.Email', 'Opportunity ' + opportunityId + ' — from ' + fromCode + ' (employee ' + sender.id + '), ' + created.length + ' order(s), deposit rows ' + (upFront ? 'on' : 'off'));
-            if (body === null) {
-                emailState = 'fail';
-            } else {
-                var sent = lib.sendEmail({ author: sender.id, to: rcpt.to, cc: cc, subject: orderLib.EMAIL_COPY.subject, body: body,
-                    customerId: customerId, oppId: opportunityId, logKey: 'CreateOrderSL.Email' });
-                emailState = sent.ok ? 'sent' : 'fail';
-            }
-            emailCount = rcpt.to.length;
+            created.forEach(function (c) {
+                var label = c.res.tranId || ('SO ' + c.res.soId);
+                if (script.getRemainingUsage() < EMAIL_UNITS + 30) {
+                    emailsFailed.push(c.res.soId);
+                    log.error('CreateOrderSL.Email', label + ' — not sent (script usage limit)');
+                    return;
+                }
+                var merged;
+                try {
+                    merged = render.mergeEmail({
+                        templateId:    parseInt(c.templateId, 10),
+                        entity:        { type: 'customer', id: parseInt(customerId, 10) },
+                        recipient:     { type: 'customer', id: parseInt(customerId, 10) },
+                        transactionId: parseInt(c.res.soId, 10)
+                    });
+                } catch (e) {
+                    emailsFailed.push(c.res.soId);
+                    log.error('CreateOrderSL.Email', label + ' — template ' + c.templateId + ' could not be merged (a legacy CRMSDK template can’t be; it must be FreeMarker); not sent: ' + ((e && e.message) || String(e)));
+                    return;
+                }
+                log.audit('CreateOrderSL.Email', label + ' (SO ' + c.res.soId + ') — template ' + c.templateId + ' merged; from ' + fromCode +
+                    ' (employee ' + sender.id + '), ' + rcpt.to.length + ' recipient' + (rcpt.to.length === 1 ? '' : 's') + (cc.length ? ' + CC me' : '') +
+                    ', ' + attach.files.length + ' attachment' + (attach.files.length === 1 ? '' : 's') + ' (' + attach.bytes + ' bytes)');
+                try {
+                    var opts = {
+                        author:         sender.id,
+                        recipients:     rcpt.to,
+                        subject:        merged.subject,
+                        body:           merged.body,
+                        relatedRecords: { transactionId: parseInt(c.res.soId, 10), entityId: parseInt(customerId, 10) }
+                    };
+                    if (cc.length) opts.cc = cc;
+                    if (attach.files.length) opts.attachments = attach.files;
+                    email.send(opts);
+                    emailsSent.push(c.res.soId);
+                    log.audit('CreateOrderSL.Email', label + ' — sent');
+                } catch (e) {
+                    emailsFailed.push(c.res.soId);
+                    log.error('CreateOrderSL.Email', label + ' — email FAILED: ' + ((e && e.message) || String(e)));
+                }
+            });
+            emailState = emailsSent.length ? 'sent' : 'fail';
         }
 
         // ── The Opportunity — LAST ───────────────────────────────────────────────
@@ -1121,8 +1326,9 @@ define([
         var mismatch = created.filter(function (c) { return c.res.totalMismatch; }).map(function (c) { return c.res.soId; });
         if (logFailed.length) { p.nsq = 'warn'; p.nsqlf = logFailed.join(','); }
         if (mismatch.length) { p.nsq = 'warn'; p.nsqtm = mismatch.join(','); }
-        if (emailState === 'sent') { p.nsqe = 'sent'; p.nsqen = String(emailCount); }
+        if (emailState === 'sent') { p.nsqe = 'sent'; p.nsqen = String(emailsSent.length); }   // 1.2.0: nsqen = emails sent
         else if (emailState === 'fail') { p.nsqe = 'fail'; p.nsq = 'warn'; }
+        if (emailsFailed.length) { p.nsq = 'warn'; p.nsqef = emailsFailed.join(','); }   // 1.2.0: the orders whose email failed
 
         log.audit('CreateOrderSL.Summary', 'Opportunity ' + opportunityId + ' — created ' +
             created.map(function (c) { return (c.res.tranId || c.res.soId) + ' from ' + c.q.tranId + (c.res.logId ? ' (log ' + c.res.logId + ')' : ' (NO LOG)'); }).join(', ') +
@@ -1130,7 +1336,7 @@ define([
             '; warnings ' + (created.reduce(function (a, c) { return a.concat(c.res.warnings); }, []).join(' | ') || 'none') +
             '; fields ' + (oppUpdate.error ? 'FAILED' : (oppUpdate.changed.map(function (c) { return c.key; }).join(',') || 'none')) +
             ' + ' + (extraKeys.join(',') || 'none') + (extraError ? ' (FAILED)' : '') +
-            '; email ' + emailState + (emailOn ? ' (' + emailCount + ' recipient' + (emailCount === 1 ? '' : 's') + ')' : '') +
+            '; email ' + (emailOn ? 'sent for ' + (emailsSent.join(',') || 'none') + ', NOT sent for ' + (emailsFailed.join(',') || 'none') : 'off') +
             '; usage left ' + script.getRemainingUsage());
         log.audit('CreateOrderSL.Redirect', 'Opportunity ' + opportunityId + ' — ' + JSON.stringify(p));
 

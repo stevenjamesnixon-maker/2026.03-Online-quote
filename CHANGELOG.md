@@ -1,3 +1,17 @@
+## [Create Order SL v1.2.0 / Order Library v1.2.0 / Opportunity UE v1.5.2] — 6 October 2026 (Create order amendment 2: Steve's first Production test)
+**Status:** 🔶 In review — not deployed (PR #38). Opportunity CS unchanged (1.3.0).
+**Components:** `nuheat_create_order_sl.js`, `nuheat_order_lib.js`, `nuheat_opportunity_ue.js`, `test/create-order.js`
+
+- FIXED: the sales rep list was empty ("invalid search criteria: issalesrep"). The Employee search filter is
+  `salesrep`; the opportunity's rep is always offered and pre-selected; the server accepts only an offered rep.
+- CHANGED: compact quote rows (one line, ~56px on desktop; inputs on a second line on phones).
+- ADDED: live totals of the ticked quotes (section 1 and the footer): "n orders · £… inc VAT · Deposit £…"
+  (deposit for up-front customers only), ex VAT beneath. Display only.
+- CHANGED: the confirmation email is a NetSuite template per order (`ORDER_EMAIL_TEMPLATES`, chosen on each
+  row), one email per Sales Order via `render.mergeEmail` + `email.send`, filed against the SO; optional
+  attachments (≤ 5 files, ≤ 10 MB). The free-text message and the v2 email (`orderConfirmationEmail`) are gone.
+- CHANGED: `MAX_QUOTES` 8 → 6 (governance with emails). UE 1.5.2: `nsqen` = emails sent; new `nsqef`.
+
 ## [Create Order SL v1.1.0 / Order Library v1.1.0 / Opportunity UE v1.5.1] — 6 October 2026 (Create order amendment 1: settings from the settings record)
 **Status:** 🔶 In review — not deployed (PR #38). Opportunity CS unchanged (1.3.0).
 **Components:** `nuheat_order_lib.js`, `nuheat_create_order_sl.js`, `nuheat_opportunity_ue.js`, `test/create-order.js`, `test/send-quote-opp-update.js` (an N/cache stub only)

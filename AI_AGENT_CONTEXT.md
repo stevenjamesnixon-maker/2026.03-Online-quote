@@ -296,10 +296,10 @@ that something has regressed at source. See §6.
 | Send Quote CS | v1.4.0 — detached | `nuheat_send_quote_cs.js` | Detached, kept for reference (the Send Quote SL has its own inline script) |
 | Update Opportunity SL | 1.2.2 | `nuheat_update_opp_sl.js` | 🔶 1.2.2 in review ("Write an email" / "Request an update" with the GIVE US AN UPDATE button, behind `custscript_nuheat_updbtn_mode`, default OFF). 1.1.1 merged, not deployed (objection loop moved to the library; no behaviour change). 1.1.0 in Production (1 Oct 2026); U11–U23 passed, including amendments 1–3 |
 | Opportunity Update Library | 1.3.0 | `nuheat_opp_update_lib.js` | 🔶 1.3.0 in review (dashboard link decode, contact company — additive). 1.2.0 merged, not deployed (customer-safe functions for the customer dashboard). 1.1.0 in Production (1 Oct 2026; upload first) |
-| Opportunity UE | 1.5.1 | `nuheat_opportunity_ue.js` | 🔶 1.5.1 in review (the "Create order" button behind the `ORDER_MODE` setting, default OFF; the `nsqs=ord` banner). 1.4.0 in Production (1 Oct 2026) |
+| Opportunity UE | 1.5.2 | `nuheat_opportunity_ue.js` | 🔶 1.5.2 in review (the "Create order" button behind the `ORDER_MODE` setting, default OFF; the `nsqs=ord` banner, `nsqef`). 1.4.0 in Production (1 Oct 2026) |
 | Opportunity CS | 1.3.0 | `nuheat_opportunity_cs.js` | 🔶 1.3.0 in review (`openCreateOrderSuitelet`). 1.2.0 in Production (29 Sep 2026) |
-| Create Order SL | 1.1.0 | `nuheat_create_order_sl.js` | 🔶 New, in review — not deployed. Create order part 1 (the reps' page) |
-| Order Library | 1.1.0 | `nuheat_order_lib.js` | 🔶 New, in review — not deployed. Shared module (listing, `convertQuote`, inference, the confirmation email) |
+| Create Order SL | 1.2.0 | `nuheat_create_order_sl.js` | 🔶 New, in review — not deployed. Create order part 1 (the reps' page) |
+| Order Library | 1.2.0 | `nuheat_order_lib.js` | 🔶 New, in review — not deployed. Shared module (listing, `convertQuote`, inference, the confirmation email) |
 | Analytics Suitelet | v1.0.1 | `nuheat_analytics_sl.js` | ✅ Live in Production |
 | **BUS Grant Module** | **v1.0.0** | **`nuheat_bus_grant.js`** | ✅ Live in Production |
 | **VAT Rates Module** | **v1.0.0** | **`nuheat_vat_rates.js`** | ✅ Live in Production |
@@ -652,7 +652,7 @@ on the dashboard repo: no dashboard file is required and the API Secret is never
 - Governance: the four customer columns ride on the existing customer lookup; +1 unit (contact lookup)
   only when a dashboard contact is set and the button is offered. The default page load stays 53 units.
 
-### Create order flow (Create Order SL 1.1.0, order library 1.1.0, Opportunity UE 1.5.1, CS 1.3.0)
+### Create order flow (Create Order SL 1.2.0, order library 1.2.0, Opportunity UE 1.5.2, CS 1.3.0)
 
 Part 1 of Create order: the reps' **Create order** button on the Opportunity (VIEW only, after Update
 opportunity, its own try/catch) opens `nuheat_create_order_sl.js` in the same tab. The page has four numbered
@@ -673,15 +673,18 @@ write, and redirects back with codes (`nsqs=ord`).
 | CO7 | **The Opportunity write:** `lib.updateFields` for the three library fields, then **a second `submitFields`** for the sub-status, the value proposition (each only when changed) and `entitystatus` (only when `ORDER_OPP_STATUS` is set and is a status option). `lib.updateFields` takes no extra values and the brief kept the library unchanged. `enableSourcing` only when the status changes. A failure is amber; the SOs stand |
 | CO8 | **Project type:** inferred from the ticked quotes' types (`ORDER_PROJTYPE_MAP`): one mapped type → it; different types → `ORDER_PROJTYPE_MIXED`; any unmapped → none. The page updates it live until the rep chooses; the server repeats the inference and uses the posted value only if it's a list option. **The rep's choice wins.** The same value goes on every SO in the submission |
 | CO9 | **Deposit:** shown on the page and in the email only when the customer pays up front: `orderLib.paysUpFront` = the customer dashboard's rule (prepay list empty → nobody; customer terms blank or in `PREPAY_TERMS` → up front). Credit (trade) customers see none |
-| CO10 | **The email is never automatic:** off by default; From = Update Opportunity's options (default the sales rep); To = the recipients component (default Customer); an optional message. It lists only the orders created |
+| CO10 | **The email is never automatic, and the template owns the wording (amendment 2, Steve 6 Oct):** off by default. With it on, **one email per Sales Order created**, from the NetSuite email template the rep chooses on that quote's row (the templates offered = `ORDER_EMAIL_TEMPLATES`, in its order; inactive / missing ones left out). `render.mergeEmail` (entity and recipient = the customer, `transactionId` = the SO) gives subject and body; `email.send` files it against the SO and the customer. From = Update Opportunity's options (default the sales rep); To / CC me = the recipients component. Optional attachments (≤ 5 files, ≤ 10 MB, none empty) go on every email of the submission, straight from the upload — never saved to the File Cabinet. One merge or send failing never stops the others (`nsqef`). No free-text message; the 1.0 v2 email (`orderConfirmationEmail`) is gone |
 | CO11 | **The mode — one switch (amendment 1):** the `ORDER_MODE` row of the settings record drives both the button (Opportunity UE, cached 300 s: up to 5 minutes to follow a change) and the page (read every request). OFF / ADMIN (`roleId === 'administrator'`) / ALL, case-insensitive; empty, unknown, duplicate or unreadable = OFF. No script parameter anywhere |
 | CO12 | **No Estimate loads:** the listing is two searches (header; a fail-safe extras search for units, deposit and ex VAT that can only blank those). The re-check in `convertQuote` is one search filtered to open Estimates on this opportunity, so no status value has to be interpreted |
 | CO13 | **Settings come from the settings record, not script parameters (Steve, 6 Oct 2026: one place to administer settings).** Create order reads every setting from `customrecord_cdb_setting` (see below); it has no script parameters |
+| CO14 | **The rep list (amendment 2, a Production defect):** the Employee **search** filter is `salesrep` (`issalesrep` is the record field ID and an invalid search criterion — the 1.0/1.1 page showed an empty list). The opportunity's own sales rep is always offered first and pre-selected, even when not ticked Sales Rep; a failed search offers only that rep. The POST rebuilds the same list and accepts only a rep in it |
+| CO15 | **Governance (amendment 2):** an email costs one merge + one send (counted 20 + 20). `MAX_QUOTES` is **6** (8 quotes with emails came to ~820 units); each conversion first checks room for itself, the opportunity writes **and** every email still to send |
+| CO16 | **Multipart:** the page sets its form to `multipart/form-data`. The attachment picker posts nothing; the page copies each chosen file into its own hidden `custpage_att_<n>` input, because `request.files` is keyed by field name (one `multiple` input could arrive as one file) |
 
 **Record dependency on the customer dashboard (amendment 1).** Online-quote reads the dashboard's settings
 record, **Customer Dashboard Settings** (`customrecord_cdb_setting`: Name = key, `custrecord_cdb_setting_value` =
 value): the rows `ORDER_MODE`, `ORDER_SO_FORM`, `ORDER_RECORD_STATUS`, `ORDER_SUBSTATUS_OPTIONS`, `ORDER_OPP_STATUS`,
-`ORDER_PROJTYPE_MAP`, `ORDER_PROJTYPE_MIXED`, `ORDER_PARENT_OPP_FIELD`, and the dashboard's own `PREPAY_TERMS` and
+`ORDER_PROJTYPE_MAP`, `ORDER_PROJTYPE_MIXED`, `ORDER_PARENT_OPP_FIELD`, `ORDER_EMAIL_TEMPLATES` (1.2.0), and the dashboard's own `PREPAY_TERMS` and
 `NEEDINFO_SUBSTATUS` (its first id = the default sub-status). It is a **record** dependency, not a code
 dependency: no dashboard file is required. `orderLib.loadOrderSettings` mirrors the dashboard's `cdb_lib_config.js`
 3.x rules (trimmed Name, blank = missing, two active rows = that key missing and logged, a failed search = every key
@@ -694,8 +697,8 @@ Don't rename `NEEDINFO_SUBSTATUS` or `PREPAY_TERMS` on either side without the o
 (part 2)**, which will run **as Administrator**. `convertQuote` re-checks ownership and openness itself, and
 checks the shape of every input it writes. It never trusts its caller for that. Option membership (project
 type, authority, rep) is the caller's validation; part 2 must do it too. Don't rename, move or change the
-signatures of `listOrderableQuotes`, `convertQuote`, `inferProjectType`, `orderConfirmationEmail`,
-`paysUpFront`, `loadListOptions` or `LIB_VERSION` without a matching change there. The estimate lock
+signatures of `listOrderableQuotes`, `convertQuote`, `inferProjectType`, `paysUpFront`, `loadListOptions`,
+`loadOrderSettings`, `parseSettingRows` or `LIB_VERSION` (1.2.0: `orderConfirmationEmail` was removed) without a matching change there. The estimate lock
 (`est_<id>`, cache `nh_order_estimate_lock`) is **PUBLIC** scope so both versions see it.
 
 > ⚠️ **Known duplication (later tidy-up).** `newSaveToken` / `claimToken` / `releaseToken` are **copied**
@@ -1493,6 +1496,7 @@ The scripts log heavily on purpose. These are the keys that answer most question
 | `CreateOrderSL.Validation` | `nuheat_create_order_sl.js` | a submission rejected before any write, and why |
 | `CreateOrderSL.ProjectType` | `nuheat_create_order_sl.js` | inferred vs posted project type and the one used |
 | `CreateOrderSL.OppUpdate` | SL / library | the update fields (as `UpdateOppSL.OppUpdate`) and the second write (sub-status, value proposition, status) or its failure |
+| `CreateOrderSL.Email` | `nuheat_create_order_sl.js` | *(1.2.0)* per Sales Order: the merge (SO, template ID, from, recipients count, attachment count and total bytes), `sent`, or the merge / send failure. **Never** the body or an address |
 | `CreateOrderSL.Settings` | `nuheat_order_lib.js` (via the SL) | *(1.1.0)* once per request: the settings keys found and missing — never the values |
 | `ORDER_SETTINGS_UNAVAILABLE` / `ORDER_SETTING_DUPLICATE` | order library / Opportunity UE | *(error)* the `customrecord_cdb_setting` search failed (permission, record type) / two active rows for one key, with their row IDs |
 | `CreateOrderSL.Config` | `nuheat_create_order_sl.js` | a setting that isn't an ID / idlist / JSON map / field ID (treated as empty), an offered sub-status that isn't an option, a status parameter that isn't an option |

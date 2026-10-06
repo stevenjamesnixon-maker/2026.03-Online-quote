@@ -91,9 +91,11 @@ record; unknown values are dropped.
 | `nsqso` | comma list of SO IDs | *(ord)* Orders created: "Created SO239950, SO239951", **only** SOs whose `opportunity` is this one (one search). None verified → no banner |
 | `nsqqf` | comma list of Estimate IDs | *(ord)* Quotes not converted: "Not created: EST…" (this Opportunity's Estimates only; reasons are in the log, never the URL) |
 | `nsqlf` / `nsqtm` | comma list of SO IDs | *(ord)* Order log not created / total after save differs from the quote (verified SOs only) |
+| `nsqen` *(ord, UE 1.5.2)* | count | The number of confirmation **emails** sent (one per order): "Confirmation email sent for N order(s)" |
+| `nsqef` | comma list of SO IDs | *(ord, UE 1.5.2)* Orders whose confirmation email was not sent (merge or send failed) — verified against this opportunity like `nsqso`: "Confirmation email not sent for SO…" |
 | `nsqf` / `nsqff` keys `sub_status`, `value_prop` | — | *(UE 1.5.0)* Sub-status (`custbody_opportunity_sub_status`) and Value proposition (`custbody_value_proposition`), read from the record. `nsqe` / `nsqen` with `ord` → "Confirmation email sent to N recipient(s)" / "The confirmation email was not sent." |
 
-## Create order (Create Order SL 1.1.0 / order library 1.1.0) — 6 Oct 2026
+## Create order (Create Order SL 1.2.0 / order library 1.2.0) — 6 Oct 2026
 
 ### Estimate (read: two searches, no loads)
 
@@ -139,13 +141,23 @@ record; unknown values are dropped.
 | `custbody_value_proposition` | Required; list `customlist_value_proposition` (UFH Design / UFH Design + / HP Design); options from the field; written only when changed |
 | `entitystatus` | `ORDER_OPP_STATUS`, only when set (and an option); `enableSourcing` on |
 
+### Confirmation email (1.2.0) — a NetSuite template per order
+
+| Item | Rule |
+|---|---|
+| Email templates | `emailtemplate` search: `internalid` anyof `ORDER_EMAIL_TEMPLATES`, columns `name`, `isinactive`. Offered in the setting's order; inactive / missing ones left out and logged |
+| `custpage_tpl_<estimate id>` | The template chosen on each ticked row (required while the email is on; must be an offered one) |
+| `custpage_att_1` … `custpage_att_5` | The attachments (`request.files`), at most 5 files and 10 MB in total, each non-empty. Passed to `email.send` as they are — not saved |
+| `render.mergeEmail` | `templateId`, `entity` and `recipient` = `{ type: 'customer', id }`, `transactionId` = the new SO → `{ subject, body }` |
+| `email.send` | `author` = the chosen sender, `recipients` / `cc` = the recipients component, the merged subject and body, `attachments`, `relatedRecords: { transactionId: <SO>, entityId: <customer> }` |
+
 ### Customer / Employee
 
 | Record · field | Purpose |
 |---|---|
 | Customer `terms` | Pays up front = in `PREPAY_TERMS` (or blank: the dashboard's rule) |
 | Customer `email` | The default To |
-| Employee `issalesrep`, `isinactive` | The rep select (search) and the POST check (`lookupFields`) |
+| Employee search `salesrep` (T), `isinactive` (F) | The rep select (1.2.0: `salesrep` is the search filter; `issalesrep` is invalid there). The opportunity's `salesrep` is always offered. The POST rebuilds the list |
 
 ### Settings (amendment 1: rows of `customrecord_cdb_setting` — no script parameters)
 
@@ -166,6 +178,7 @@ a failed search = every key missing (the page refuses, no button).
 | `ORDER_PROJTYPE_MIXED` | id: **UFH & Renewables** in `customlist_bund_proj_type` | no "mixed" inference |
 | `PREPAY_TERMS` | **existing dashboard row** (idlist; `9`) — the same value the dashboard uses | no deposit shown |
 | `ORDER_PARENT_OPP_FIELD` | field ID of the opportunity field holding a parent opportunity, if there is one | the order log's parent is this opportunity |
+| `ORDER_EMAIL_TEMPLATES` | idlist: the email template internal IDs offered for the confirmation, in display order (Steve: `3198,4186,3182,4185,3185`). **FreeMarker templates only** — a legacy CRMSDK template can't be merged | the email switch is shown disabled: "No confirmation templates are set up (ORDER_EMAIL_TEMPLATES)." |
 
 A malformed value (not an ID, bad JSON, not a field ID) is logged under `CreateOrderSL.Config` and treated as empty.
 
