@@ -8,7 +8,7 @@
  *              order log), project-type inference and the order confirmation email. Used by the
  *              reps' "Create order" page (nuheat_create_order_sl.js); written for reuse by the
  *              customer version (part 2), which will run as Administrator.
- * @version     1.0.0
+ * @version     1.1.0
  * @author      Nu-Heat Development
  *
  * ⚠️ DEPLOYMENT: a shared AMD module — no script record, no deployment. Upload it to
@@ -17,8 +17,20 @@
  *
  * ⚠️ EXTERNAL CONSUMER (planned): the customer version of Create order (part 2) will require this
  *    library. Don't rename, move or change the signatures of listOrderableQuotes, convertQuote,
- *    inferProjectType, orderConfirmationEmail, paysUpFront, loadListOptions or LIB_VERSION without
- *    a matching change there.
+ *    inferProjectType, orderConfirmationEmail, paysUpFront, loadListOptions, loadOrderSettings,
+ *    parseSettingRows or LIB_VERSION without a matching change there.
+ *
+ * ⚠️ RECORD DEPENDENCY (1.1.0): the settings live on the customer dashboard's settings record,
+ *    customrecord_cdb_setting (Name = the key, custrecord_cdb_setting_value = the value). This is a
+ *    record dependency, not a code dependency: nothing of the dashboard is required. The rules mirror
+ *    the dashboard's cdb_lib_config.js 3.x (trimmed Name, blank = missing, two active rows = that key
+ *    missing, a failed search = every key missing).
+ *
+ * CHANGELOG v1.1.0 (Create order amendment 1 — settings from the settings record, 6 Oct 2026):
+ *   - ADDED: loadOrderSettings(keys, logKey) — one search of customrecord_cdb_setting (~10 units),
+ *     parsed by the pure parseSettingRows(list, keys). Logs found / missing keys once at audit (never
+ *     the values), a duplicate key at error (ORDER_SETTING_DUPLICATE, naming the row IDs) and a failed
+ *     search at error (ORDER_SETTINGS_UNAVAILABLE).
  *
  * CHANGELOG v1.0.0 (Create order, part 1 — 6 Oct 2026):
  *   - listOrderableQuotes(oppId, opts): two searches, no Estimate loads — the header search (open
@@ -46,7 +58,7 @@ function (record, search, log, cache, format, lib) {
 
     'use strict';
 
-    var LIB_VERSION = '1.0.0';
+    var LIB_VERSION = '1.1.0';
 
     // ─── Account objects (script IDs only) ────────────────────────────────────────
 
@@ -88,6 +100,13 @@ function (record, search, log, cache, format, lib) {
 
     var ID_RE    = /^\d{1,12}$/;
     var FIELD_RE = /^[a-z][a-z0-9_]{2,60}$/;
+
+    /** The customer dashboard's settings record (its cdb_lib_config.js SETTING_RECORD). */
+    var SETTING = {
+        type:  'customrecord_cdb_setting',
+        name:  'name',
+        value: 'custrecord_cdb_setting_value'
+    };
 
     // ─── Small helpers ────────────────────────────────────────────────────────────
 
@@ -134,6 +153,88 @@ function (record, search, log, cache, format, lib) {
     }
 
     function startOfDay(d) { return new Date(d.getFullYear(), d.getMonth(), d.getDate()); }
+
+    // ─── Settings (1.1.0): the customer dashboard's settings record ───────────────
+
+    /**
+     * PURE. The rows of customrecord_cdb_setting → the values of the keys asked for. The dashboard's
+     * rules (cdb_lib_config.js 3.x): the Name is trimmed before matching (case as typed); a blank value
+     * is missing; two or more active rows for one key make that key missing (fail closed). Rows for
+     * other keys are ignored. Values are returned trimmed, unparsed (the caller parses by kind).
+     *
+     * @param {Array<{id: string, name: *, value: *}>} list - active rows
+     * @param {string[]} keys
+     * @returns {{ values: Object<string, string>, found: string[], missing: string[], duplicates: string[] }}
+     *          duplicates: 'KEY (id, id)'; a duplicate key is also in missing
+     */
+    function parseSettingRows(list, keys) {
+        var byKey = {};
+        (keys || []).forEach(function (k) { byKey[k] = []; });
+        (list || []).forEach(function (r) {
+            var name = str(r && r.name).replace(/^\s+|\s+$/g, '');
+            if (Object.prototype.hasOwnProperty.call(byKey, name)) byKey[name].push({ id: str(r.id), value: str(r.value).trim() });
+        });
+        var out = { values: {}, found: [], missing: [], duplicates: [] };
+        (keys || []).forEach(function (k) {
+            var rows = byKey[k];
+            if (rows.length > 1) {
+                out.duplicates.push(k + ' (' + rows.map(function (r) { return r.id; }).join(', ') + ')');
+                out.missing.push(k);
+            } else if (rows.length === 1 && rows[0].value !== '') {
+                out.values[k] = rows[0].value;
+                out.found.push(k);
+            } else {
+                out.missing.push(k);
+            }
+        });
+        return out;
+    }
+
+    /**
+     * The settings Create order needs, from customrecord_cdb_setting: ONE search (~10 units) of the
+     * active rows whose Name contains one of the keys (each row then matched exactly on its trimmed
+     * Name). Never throws: a failed search (no permission, no record type) → every key missing and
+     * failed = the reason.
+     *
+     * @param {string[]} keys
+     * @param {string} [logKey] - the audit title for the found / missing line
+     * @returns {{ values: Object<string, string>, found: string[], missing: string[], duplicates: string[], failed: string }}
+     */
+    function loadOrderSettings(keys, logKey) {
+        var title = logKey || 'OrderLib.Settings';
+        var list = [];
+        var failed = '';
+        try {
+            var nameFilter = [];
+            (keys || []).forEach(function (k, i) {
+                if (i) nameFilter.push('OR');
+                nameFilter.push([SETTING.name, 'contains', k]);
+            });
+            search.create({
+                type:    SETTING.type,
+                filters: [['isinactive', 'is', 'F'], 'AND', nameFilter],
+                columns: [SETTING.name, SETTING.value]
+            }).run().each(function (r) {
+                list.push({ id: str(r.id), name: r.getValue({ name: SETTING.name }), value: r.getValue({ name: SETTING.value }) });
+                return true;
+            });
+        } catch (e) {
+            failed = (e && e.message) || String(e);
+            list = [];
+        }
+        var out = parseSettingRows(list, keys);
+        out.failed = failed;
+        if (failed) {
+            log.error('ORDER_SETTINGS_UNAVAILABLE', 'The ' + SETTING.type + ' search failed, so every Create order setting is missing: ' + failed);
+        }
+        if (out.duplicates.length) {
+            log.error('ORDER_SETTING_DUPLICATE', out.duplicates.join('; ') + '. Each key must have exactly one active ' +
+                SETTING.type + ' row: make all but one inactive. Treated as missing.');
+        }
+        log.audit(title, 'found: ' + (out.found.join(', ') || 'none') + ' | missing: ' + (out.missing.join(', ') || 'none') +
+            (failed ? ' | search FAILED' : ''));
+        return out;
+    }
 
     // ─── Terms rule (the customer dashboard's) ────────────────────────────────────
 
@@ -677,6 +778,9 @@ function (record, search, log, cache, format, lib) {
         EMAIL_COPY:             EMAIL_COPY,
         money:                  money,
         paysUpFront:            paysUpFront,
+        SETTING_RECORD:         SETTING,
+        parseSettingRows:       parseSettingRows,
+        loadOrderSettings:      loadOrderSettings,
         loadListOptions:        loadListOptions,
         listOrderableQuotes:    listOrderableQuotes,
         inferProjectType:       inferProjectType,

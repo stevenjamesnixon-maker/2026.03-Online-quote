@@ -93,7 +93,7 @@ record; unknown values are dropped.
 | `nsqlf` / `nsqtm` | comma list of SO IDs | *(ord)* Order log not created / total after save differs from the quote (verified SOs only) |
 | `nsqf` / `nsqff` keys `sub_status`, `value_prop` | — | *(UE 1.5.0)* Sub-status (`custbody_opportunity_sub_status`) and Value proposition (`custbody_value_proposition`), read from the record. `nsqe` / `nsqen` with `ord` → "Confirmation email sent to N recipient(s)" / "The confirmation email was not sent." |
 
-## Create order (Create Order SL 1.0.0 / order library 1.0.0) — 6 Oct 2026
+## Create order (Create Order SL 1.1.0 / order library 1.1.0) — 6 Oct 2026
 
 ### Estimate (read: two searches, no loads)
 
@@ -113,8 +113,8 @@ record; unknown values are dropped.
 
 | Field ID | Value |
 |---|---|
-| `customform` | `custscript_nuheat_co_so_form` ("NH Sales Order (2026)"), set first through the transform's `defaultValues` |
-| `custbody_finance_status` (Record Status) | `custscript_nuheat_co_record_status` (Awaiting Design Info) |
+| `customform` | `ORDER_SO_FORM` ("NH Sales Order (2026)"), set first through the transform's `defaultValues` |
+| `custbody_finance_status` (Record Status) | `ORDER_RECORD_STATUS` (Awaiting Design Info) |
 | `custbody_bund_proj_type` | The project type (list `customlist_bund_proj_type`). The same value on every SO of one submission |
 | `custbody_partner_commission` (%) **or** `custbody_partner_commission_amount` (£) | Only the chosen one; blank → neither. % 0–100, £ ≥ 0, 2 dp |
 | `opportunity`, `custbody_quote_type` | Only when the transform left them blank (copied from the Estimate) |
@@ -124,7 +124,7 @@ record; unknown values are dropped.
 | Field ID | Value |
 |---|---|
 | `custrecord_order_so` | The SO |
-| `custrecord_parent_opp` (mandatory) | The value of the opportunity field named by `custscript_nuheat_co_parent_opp_field`, when set and filled; else this opportunity |
+| `custrecord_parent_opp` (mandatory) | The value of the opportunity field named by `ORDER_PARENT_OPP_FIELD`, when set and filled; else this opportunity |
 | `custrecord_order_units` (mandatory) | The units entered (whole number ≥ 1) |
 | `custrecord_order_auth` (mandatory) | List `customlist_order_auth` (Email confirmation, System order form, Deposit, Purchase Order, Online acceptance, Verbal), read at run time |
 | `custrecord_order_rep` | The sales rep taking the order (an active sales-rep employee; default the opportunity's `salesrep`) |
@@ -135,35 +135,39 @@ record; unknown values are dropped.
 | Field ID | Rule |
 |---|---|
 | `custbody_opp_del_date`, `custbody_next_contact`, `custbody_build_stage` | `lib.updateFields` (next contact required, D3) |
-| `custbody_opportunity_sub_status` | **Create order only** (CO1): the rep's choice (default `custscript_nuheat_co_substatus`), one of the offered options; written only when changed |
+| `custbody_opportunity_sub_status` | **Create order only** (CO1): the rep's choice (default: the first id of `NEEDINFO_SUBSTATUS`), one of the offered options; written only when changed |
 | `custbody_value_proposition` | Required; list `customlist_value_proposition` (UFH Design / UFH Design + / HP Design); options from the field; written only when changed |
-| `entitystatus` | `custscript_nuheat_co_opp_status`, only when set (and an option); `enableSourcing` on |
+| `entitystatus` | `ORDER_OPP_STATUS`, only when set (and an option); `enableSourcing` on |
 
 ### Customer / Employee
 
 | Record · field | Purpose |
 |---|---|
-| Customer `terms` | Pays up front = in `custscript_nuheat_co_prepay_terms` (or blank: the dashboard's rule) |
+| Customer `terms` | Pays up front = in `PREPAY_TERMS` (or blank: the dashboard's rule) |
 | Customer `email` | The default To |
 | Employee `issalesrep`, `isinactive` | The rep select (search) and the POST check (`lookupFields`) |
 
-### Script parameters
+### Settings (amendment 1: rows of `customrecord_cdb_setting` — no script parameters)
 
-| ID | Deployment | Kind | Empty means |
-|---|---|---|---|
-| `custscript_nuheat_co_mode` | Create order SL | Free-Form Text: OFF / ADMIN / ALL | OFF: the Suitelet refuses |
-| `custscript_nuheat_co_btn_mode` | **Opportunity UE** | Free-Form Text: OFF / ADMIN / ALL | OFF: no button |
-| `custscript_nuheat_co_so_form` | Create order SL | id | refuse to run (error page) |
-| `custscript_nuheat_co_record_status` | Create order SL | id | refuse to run |
-| `custscript_nuheat_co_substatus` | Create order SL | id | the current sub-status is pre-selected |
-| `custscript_nuheat_co_substatus_options` | Create order SL | idlist (comma-separated) | every option of the field |
-| `custscript_nuheat_co_opp_status` | Create order SL | id | the status isn't written |
-| `custscript_nuheat_co_projtype_map` | Create order SL | JSON `{"<quote type id>": "<project type id>"}` | no inference |
-| `custscript_nuheat_co_projtype_mixed` | Create order SL | id | no "mixed" inference |
-| `custscript_nuheat_co_prepay_terms` | Create order SL | idlist | no deposit anywhere |
-| `custscript_nuheat_co_parent_opp_field` | Create order SL | field ID | parent opportunity = this one |
+Customer Dashboard Settings (`customrecord_cdb_setting`): Name = the key (trimmed before matching),
+`custrecord_cdb_setting_value` = the value. Read by one search per request (the Suitelet) and, for `ORDER_MODE`
+only, by the Opportunity UE (cached 300 s). Blank = missing; two active rows for a key = missing (logged);
+a failed search = every key missing (the page refuses, no button).
 
-A malformed value (not an ID, bad JSON) is logged under `CreateOrderSL.Config` and treated as empty.
+| Key (row Name) | Value | Empty, missing, duplicate or invalid means |
+|---|---|---|
+| `ORDER_MODE` | `OFF` / `ADMIN` / `ALL` (case-insensitive). **ADMIN** for Sandbox testing, **ALL** at go-live | OFF: no button, and the page refuses |
+| `ORDER_SO_FORM` | id: **NH Sales Order (2026)** (Customization › Forms › Transaction Forms) | the page refuses: "ORDER_SO_FORM is not set in Customer Dashboard Settings." |
+| `ORDER_RECORD_STATUS` | id: **Awaiting Design Info** in the Record Status (`custbody_finance_status`) list | the page refuses, naming the key |
+| `NEEDINFO_SUBSTATUS` | **existing dashboard row** (idlist) — its **first** id is the default sub-status (expected: Awaiting Design Info) | the opportunity's current sub-status is pre-selected |
+| `ORDER_SUBSTATUS_OPTIONS` | idlist: the sub-statuses reps may choose, in display order (Steve to choose) | every option of the field |
+| `ORDER_OPP_STATUS` | id: the Won status, **if** Steve decides the page sets it | the status isn't written |
+| `ORDER_PROJTYPE_MAP` | JSON `{"<quote type id>":"<project type id>"}`, one entry per `custbody_quote_type` value | no inference; the rep chooses |
+| `ORDER_PROJTYPE_MIXED` | id: **UFH & Renewables** in `customlist_bund_proj_type` | no "mixed" inference |
+| `PREPAY_TERMS` | **existing dashboard row** (idlist; `9`) — the same value the dashboard uses | no deposit shown |
+| `ORDER_PARENT_OPP_FIELD` | field ID of the opportunity field holding a parent opportunity, if there is one | the order log's parent is this opportunity |
+
+A malformed value (not an ID, bad JSON, not a field ID) is logged under `CreateOrderSL.Config` and treated as empty.
 
 ## Send Quote SL 2.2.0 — proposal email: account manager card
 

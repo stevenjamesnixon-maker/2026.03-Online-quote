@@ -6,7 +6,7 @@
  * @name        Nu-Heat Opportunity User Event
  * @description Adds the "Send Quote", "Update opportunity" and "Create order" buttons to the
  *              Opportunity form (VIEW only) and, after any of those pages saves, shows its result banner.
- * @version     1.5.0
+ * @version     1.5.1
  * @author      Nu-Heat Development
  *
  * Script ID:      customscript_nuheat_opportunity_ue
@@ -14,8 +14,20 @@
  * Applies To:     Opportunity
  * Event Types:    Before Load
  *
- * ⚠️ 1.5.0: create the script parameter custscript_nuheat_co_btn_mode (Free-Form Text) on THIS
- *    deployment first. Empty = OFF = no "Create order" button.
+ * ⚠️ 1.5.1: the "Create order" button follows the ORDER_MODE row of the customer dashboard's settings
+ *    record (customrecord_cdb_setting) — the same switch as the Create order page. No script parameter.
+ *    The value is cached for 300 seconds, so the button can take UP TO 5 MINUTES to appear or
+ *    disappear after ORDER_MODE changes. Missing, duplicate, unreadable or unknown = OFF = no button.
+ *
+ * CHANGELOG v1.5.1 (Create order amendment 1 — one switch, on the settings record, 6 Oct 2026):
+ *   - REMOVED: custscript_nuheat_co_btn_mode. The button's mode is the ORDER_MODE row: one small search
+ *     (isinactive F, Name contains ORDER_MODE, then the trimmed Name matched exactly), in its own
+ *     try/catch, cached with N/cache (PRIVATE, key order_mode, TTL 300s) so views don't each search.
+ *     Only a clean ADMIN or ALL shows the button; a missing row, two active rows, a failed search or a
+ *     failed cache means OFF. A failed search is not cached (the next view tries again).
+ *   - ADDED: N/cache to define(). The order library is NOT required here (a missing library would stop
+ *     this UE loading); the row match is a small local copy of its rule.
+ *   - custscript_nuheat_updbtn_mode (Update Opportunity's switch) is not touched.
  *
  * CHANGELOG v1.5.0 (Create order SL 1.0.0 — 6 Oct 2026):
  *   - ADDED: third VIEW-only button "Create order" (custpage_create_order → openCreateOrderSuitelet in
@@ -80,19 +92,22 @@
  *     Suitelet's values.
  */
 
-define(['N/log', 'N/runtime', 'N/ui/message', 'N/search', 'N/format'],
-function (log, runtime, message, search, format) {
+define(['N/log', 'N/runtime', 'N/ui/message', 'N/search', 'N/format', 'N/cache'],
+function (log, runtime, message, search, format, cache) {
 
     'use strict';
 
-    var SCRIPT_VERSION = '1.5.0';
+    var SCRIPT_VERSION = '1.5.1';
 
     /**
-     * v1.5.0: who gets the "Create order" button — on THIS deployment (a twin of the Create order
-     * Suitelet's custscript_nuheat_co_mode; a User Event can't read another script's parameters).
-     * OFF (default; empty, unknown or unreadable too — fail closed), ADMIN, ALL.
+     * v1.5.1: who gets the "Create order" button — the ORDER_MODE row of the customer dashboard's
+     * settings record (the Create order page reads the same row). OFF (default; anything but a clean
+     * ADMIN or ALL — fail closed), ADMIN, ALL. Cached 300 s.
      */
-    var CO_MODE_PARAM = 'custscript_nuheat_co_btn_mode';
+    var SETTING_TYPE  = 'customrecord_cdb_setting';
+    var SETTING_VALUE = 'custrecord_cdb_setting_value';
+    var ORDER_MODE_KEY = 'ORDER_MODE';
+    var MODE_CACHE    = { name: 'nh_opp_ue_order_mode', key: 'order_mode', ttl: 300 };
     var ADMIN_ROLE_ID = 'administrator';   // the standard Administrator role's script ID (roleId)
 
     /** Banner lifetime. A refresh or a shared link after this shows nothing. */
@@ -196,25 +211,73 @@ function (log, runtime, message, search, format) {
     }
 
     /**
-     * v1.5.0: the mode for the "Create order" button. Any doubt → OFF.
+     * v1.5.1: ORDER_MODE from customrecord_cdb_setting — the order library's rule, copied: active rows,
+     * the Name trimmed and matched exactly, one row only (two → OFF, logged), a blank value → OFF.
+     * Throws when the search fails (the caller logs and does not cache it).
+     * @returns {string} 'OFF' | 'ADMIN' | 'ALL'
+     */
+    function searchOrderMode() {
+        var rows = [];
+        search.create({
+            type:    SETTING_TYPE,
+            filters: [['isinactive', 'is', 'F'], 'AND', ['name', 'contains', ORDER_MODE_KEY]],
+            columns: ['name', SETTING_VALUE]
+        }).run().each(function (r) {
+            if (String(r.getValue({ name: 'name' }) || '').replace(/^\s+|\s+$/g, '') === ORDER_MODE_KEY) {
+                rows.push({ id: String(r.id), value: String(r.getValue({ name: SETTING_VALUE }) || '').trim() });
+            }
+            return true;
+        });
+        if (rows.length > 1) {
+            log.error('ORDER_SETTING_DUPLICATE', ORDER_MODE_KEY + ' (' + rows.map(function (x) { return x.id; }).join(', ') +
+                '): two active rows; treated as missing — no Create order button');
+            return 'OFF';
+        }
+        var v = rows.length ? rows[0].value.toUpperCase() : '';
+        if (v === 'ADMIN' || v === 'ALL') return v;
+        if (v !== '' && v !== 'OFF') log.debug('OpportunityUE.CreateOrder', 'Unknown ' + ORDER_MODE_KEY + ' "' + v.substring(0, 40) + '"; OFF');
+        return 'OFF';
+    }
+
+    /** v1.5.1: the mode, through the cache. Any doubt → 'OFF'. Never throws. */
+    function orderMode() {
+        var c, hit;
+        try {
+            c = cache.getCache({ name: MODE_CACHE.name, scope: cache.Scope.PRIVATE });
+            hit = c.get({ key: MODE_CACHE.key });
+        } catch (e) {
+            log.error('OpportunityUE.CreateOrder', 'Mode cache unavailable (' + e.message + '); OFF');
+            return 'OFF';
+        }
+        if (hit === 'OFF' || hit === 'ADMIN' || hit === 'ALL') return hit;
+        var mode;
+        try {
+            mode = searchOrderMode();
+        } catch (e) {
+            log.error('ORDER_SETTINGS_UNAVAILABLE', 'The ' + SETTING_TYPE + ' search failed, so there is no Create order button: ' + e.message);
+            return 'OFF';
+        }
+        try {
+            c.put({ key: MODE_CACHE.key, value: mode, ttl: MODE_CACHE.ttl });
+        } catch (e) {
+            log.error('OpportunityUE.CreateOrder', 'Mode could not be cached (' + e.message + '); OFF');
+            return 'OFF';
+        }
+        return mode;
+    }
+
+    /**
+     * v1.5.0: the mode for the "Create order" button (1.5.1: from ORDER_MODE). Any doubt → OFF.
      * @returns {{ mode: string, allowed: boolean }}
      */
     function createOrderAccess() {
-        var raw = '';
-        try {
-            raw = runtime.getCurrentScript().getParameter({ name: CO_MODE_PARAM });
-        } catch (e) {
-            log.debug('OpportunityUE.CreateOrder', 'Mode parameter could not be read (' + e.message + '); OFF');
-            return { mode: 'OFF', allowed: false };
-        }
-        var v = String(raw === null || raw === undefined ? '' : raw).trim().toUpperCase();
+        var v = orderMode();
         if (v === 'ALL') return { mode: v, allowed: true };
         if (v === 'ADMIN') {
             var role = '';
             try { role = String(runtime.getCurrentUser().roleId || ''); } catch (e) { role = ''; }
             return { mode: v, allowed: role === ADMIN_ROLE_ID };
         }
-        if (v !== '' && v !== 'OFF') log.debug('OpportunityUE.CreateOrder', 'Unknown mode "' + v.substring(0, 40) + '"; OFF');
         return { mode: 'OFF', allowed: false };
     }
 

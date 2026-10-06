@@ -11,27 +11,37 @@
  *              Creates one Sales Order and one order log per ticked quote (nuheat_order_lib.convertQuote),
  *              sends the confirmation only when switched on, writes the Opportunity LAST, and returns to
  *              the Opportunity with the result banner (nuheat_opportunity_ue.js, nsqs=ord).
- * @version     1.0.0
+ * @version     1.1.0
  * @author      Nu-Heat Development
  *
  * Script ID:      customscript_nuheat_create_order_sl
  * Deployment ID:  customdeploy_nuheat_create_order_sl
  *
- * ⚠️ DEPLOYMENT: nuheat_opp_update_lib.js and nuheat_order_lib.js must be uploaded to
- *    SuiteScripts/NuHeat/2026 Quote/ BEFORE this script, or it fails at load time. Create every
- *    parameter below first; custscript_nuheat_co_mode empty = OFF (the page refuses).
+ * ⚠️ DEPLOYMENT: nuheat_opp_update_lib.js and nuheat_order_lib.js (1.1.0) must be uploaded to
+ *    SuiteScripts/NuHeat/2026 Quote/ BEFORE this script, or it fails at load time. NO script parameters:
+ *    every setting is a row of the customer dashboard's settings record (1.1.0). ORDER_MODE missing = OFF.
  *
- * SCRIPT PARAMETERS (on this deployment; empty means the right-hand column):
- *   custscript_nuheat_co_mode               OFF / ADMIN / ALL   → OFF: the page refuses (the button has its own twin)
- *   custscript_nuheat_co_so_form            id                  → refuse to run
- *   custscript_nuheat_co_record_status      id                  → refuse to run
- *   custscript_nuheat_co_substatus          id (default)        → the current sub-status is pre-selected
- *   custscript_nuheat_co_substatus_options  idlist              → every option of the field
- *   custscript_nuheat_co_opp_status         id                  → the status is not written
- *   custscript_nuheat_co_projtype_map       JSON {qt: pt}       → no inference; the rep must choose
- *   custscript_nuheat_co_projtype_mixed     id                  → no "mixed" inference
- *   custscript_nuheat_co_prepay_terms       idlist              → no deposit is shown anywhere
- *   custscript_nuheat_co_parent_opp_field   field ID            → the order log's parent opportunity = this one
+ * SETTINGS (customrecord_cdb_setting rows: Name = the key, custrecord_cdb_setting_value = the value;
+ * empty, missing, duplicate or invalid means the right-hand column):
+ *   ORDER_MODE               OFF / ADMIN / ALL   → OFF: the page refuses, and the Opportunity UE shows no button
+ *   ORDER_SO_FORM            id                  → refuse to run, naming the key
+ *   ORDER_RECORD_STATUS      id                  → refuse to run, naming the key
+ *   NEEDINFO_SUBSTATUS       idlist (dashboard)  → the FIRST id is the default sub-status; else the current one
+ *   ORDER_SUBSTATUS_OPTIONS  idlist              → every option of the field
+ *   ORDER_OPP_STATUS         id                  → the status is not written
+ *   ORDER_PROJTYPE_MAP       JSON {qt: pt}       → no inference; the rep must choose
+ *   ORDER_PROJTYPE_MIXED     id                  → no "mixed" inference
+ *   PREPAY_TERMS             idlist (dashboard)  → no deposit is shown anywhere
+ *   ORDER_PARENT_OPP_FIELD   field ID            → the order log's parent opportunity = this one
+ *   The settings search failing (no View permission on the record, no record type) → the page refuses:
+ *   "Create order can’t run: its settings can’t be read. Ask an administrator."
+ *
+ * CHANGELOG v1.1.0 (amendment 1 — settings from the settings record, 6 Oct 2026):
+ *   - The ten custscript_nuheat_co_* parameters are gone. readConfig() reads the rows above through
+ *     orderLib.loadOrderSettings (one search per request, ~10 units; found / missing keys logged at audit
+ *     as CreateOrderSL.Settings, never the values). Parsing and validation unchanged; only the source.
+ *   - NEEDINFO_SUBSTATUS (the dashboard's, an idlist) replaces _substatus: its first id is the default.
+ *   - The refusal for a missing form / Record Status names the settings key.
  *
  * CHANGELOG v1.0.0 (Create order, part 1 — 6 Oct 2026):
  *   - New page. The same look as Update Opportunity (lib.buildHeaderHTML, numbered cards, sticky footer,
@@ -72,7 +82,7 @@ define([
 
     'use strict';
 
-    var SCRIPT_VERSION = '1.0.0';
+    var SCRIPT_VERSION = '1.1.0';
 
     /** Page rules for the shared update fields: Next contact must end up set (D3, as Update Opportunity). */
     var RULES = { required: ['next_contact'], logKey: 'CreateOrderSL.OppUpdate' };
@@ -91,18 +101,23 @@ define([
         auth:     'customlist_order_auth'
     };
 
-    var P = {
-        mode:            'custscript_nuheat_co_mode',
-        soForm:          'custscript_nuheat_co_so_form',
-        recordStatus:    'custscript_nuheat_co_record_status',
-        subStatus:       'custscript_nuheat_co_substatus',
-        subStatusOpts:   'custscript_nuheat_co_substatus_options',
-        oppStatus:       'custscript_nuheat_co_opp_status',
-        projTypeMap:     'custscript_nuheat_co_projtype_map',
-        projTypeMixed:   'custscript_nuheat_co_projtype_mixed',
-        prepayTerms:     'custscript_nuheat_co_prepay_terms',
-        parentOppField:  'custscript_nuheat_co_parent_opp_field'
+    /**
+     * 1.1.0: the settings rows (customrecord_cdb_setting, Name = the key) — no script parameters.
+     * NEEDINFO_SUBSTATUS and PREPAY_TERMS are the dashboard's own keys, shared.
+     */
+    var S = {
+        mode:            'ORDER_MODE',
+        soForm:          'ORDER_SO_FORM',
+        recordStatus:    'ORDER_RECORD_STATUS',
+        subStatus:       'NEEDINFO_SUBSTATUS',
+        subStatusOpts:   'ORDER_SUBSTATUS_OPTIONS',
+        oppStatus:       'ORDER_OPP_STATUS',
+        projTypeMap:     'ORDER_PROJTYPE_MAP',
+        projTypeMixed:   'ORDER_PROJTYPE_MIXED',
+        prepayTerms:     'PREPAY_TERMS',
+        parentOppField:  'ORDER_PARENT_OPP_FIELD'
     };
+    var SETTING_KEYS = Object.keys(S).map(function (k) { return S[k]; });
 
     var ADMIN_ROLE_ID = 'administrator';   // the standard Administrator role's script ID (roleId)
 
@@ -131,7 +146,8 @@ define([
         pageNoteOtherEnd:   ', with their contact details. Replies go to them.',
         peCardEmail:  'design@nu-heat.co.uk',   // Update Opportunity's rule for the project engineer's card
         modeOff:      'Create order is switched off.',
-        modeAdmin:    'Create order is only available to administrators at the moment.'
+        modeAdmin:    'Create order is only available to administrators at the moment.',
+        noSettings:   'Create order can’t run: its settings can’t be read. Ask an administrator.'
     };
 
     // ─── Save guard (copied from Update Opportunity 1.3.3, D25 — own cache) ───────
@@ -181,42 +197,37 @@ define([
         }
     }
 
-    // ─── Configuration (script parameters) ────────────────────────────────────────
+    // ─── Configuration (1.1.0: the customer dashboard's settings record) ─────────
 
-    function param(script, name) {
-        try {
-            var v = script.getParameter({ name: name });
-            return String(v === null || v === undefined ? '' : v).trim();
-        } catch (e) {
-            log.debug('CreateOrderSL.Config', name + ' could not be read (' + e.message + '); treated as empty');
-            return '';
-        }
+    /** The settings value for a key: trimmed, '' when missing (missing, blank, duplicate, unreadable). */
+    function setting(settings, key) {
+        return Object.prototype.hasOwnProperty.call(settings.values, key) ? String(settings.values[key]).trim() : '';
     }
 
-    /** An id parameter: digits, else '' (logged). */
-    function idParam(script, name) {
-        var v = param(script, name);
+    /** An id setting: digits, else '' (logged). */
+    function idSetting(settings, key) {
+        var v = setting(settings, key);
         if (v && !ID_RE.test(v)) {
-            log.error('CreateOrderSL.Config', name + ' = "' + v.substring(0, 40) + '" is not an internal ID; treated as empty');
+            log.error('CreateOrderSL.Config', key + ' = "' + v.substring(0, 40) + '" is not an internal ID; treated as empty');
             return '';
         }
         return v;
     }
 
-    /** An idlist parameter: comma-separated ids, de-duplicated; anything else dropped (logged). */
-    function idListParam(script, name) {
+    /** An idlist setting: comma-separated ids, de-duplicated; anything else dropped (logged). */
+    function idListSetting(settings, key) {
         var out = [];
-        param(script, name).split(/[,\s]+/).forEach(function (v) {
+        setting(settings, key).split(/[,\s]+/).forEach(function (v) {
             if (!v) return;
-            if (!ID_RE.test(v)) { log.error('CreateOrderSL.Config', name + ': "' + v.substring(0, 20) + '" is not an internal ID; dropped'); return; }
+            if (!ID_RE.test(v)) { log.error('CreateOrderSL.Config', key + ': "' + v.substring(0, 20) + '" is not an internal ID; dropped'); return; }
             if (out.indexOf(v) === -1) out.push(v);
         });
         return out;
     }
 
     /** { "<quote type id>": "<project type id>" } — any bad JSON or entry → {} (no inference), logged. */
-    function mapParam(script, name) {
-        var raw = param(script, name);
+    function mapSetting(settings, key) {
+        var raw = setting(settings, key);
         if (!raw) return {};
         try {
             var m = JSON.parse(raw);
@@ -229,34 +240,37 @@ define([
             });
             return out;
         } catch (e) {
-            log.error('CreateOrderSL.Config', name + ' could not be read (' + e.message + '); no project type inference');
+            log.error('CreateOrderSL.Config', key + ' could not be read (' + e.message + '); no project type inference');
             return {};
         }
     }
 
     /**
-     * The whole configuration, once per request. errors[] (shown on the page, and the page refuses):
-     * no SO form, no Record Status. The mode: empty, unknown or unreadable → OFF.
+     * The whole configuration, once per request — ONE search of customrecord_cdb_setting
+     * (orderLib.loadOrderSettings, ~10 units). errors[] (shown on the page, and the page refuses): no
+     * ORDER_SO_FORM, no ORDER_RECORD_STATUS. unavailable: the settings search failed (the page refuses).
+     * The mode: empty, unknown, duplicate or unreadable → OFF.
      */
     function readConfig() {
-        var script = runtime.getCurrentScript();
+        var settings = orderLib.loadOrderSettings(SETTING_KEYS, 'CreateOrderSL.Settings');
         var cfg = {
             mode:            'OFF',
             allowed:         false,
-            soForm:          idParam(script, P.soForm),
-            recordStatus:    idParam(script, P.recordStatus),
-            subStatus:       idParam(script, P.subStatus),
-            subStatusOpts:   idListParam(script, P.subStatusOpts),
-            oppStatus:       idParam(script, P.oppStatus),
-            projTypeMap:     mapParam(script, P.projTypeMap),
-            projTypeMixed:   idParam(script, P.projTypeMixed),
-            prepayTerms:     idListParam(script, P.prepayTerms),
+            unavailable:     !!settings.failed,
+            soForm:          idSetting(settings, S.soForm),
+            recordStatus:    idSetting(settings, S.recordStatus),
+            subStatus:       idListSetting(settings, S.subStatus)[0] || '',   // the FIRST id of NEEDINFO_SUBSTATUS
+            subStatusOpts:   idListSetting(settings, S.subStatusOpts),
+            oppStatus:       idSetting(settings, S.oppStatus),
+            projTypeMap:     mapSetting(settings, S.projTypeMap),
+            projTypeMixed:   idSetting(settings, S.projTypeMixed),
+            prepayTerms:     idListSetting(settings, S.prepayTerms),
             parentOppField:  '',
             errors:          []
         };
-        var m = param(script, P.mode).toUpperCase();
+        var m = setting(settings, S.mode).toUpperCase();
         if (m !== '' && m !== 'OFF' && m !== 'ADMIN' && m !== 'ALL') {
-            log.debug('CreateOrderSL.Config', 'Unknown mode "' + m.substring(0, 40) + '"; OFF');
+            log.debug('CreateOrderSL.Config', 'Unknown ' + S.mode + ' "' + m.substring(0, 40) + '"; OFF');
             m = 'OFF';
         }
         cfg.mode = m || 'OFF';
@@ -266,11 +280,11 @@ define([
             try { role = String(runtime.getCurrentUser().roleId || ''); } catch (e) { role = ''; }
             cfg.allowed = role === ADMIN_ROLE_ID;
         }
-        var pf = param(script, P.parentOppField);
-        if (pf && !FIELD_RE.test(pf)) log.error('CreateOrderSL.Config', P.parentOppField + ' = "' + pf.substring(0, 60) + '" is not a field ID; treated as empty');
+        var pf = setting(settings, S.parentOppField);
+        if (pf && !FIELD_RE.test(pf)) log.error('CreateOrderSL.Config', S.parentOppField + ' = "' + pf.substring(0, 60) + '" is not a field ID; treated as empty');
         else cfg.parentOppField = pf;
-        if (!cfg.soForm) cfg.errors.push('The Sales Order form (' + P.soForm + ') is not set on this deployment.');
-        if (!cfg.recordStatus) cfg.errors.push('The Record Status for new orders (' + P.recordStatus + ') is not set on this deployment.');
+        if (!cfg.soForm) cfg.errors.push(S.soForm + ' is not set in Customer Dashboard Settings.');
+        if (!cfg.recordStatus) cfg.errors.push(S.recordStatus + ' is not set in Customer Dashboard Settings.');
         return cfg;
     }
 
@@ -281,6 +295,10 @@ define([
             ' | order lib ' + orderLib.LIB_VERSION + ' | opp lib ' + lib.LIB_VERSION);
         try {
             var cfg = readConfig();
+            if (cfg.unavailable) {   // 1.1.0: no settings, no page
+                showErrorPage(context, COPY.noSettings);
+                return;
+            }
             if (!cfg.allowed) {
                 log.audit('CreateOrderSL.Mode', 'Refused: mode ' + cfg.mode);
                 showErrorPage(context, cfg.mode === 'ADMIN' ? COPY.modeAdmin : COPY.modeOff);
@@ -334,7 +352,7 @@ define([
         cfg.subStatusOpts.forEach(function (id) {
             var o = all.filter(function (x) { return x.id === id; })[0];
             if (o) out.push(o);
-            else log.error('CreateOrderSL.Config', P.subStatusOpts + ': ' + id + ' is not a sub-status option; not offered');
+            else log.error('CreateOrderSL.Config', S.subStatusOpts + ': ' + id + ' is not a sub-status option; not offered');
         });
         return out;
     }
@@ -450,7 +468,7 @@ define([
         page.subStatusDefault = (cfg.subStatus && hasOption(page.subStatuses, cfg.subStatus)) ? cfg.subStatus
             : (hasOption(page.subStatuses, page.subStatusCur) ? page.subStatusCur : '');
         if (cfg.subStatus && !hasOption(page.subStatuses, cfg.subStatus)) {
-            log.error('CreateOrderSL.Config', P.subStatus + ' = ' + cfg.subStatus + ' is not an offered sub-status; the current value is pre-selected');
+            log.error('CreateOrderSL.Config', S.subStatus + ' (first id) = ' + cfg.subStatus + ' is not an offered sub-status; the current value is pre-selected');
         }
         page.valueProps   = fieldOptions(opp, OPP_FIELDS.valueProp);
         page.valuePropCur = currentValue(opp, OPP_FIELDS.valueProp);
@@ -970,7 +988,7 @@ define([
             if (hasOption(fieldOptions(opp, 'entitystatus'), cfg.oppStatus)) statusTo = cfg.oppStatus;
             else {
                 statusProblem = true;
-                log.error('CreateOrderSL.Config', P.oppStatus + ' = ' + cfg.oppStatus + ' is not a status option on Opportunity ' + opportunityId + '; the status will not be written');
+                log.error('CreateOrderSL.Config', S.oppStatus + ' = ' + cfg.oppStatus + ' is not a status option on Opportunity ' + opportunityId + '; the status will not be written');
             }
         }
 

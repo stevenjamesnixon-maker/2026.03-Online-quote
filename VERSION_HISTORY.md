@@ -361,6 +361,11 @@
 
 ## Create order (`nuheat_create_order_sl.js`, `nuheat_order_lib.js`) & Opportunity UE / CS
 
+### Create Order SL v1.1.0 / Order Library v1.1.0 / Opportunity UE v1.5.1 — 6 October 2026 🔶 In review (amendment 1)
+
+- Settings from `customrecord_cdb_setting` rows (`ORDER_*`, `NEEDINFO_SUBSTATUS`, `PREPAY_TERMS`); no script
+  parameters. lib: `loadOrderSettings`, `parseSettingRows`. UE: `ORDER_MODE`, cached 300 s; the button parameter removed.
+
 ### Create Order SL v1.0.0 / Order Library v1.0.0 / Opportunity UE v1.5.0 / Opportunity CS v1.3.0 — 6 October 2026 🔶 In review
 
 - NEW FILE `nuheat_order_lib.js` 1.0.0 (`LIB_VERSION`): `listOrderableQuotes`, `convertQuote`,

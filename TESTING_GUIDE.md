@@ -5,19 +5,20 @@
 
 ---
 
-## Create order, part 1 (Create Order SL 1.0.0 / order library 1.0.0 / Opportunity UE 1.5.0 / CS 1.3.0)
+## Create order, part 1 (Create Order SL 1.1.0 / order library 1.1.0 / Opportunity UE 1.5.1 / CS 1.3.0)
 
 > **Status: 🔶 not yet tested in Sandbox.** Upload `nuheat_order_lib.js`, then `nuheat_create_order_sl.js`,
-> then the CS, then the UE (DEPLOYMENT_CHECKLIST 2f-3). Set `custscript_nuheat_co_mode` and
-> `custscript_nuheat_co_btn_mode` to **ADMIN** first, then **ALL** for the NH Account Manager run (O12).
+> then the CS, then the UE (DEPLOYMENT_CHECKLIST 2f-3). **No script parameters:** add the `ORDER_*` rows to
+> Customer Dashboard Settings (`customrecord_cdb_setting`). Set `ORDER_MODE` to **ADMIN** first, then **ALL** for
+> the NH Account Manager run (O12). The button follows `ORDER_MODE` within 5 minutes (cached); the page at once.
 > Use a test opportunity whose customer and contacts are our own addresses.
 
 ### Automated (before uploading)
 
 ```bash
-node test/create-order.js            # must end "276 passed, 0 failed" (C1–C52; C52 re-runs the three suites below)
+node test/create-order.js            # must end "318 passed, 0 failed" (C1–C61; C52 re-runs the three suites below)
 node test/update-opp.js              # 684 passed — unchanged
-node test/send-quote-opp-update.js   # 400 passed — unchanged
+node test/send-quote-opp-update.js   # 400 passed — assertions unchanged (amendment 1 adds only an N/cache stub)
 node test/opp-lib-customer.js        # 72 passed — unchanged
 for f in nuheat_order_lib.js nuheat_create_order_sl.js nuheat_opportunity_ue.js nuheat_opportunity_cs.js; do node --check "$f"; done
 ```
@@ -29,19 +30,22 @@ for f in nuheat_order_lib.js nuheat_create_order_sl.js nuheat_opportunity_ue.js 
 | S1 | **What the transform carries.** `opportunity`, `custbody_quote_type`, `salesrep`, `department`, `terms`, units, deposit | One order, then read `CreateOrderSL.Convert` "carried: … \| blank: …". Blank opportunity / quote type are copied (logged "(copied)") |
 | S2 | **The transformed SO's `total` is readable before save** in standard mode | If every order fails with "total differs from the quote (unreadable vs £…)", it isn't: report it, don't work around it |
 | S3 | **Does NH Sales Order (2026) have mandatory fields** the transform doesn't fill? | The save fails with NetSuite's "Please enter value(s) for: …"; the page says "Nothing was created: <quote number>: …" |
-| S4 | **Does creating the SO change the opportunity's status by itself?** (a workflow or NetSuite's own Won-on-order) | Note the status before and after with `custscript_nuheat_co_opp_status` **empty** |
+| S4 | **Does creating the SO change the opportunity's status by itself?** (a workflow or NetSuite's own Won-on-order) | Note the status before and after with `ORDER_OPP_STATUS` **empty** |
 | S5 | `netamountnotax` and `duedate` are valid Estimate search columns | ex VAT shows on each row; an expired quote shows "Expired". If the extras search fails, `CreateOrderSL.List` logs it (rows still listed) |
 | S6 | `custbody_partner_commission` takes 5 for 5% | Enter 5 %, open the SO: it reads 5.0% (not 500% or 0.05%) |
 | S7 | `lookupFields` returns the saved SO's `total` | No "using a search" debug line under `CreateOrderSL.Convert`; if it appears, the fallback search handled it (10 units) |
 | S8 | The order log saves with its three mandatory fields and sources the rest | Open the order log: customer, revenue, margin, quote type, department filled by NetSuite |
 | S9 | `getSelectOptions` returns the sub-status and value proposition options on the Opportunity | Both selects are populated |
+| S11 | `NEEDINFO_SUBSTATUS`'s **first** id is Awaiting Design Info (the dashboard's row is shared) | The sub-status select opens on Awaiting Design Info. If it opens on another, reorder the row's ids — the dashboard reads the list as a set |
+| S12 | The settings search: `name` `contains` filters on `customrecord_cdb_setting` | `CreateOrderSL.Settings` lists every key you added as found |
 | S10 | `record.transform` accepts `customform` in `defaultValues` (the form is set first) | The SO opens on NH Sales Order (2026). If the transform throws on `customform`, report it |
 
 ### Scenarios
 
 | # | Test | Expected |
 |---|---|---|
-| O1 | Mode OFF (both parameters empty) | No Create order button; the Suitelet URL says "Create order is switched off." |
+| O1 | `ORDER_MODE` row absent, then `OFF` | No Create order button (allow 5 minutes after a change); the Suitelet URL says "Create order is switched off." |
+| O1b | Make the `ORDER_SO_FORM` row inactive | The page says "Create order can’t run: ORDER_SO_FORM is not set in Customer Dashboard Settings." |
 | O2 | ADMIN as Administrator / as a rep | Button and page for the Administrator only |
 | O3 | Opportunity with 3 open quotes (one past its expiry) and one already converted | 3 rows, newest first; the expired one tagged **Expired**; the converted one absent |
 | O4 | Up-front customer (terms 9) vs a trade customer | Deposit on the rows and in the email for the first; none anywhere for the second |
@@ -52,7 +56,7 @@ for f in nuheat_order_lib.js nuheat_create_order_sl.js nuheat_opportunity_ue.js 
 | O9 | Units 0 / commission 150 % / no value proposition | The button stays disabled with the reason; forced through, the page re-renders "Not created." with everything kept |
 | O10 | Convert a quote, then open Create order in a second tab opened earlier and submit that quote | Refused: not open / "already converted to SO…"; nothing created → no email, no opportunity change |
 | O11 | Make one quote's SO fail (e.g. a mandatory field blank on the form) with two ticked | The other SO and its log are created; amber banner "Not created: <quote number>"; the email lists only the created order |
-| O12 | **As NH Account Manager (not Administrator)**: O6 again | Lists populated, SO and order log created. A Permission Violation in the log → DEPLOYMENT_CHECKLIST › Roles and permissions |
+| O12 | **As NH Account Manager (not Administrator)**: O6 again | The button shows, lists populated, SO and order log created. No button and "its settings can’t be read" = the role lacks **View** on Customer Dashboard Settings (`ORDER_SETTINGS_UNAVAILABLE` in the log). Any other Permission Violation → DEPLOYMENT_CHECKLIST › Roles and permissions |
 | O13 | Send Quote and Update opportunity after the release | Both buttons present and unchanged |
 
 ### Execution Log greps
@@ -62,7 +66,9 @@ for f in nuheat_order_lib.js nuheat_create_order_sl.js nuheat_opportunity_ue.js 
 | `CreateOrderSL.Summary` | One line per submission: `created SO… from <quote> (log …)`, failures with reasons, warnings, fields, email, usage left |
 | `CreateOrderSL.Convert` | The carried / blank report per quote; `TOTAL MISMATCH` lines (both figures); order log created or failed |
 | `CreateOrderSL.Validation` | Why a submission was rejected before any write |
-| `CreateOrderSL.Config` | A malformed parameter (treated as empty) |
+| `CreateOrderSL.Settings` | Once per request: which settings keys were found and which are missing (never the values) |
+| `ORDER_SETTINGS_UNAVAILABLE` / `ORDER_SETTING_DUPLICATE` | The settings search failed / two active rows for one key (row IDs named) |
+| `CreateOrderSL.Config` | A malformed setting value (treated as empty) |
 | `CreateOrderSL.Redirect` | e.g. `{"nsq":"ok","nsqt":"…","nsqf":"sub_status","nsqs":"ord","nsqso":"…"}` |
 
 ---

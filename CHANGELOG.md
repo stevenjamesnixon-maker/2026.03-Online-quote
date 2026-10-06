@@ -1,3 +1,16 @@
+## [Create Order SL v1.1.0 / Order Library v1.1.0 / Opportunity UE v1.5.1] — 6 October 2026 (Create order amendment 1: settings from the settings record)
+**Status:** 🔶 In review — not deployed (PR #38). Opportunity CS unchanged (1.3.0).
+**Components:** `nuheat_order_lib.js`, `nuheat_create_order_sl.js`, `nuheat_opportunity_ue.js`, `test/create-order.js`, `test/send-quote-opp-update.js` (an N/cache stub only)
+
+- CHANGED: no script parameters. Every Create order setting is a row of the customer dashboard's
+  `customrecord_cdb_setting`: `ORDER_MODE`, `ORDER_SO_FORM`, `ORDER_RECORD_STATUS`, `ORDER_SUBSTATUS_OPTIONS`,
+  `ORDER_OPP_STATUS`, `ORDER_PROJTYPE_MAP`, `ORDER_PROJTYPE_MIXED`, `ORDER_PARENT_OPP_FIELD`, and the
+  dashboard's `NEEDINFO_SUBSTATUS` (first id = default sub-status) and `PREPAY_TERMS`.
+- ADDED (lib 1.1.0): `loadOrderSettings(keys, logKey)` and the pure `parseSettingRows` — the dashboard's rules.
+- CHANGED (UE 1.5.1): the button follows `ORDER_MODE` (one search, cached 300 s with N/cache);
+  `custscript_nuheat_co_btn_mode` removed. Up to 5 minutes to follow a change.
+- Every Create order role needs View on Customer Dashboard Settings.
+
 ## [Create Order SL v1.0.0 / Order Library v1.0.0 / Opportunity UE v1.5.0 / Opportunity CS v1.3.0] — 6 October 2026 (Create order, part 1)
 **Status:** 🔶 In review — not deployed. Upload order: `nuheat_opp_update_lib.js` (unchanged, already live) → `nuheat_order_lib.js` → `nuheat_create_order_sl.js` → `nuheat_opportunity_cs.js` → `nuheat_opportunity_ue.js`.
 **Components:** `nuheat_order_lib.js` (new), `nuheat_create_order_sl.js` (new), `nuheat_opportunity_ue.js`, `nuheat_opportunity_cs.js`, `test/create-order.js` (new)
