@@ -1,3 +1,20 @@
+## [Create Order SL v1.0.0 / Order Library v1.0.0 / Opportunity UE v1.5.0 / Opportunity CS v1.3.0] — 6 October 2026 (Create order, part 1)
+**Status:** 🔶 In review — not deployed. Upload order: `nuheat_opp_update_lib.js` (unchanged, already live) → `nuheat_order_lib.js` → `nuheat_create_order_sl.js` → `nuheat_opportunity_cs.js` → `nuheat_opportunity_ue.js`.
+**Components:** `nuheat_order_lib.js` (new), `nuheat_create_order_sl.js` (new), `nuheat_opportunity_ue.js`, `nuheat_opportunity_cs.js`, `test/create-order.js` (new)
+
+- ADDED: the **Create order** button on the Opportunity (VIEW only, after Update opportunity, its own
+  try/catch), behind `custscript_nuheat_co_btn_mode` on the UE deployment (empty = OFF = no button).
+- ADDED: the Create order page: 1 Quotes (open Estimates only, newest first; Expired tag; deposit for
+  up-front customers; units and partner commission % / £ per quote) → 2 Order details (project type,
+  inferred live; order authority; sales rep) → 3 Update the opportunity (delivery date, next contact,
+  build stage, **sub-status**, **value proposition**) → 4 Confirmation email (off by default).
+- ADDED: one Sales Order (form and Record Status from parameters) and one order log per ticked quote,
+  each in its own try/catch; duplicate guard on `createdfrom`; totals checked before (1p, else not saved)
+  and after save (warning only); the opportunity written last; redirect `nsqs=ord` with codes only.
+- DECISION: Create order is the **deliberate exception** to "never write the sub-status" (Steve, 6 Oct).
+- ADDED: `nuheat_order_lib.js` for reuse by the customer version (part 2).
+- UNCHANGED: `nuheat_update_opp_sl.js`, `nuheat_send_quote_sl.js`, `nuheat_opp_update_lib.js`, the quote page.
+
 ## [Update Opportunity SL v1.3.3] — 2 October 2026 (PR #37 amendment 3: the full box back; the band changes instead)
 **Status:** 🔶 In review — not deployed. Library unchanged (1.4.2).
 **Components:** `nuheat_update_opp_sl.js`, `test/update-opp.js`, `test/opp-lib-customer.js`, `docs/email-previews/`

@@ -4,15 +4,35 @@
  * @NModuleScope SameAccount
  *
  * @name        Nu-Heat Opportunity User Event
- * @description Adds the "Send Quote" and "Update opportunity" buttons to the Opportunity form (VIEW
- *              only) and, after either page saves, shows its result banner.
- * @version     1.4.0
+ * @description Adds the "Send Quote", "Update opportunity" and "Create order" buttons to the
+ *              Opportunity form (VIEW only) and, after any of those pages saves, shows its result banner.
+ * @version     1.5.0
  * @author      Nu-Heat Development
  *
  * Script ID:      customscript_nuheat_opportunity_ue
  * Deployment ID:  customdeploy_nuheat_opportunity_ue
  * Applies To:     Opportunity
  * Event Types:    Before Load
+ *
+ * ⚠️ 1.5.0: create the script parameter custscript_nuheat_co_btn_mode (Free-Form Text) on THIS
+ *    deployment first. Empty = OFF = no "Create order" button.
+ *
+ * CHANGELOG v1.5.0 (Create order SL 1.0.0 — 6 Oct 2026):
+ *   - ADDED: third VIEW-only button "Create order" (custpage_create_order → openCreateOrderSuitelet in
+ *     nuheat_opportunity_cs.js 1.3.0), after Update opportunity, in its own try/catch — a failure there
+ *     can never remove Send Quote or Update opportunity. Shown only when custscript_nuheat_co_btn_mode
+ *     (on THIS deployment — a twin of the Suitelet's custscript_nuheat_co_mode) allows the user:
+ *     OFF (default; empty, unknown or unreadable too) → no button; ADMIN → the Administrator role only;
+ *     ALL → everyone. The Suitelet applies its own parameter as well.
+ *   - ADDED: banner source nsqs = 'ord' (whitelisted). Titles "Order created" / "Orders created" /
+ *     "Orders created — but not everything saved"; nsq = 'dup' → "Already created". Codes:
+ *       - nsqso: the created Sales Orders — shown ONLY when each SO's opportunity is this one (one
+ *         search): "Created SO239950, SO239951". None verified → no banner;
+ *       - nsqqf: quotes not converted (lookupFailedQuotes, this opportunity's Estimates only);
+ *       - nsqlf / nsqtm: SOs whose order log failed / whose total after save differs from the quote
+ *         (only the SOs verified above);
+ *       - nsqe / nsqen and nsqf / nsqff as for 'upd'; two more field keys, sub_status and value_prop.
+ *   - 'send' and 'upd' banners unchanged.
  *
  * CHANGELOG v1.4.0 (Update Opportunity SL 1.1.0 — in Production, 1 Oct 2026):
  *   - ADDED (nsqs=upd only; a Send Quote banner ignores all of these):
@@ -65,7 +85,15 @@ function (log, runtime, message, search, format) {
 
     'use strict';
 
-    var SCRIPT_VERSION = '1.4.0';
+    var SCRIPT_VERSION = '1.5.0';
+
+    /**
+     * v1.5.0: who gets the "Create order" button — on THIS deployment (a twin of the Create order
+     * Suitelet's custscript_nuheat_co_mode; a User Event can't read another script's parameters).
+     * OFF (default; empty, unknown or unreadable too — fail closed), ADMIN, ALL.
+     */
+    var CO_MODE_PARAM = 'custscript_nuheat_co_btn_mode';
+    var ADMIN_ROLE_ID = 'administrator';   // the standard Administrator role's script ID (roleId)
 
     /** Banner lifetime. A refresh or a shared link after this shows nothing. */
     var BANNER_MAX_AGE_SECONDS = 300;
@@ -79,7 +107,9 @@ function (log, runtime, message, search, format) {
         next_contact: { label: 'Next contact',       fieldId: 'custbody_next_contact', kind: 'date' },
         del_date:     { label: 'Est. delivery date', fieldId: 'custbody_opp_del_date', kind: 'date' },
         build_stage:  { label: 'Build stage',        fieldId: 'custbody_build_stage',  kind: 'select' },
-        close_date:   { label: 'Expected close',     fieldId: 'expectedclosedate',     kind: 'date' }   // v1.2.1
+        close_date:   { label: 'Expected close',     fieldId: 'expectedclosedate',     kind: 'date' },  // v1.2.1
+        sub_status:   { label: 'Sub-status',         fieldId: 'custbody_opportunity_sub_status', kind: 'select' },   // v1.5.0 (Create order)
+        value_prop:   { label: 'Value proposition',  fieldId: 'custbody_value_proposition',      kind: 'select' }    // v1.5.0
     };
 
     /**
@@ -104,6 +134,7 @@ function (log, runtime, message, search, format) {
 
         addSendQuoteButton(context);
         addUpdateOppButton(context);
+        addCreateOrderButton(context);   // v1.5.0
         addSendQuoteBanner(context);
     }
 
@@ -161,6 +192,54 @@ function (log, runtime, message, search, format) {
         } catch (e) {
             log.error('OpportunityUE.beforeLoad',
                 'Error adding Update opportunity button: ' + e.message + '\n' + e.stack);
+        }
+    }
+
+    /**
+     * v1.5.0: the mode for the "Create order" button. Any doubt → OFF.
+     * @returns {{ mode: string, allowed: boolean }}
+     */
+    function createOrderAccess() {
+        var raw = '';
+        try {
+            raw = runtime.getCurrentScript().getParameter({ name: CO_MODE_PARAM });
+        } catch (e) {
+            log.debug('OpportunityUE.CreateOrder', 'Mode parameter could not be read (' + e.message + '); OFF');
+            return { mode: 'OFF', allowed: false };
+        }
+        var v = String(raw === null || raw === undefined ? '' : raw).trim().toUpperCase();
+        if (v === 'ALL') return { mode: v, allowed: true };
+        if (v === 'ADMIN') {
+            var role = '';
+            try { role = String(runtime.getCurrentUser().roleId || ''); } catch (e) { role = ''; }
+            return { mode: v, allowed: role === ADMIN_ROLE_ID };
+        }
+        if (v !== '' && v !== 'OFF') log.debug('OpportunityUE.CreateOrder', 'Unknown mode "' + v.substring(0, 40) + '"; OFF');
+        return { mode: 'OFF', allowed: false };
+    }
+
+    /**
+     * v1.5.0: the "Create order" button, after Update opportunity, only when the mode allows this user.
+     * Its own try/catch: a failure here never removes the other two buttons. Never throws.
+     */
+    function addCreateOrderButton(context) {
+        try {
+            if (!createOrderAccess().allowed) return;
+            var form = context.form;
+            try {
+                form.removeButton({ id: 'custpage_create_order' });
+            } catch (e) {
+                // Button doesn't exist yet — expected
+            }
+            form.addButton({
+                id: 'custpage_create_order',
+                label: 'Create order',
+                functionName: 'openCreateOrderSuitelet'
+            });
+            form.clientScriptModulePath = './nuheat_opportunity_cs.js';
+        } catch (e) {
+            log.error('OpportunityUE.beforeLoad',
+                'Error adding Create order button: ' + e.message + '\n' + e.stack);
         }
     }
 
@@ -296,6 +375,30 @@ function (log, runtime, message, search, format) {
     }
 
     /**
+     * v1.5.0: Sales Order IDs → { id: tranid }, ONLY for Sales Orders whose opportunity is this one.
+     * Anything else (not numeric, another opportunity's order, not a Sales Order) is dropped. One search.
+     */
+    function lookupCreatedOrders(opportunityId, ids) {
+        var out = {};
+        if (!ids.length || !opportunityId) return out;
+        search.create({
+            type: search.Type.SALES_ORDER,
+            filters: [
+                ['internalid', 'anyof', ids],
+                'AND',
+                ['opportunity', 'anyof', opportunityId],
+                'AND',
+                ['mainline', 'is', 'T']
+            ],
+            columns: ['internalid', 'tranid']
+        }).run().getRange({ start: 0, end: 50 }).forEach(function (r) {
+            var t = r.getValue({ name: 'tranid' });
+            if (t) out[String(r.getValue({ name: 'internalid' }))] = t;
+        });
+        return out;
+    }
+
+    /**
      * Shows the Send Quote result banner when the page was reached by the Suitelet's redirect.
      * Never throws.
      */
@@ -316,16 +419,18 @@ function (log, runtime, message, search, format) {
                 return;
             }
 
-            // v1.3.0: which page sent us here. Whitelisted; missing or unknown → 'send'.
-            var source = p.nsqs === 'upd' ? 'upd' : 'send';
+            // v1.3.0: which page sent us here. Whitelisted; missing or unknown → 'send'. v1.5.0: + 'ord'.
+            var source = p.nsqs === 'upd' ? 'upd' : (p.nsqs === 'ord' ? 'ord' : 'send');
 
             // v1.4.0: a resubmitted Update Opportunity page saved nothing (nsq=dup). Fixed words only.
+            // v1.5.0: the same for a resubmitted Create order page.
             if (status === 'dup') {
-                if (source !== 'upd') return;
+                if (source === 'send') return;
                 context.form.addPageInitMessage({
                     type:    message.Type.INFORMATION,
-                    title:   escapeHtml('Already saved'),
-                    message: escapeHtml('This update had already been saved, so nothing was repeated.')
+                    title:   escapeHtml(source === 'ord' ? 'Already created' : 'Already saved'),
+                    message: escapeHtml(source === 'ord' ? 'These orders had already been created, so nothing was repeated.'
+                        : 'This update had already been saved, so nothing was repeated.')
                 });
                 log.audit('OpportunityUE.banner', 'Opportunity ' + context.newRecord.id + ' — upd/dup');
                 return;
@@ -361,9 +466,40 @@ function (log, runtime, message, search, format) {
                 warnings.push('Forecast flag not updated on ' + failedQuotes.join(', ') + '.');
             }
 
+            // v1.5.0: Create order — the orders (verified against this opportunity), words from the records
+            var ordLines = [];
+            var ordCount = 0;
+            if (source === 'ord') {
+                var soIds = idList(p.nsqso);
+                var flagged = idList(p.nsqlf).concat(idList(p.nsqtm)).filter(function (id) { return soIds.indexOf(id) === -1; });
+                var orders = lookupCreatedOrders(rec.id, soIds.concat(flagged).slice(0, 50));
+                var createdNames = soIds.filter(function (id) { return orders[id]; }).map(function (id) { return orders[id]; });
+                if (!createdNames.length) {
+                    log.audit('OpportunityUE.banner', 'Opportunity ' + rec.id + ' — ord: no created order on this opportunity; no banner');
+                    return;
+                }
+                ordCount = createdNames.length;
+                ordLines.push('Created ' + createdNames.join(', '));
+                var notCreated = lookupFailedQuotes(rec.id, p.nsqqf);
+                if (notCreated.length) warnings.push('Not created: ' + notCreated.join(', ') + '.');
+                var logNames = idList(p.nsqlf).filter(function (id) { return orders[id]; }).map(function (id) { return orders[id]; });
+                if (logNames.length) warnings.push('Order log not created for ' + logNames.join(', ') + ' — please add it.');
+                var totalNames = idList(p.nsqtm).filter(function (id) { return orders[id]; }).map(function (id) { return orders[id]; });
+                if (totalNames.length) warnings.push('Total differs from the quote on ' + totalNames.join(', ') + ' — please check.');
+            }
+
             // v1.3.0: Update Opportunity — the call and the objections, words from the records
             var updLines = [];
             var onlyEmail = '';   // v1.4.0: 'sent' | 'fail' when the email was the only action
+            if (source === 'ord') {   // v1.5.0: the email — the same fixed words as 'upd'
+                var ordEmail = (p.nsqe === 'sent' || p.nsqe === 'fail') ? p.nsqe : '';
+                if (ordEmail === 'sent') {
+                    var ordTo = parseCount(p.nsqen);
+                    ordLines.push(ordTo ? 'Confirmation email sent to ' + ordTo + ' recipient' + (ordTo === 1 ? '' : 's') : 'Confirmation email sent');
+                } else if (ordEmail === 'fail') {
+                    warnings.push('The confirmation email was not sent.');
+                }
+            }
             if (source === 'upd') {
                 var callTitle = lookupCallTitle(rec.id, p.nsqc);
                 if (callTitle) updLines.push('Call logged: ' + callTitle);
@@ -383,7 +519,7 @@ function (log, runtime, message, search, format) {
                     onlyEmail = emailState;
                 }
             }
-            lines = updLines.concat(lines);
+            lines = ordLines.concat(updLines).concat(lines);
 
             var isWarn = status === 'warn';
             var parts = (isWarn ? warnings.concat(lines) : lines).map(escapeHtml);
@@ -402,7 +538,8 @@ function (log, runtime, message, search, format) {
 
             var TITLES = {
                 send: ['Proposal sent', 'Proposal sent — but the opportunity wasn’t fully updated'],
-                upd:  ['Opportunity updated', 'Opportunity updated — but not everything saved']
+                upd:  ['Opportunity updated', 'Opportunity updated — but not everything saved'],
+                ord:  [ordCount === 1 ? 'Order created' : 'Orders created', 'Orders created — but not everything saved']   // v1.5.0
             };
             var title = TITLES[source][isWarn ? 1 : 0];
             if (onlyEmail === 'sent') title = 'Email sent';          // v1.4.0
@@ -416,7 +553,8 @@ function (log, runtime, message, search, format) {
             log.audit('OpportunityUE.banner', 'Opportunity ' + rec.id + ' — ' + source + '/' + status +
                 ' | changed: ' + (changed.join(',') || 'none') + ' | failed fields: ' + (failed.join(',') || 'none') +
                 ' | failed quotes: ' + (failedQuotes.join(',') || 'none') +
-                (source === 'upd' ? ' | email: ' + ((p.nsqe === 'sent' || p.nsqe === 'fail') ? p.nsqe : 'none') : ''));
+                (source !== 'send' ? ' | email: ' + ((p.nsqe === 'sent' || p.nsqe === 'fail') ? p.nsqe : 'none') : '') +
+                (source === 'ord' ? ' | orders: ' + ordCount : ''));
 
         } catch (e) {
             // Fail closed: no banner, record view unaffected.

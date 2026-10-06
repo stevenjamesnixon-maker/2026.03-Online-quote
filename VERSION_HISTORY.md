@@ -359,6 +359,20 @@
 
 ---
 
+## Create order (`nuheat_create_order_sl.js`, `nuheat_order_lib.js`) & Opportunity UE / CS
+
+### Create Order SL v1.0.0 / Order Library v1.0.0 / Opportunity UE v1.5.0 / Opportunity CS v1.3.0 — 6 October 2026 🔶 In review
+
+- NEW FILE `nuheat_order_lib.js` 1.0.0 (`LIB_VERSION`): `listOrderableQuotes`, `convertQuote`,
+  `inferProjectType`, `findExistingOrders`, `orderConfirmationEmail`, `paysUpFront`, `loadListOptions`.
+- NEW FILE `nuheat_create_order_sl.js` 1.0.0 (`customscript_nuheat_create_order_sl` /
+  `customdeploy_nuheat_create_order_sl`): the reps' Create order page; ten script parameters
+  (`custscript_nuheat_co_*`), mode default OFF.
+- Opportunity UE 1.5.0: the "Create order" button (`custscript_nuheat_co_btn_mode`, default OFF) and the
+  `nsqs=ord` banner (created SOs verified against the opportunity; failed quotes; log / total warnings;
+  `dup`). Field keys `sub_status`, `value_prop`.
+- Opportunity CS 1.3.0: `openCreateOrderSuitelet()`.
+
 ## Send Quote Suitelet (`nuheat_send_quote_sl.js`) & Client Script (`nuheat_send_quote_cs.js`)
 
 ### Update Opportunity SL v1.3.3 — 2 October 2026 🔶 In review

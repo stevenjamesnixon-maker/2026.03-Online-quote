@@ -1,7 +1,69 @@
 # Testing Guide
 
-**Last Updated:** 2 October 2026
+**Last Updated:** 6 October 2026
 **Environment:** Sandbox (472052_SB1)
+
+---
+
+## Create order, part 1 (Create Order SL 1.0.0 / order library 1.0.0 / Opportunity UE 1.5.0 / CS 1.3.0)
+
+> **Status: 🔶 not yet tested in Sandbox.** Upload `nuheat_order_lib.js`, then `nuheat_create_order_sl.js`,
+> then the CS, then the UE (DEPLOYMENT_CHECKLIST 2f-3). Set `custscript_nuheat_co_mode` and
+> `custscript_nuheat_co_btn_mode` to **ADMIN** first, then **ALL** for the NH Account Manager run (O12).
+> Use a test opportunity whose customer and contacts are our own addresses.
+
+### Automated (before uploading)
+
+```bash
+node test/create-order.js            # must end "276 passed, 0 failed" (C1–C52; C52 re-runs the three suites below)
+node test/update-opp.js              # 684 passed — unchanged
+node test/send-quote-opp-update.js   # 400 passed — unchanged
+node test/opp-lib-customer.js        # 72 passed — unchanged
+for f in nuheat_order_lib.js nuheat_create_order_sl.js nuheat_opportunity_ue.js nuheat_opportunity_cs.js; do node --check "$f"; done
+```
+
+### Sandbox checks (assumptions the code could not verify — confirm each first)
+
+| # | Check | How |
+|---|---|---|
+| S1 | **What the transform carries.** `opportunity`, `custbody_quote_type`, `salesrep`, `department`, `terms`, units, deposit | One order, then read `CreateOrderSL.Convert` "carried: … \| blank: …". Blank opportunity / quote type are copied (logged "(copied)") |
+| S2 | **The transformed SO's `total` is readable before save** in standard mode | If every order fails with "total differs from the quote (unreadable vs £…)", it isn't: report it, don't work around it |
+| S3 | **Does NH Sales Order (2026) have mandatory fields** the transform doesn't fill? | The save fails with NetSuite's "Please enter value(s) for: …"; the page says "Nothing was created: <quote number>: …" |
+| S4 | **Does creating the SO change the opportunity's status by itself?** (a workflow or NetSuite's own Won-on-order) | Note the status before and after with `custscript_nuheat_co_opp_status` **empty** |
+| S5 | `netamountnotax` and `duedate` are valid Estimate search columns | ex VAT shows on each row; an expired quote shows "Expired". If the extras search fails, `CreateOrderSL.List` logs it (rows still listed) |
+| S6 | `custbody_partner_commission` takes 5 for 5% | Enter 5 %, open the SO: it reads 5.0% (not 500% or 0.05%) |
+| S7 | `lookupFields` returns the saved SO's `total` | No "using a search" debug line under `CreateOrderSL.Convert`; if it appears, the fallback search handled it (10 units) |
+| S8 | The order log saves with its three mandatory fields and sources the rest | Open the order log: customer, revenue, margin, quote type, department filled by NetSuite |
+| S9 | `getSelectOptions` returns the sub-status and value proposition options on the Opportunity | Both selects are populated |
+| S10 | `record.transform` accepts `customform` in `defaultValues` (the form is set first) | The SO opens on NH Sales Order (2026). If the transform throws on `customform`, report it |
+
+### Scenarios
+
+| # | Test | Expected |
+|---|---|---|
+| O1 | Mode OFF (both parameters empty) | No Create order button; the Suitelet URL says "Create order is switched off." |
+| O2 | ADMIN as Administrator / as a rep | Button and page for the Administrator only |
+| O3 | Opportunity with 3 open quotes (one past its expiry) and one already converted | 3 rows, newest first; the expired one tagged **Expired**; the converted one absent |
+| O4 | Up-front customer (terms 9) vs a trade customer | Deposit on the rows and in the email for the first; none anywhere for the second |
+| O5 | Tick a UFH quote, then a heat pump quote | Project type: UFH Only, then UFH & Renewables; tick an unmapped quote → blank. Choose one yourself → ticking no longer changes it |
+| O6 | One quote, units 4, commission 5 %, email off | One SO: form NH Sales Order (2026), Record Status Awaiting Design Info, the project type, 5%. One order log (SO, parent opp, 4 units, authority, rep). Opportunity: sub-status Awaiting Design Info, value proposition as chosen. Banner "Order created · Created SO…". No email |
+| O7 | Two quotes, £ commission on one, email on to yourself | Two SOs, the same project type on both; the email has one YOUR ORDER box per SO (+ Deposit due when up front); banner "Orders created … Confirmation email sent to 1 recipient" |
+| O8 | Browser Back and submit again | "Already created"; no second SO |
+| O9 | Units 0 / commission 150 % / no value proposition | The button stays disabled with the reason; forced through, the page re-renders "Not created." with everything kept |
+| O10 | Convert a quote, then open Create order in a second tab opened earlier and submit that quote | Refused: not open / "already converted to SO…"; nothing created → no email, no opportunity change |
+| O11 | Make one quote's SO fail (e.g. a mandatory field blank on the form) with two ticked | The other SO and its log are created; amber banner "Not created: <quote number>"; the email lists only the created order |
+| O12 | **As NH Account Manager (not Administrator)**: O6 again | Lists populated, SO and order log created. A Permission Violation in the log → DEPLOYMENT_CHECKLIST › Roles and permissions |
+| O13 | Send Quote and Update opportunity after the release | Both buttons present and unchanged |
+
+### Execution Log greps
+
+| Key | Expect |
+|---|---|
+| `CreateOrderSL.Summary` | One line per submission: `created SO… from <quote> (log …)`, failures with reasons, warnings, fields, email, usage left |
+| `CreateOrderSL.Convert` | The carried / blank report per quote; `TOTAL MISMATCH` lines (both figures); order log created or failed |
+| `CreateOrderSL.Validation` | Why a submission was rejected before any write |
+| `CreateOrderSL.Config` | A malformed parameter (treated as empty) |
+| `CreateOrderSL.Redirect` | e.g. `{"nsq":"ok","nsqt":"…","nsqf":"sub_status","nsqs":"ord","nsqso":"…"}` |
 
 ---
 

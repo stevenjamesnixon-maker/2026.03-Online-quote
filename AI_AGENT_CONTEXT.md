@@ -296,8 +296,10 @@ that something has regressed at source. See §6.
 | Send Quote CS | v1.4.0 — detached | `nuheat_send_quote_cs.js` | Detached, kept for reference (the Send Quote SL has its own inline script) |
 | Update Opportunity SL | 1.2.2 | `nuheat_update_opp_sl.js` | 🔶 1.2.2 in review ("Write an email" / "Request an update" with the GIVE US AN UPDATE button, behind `custscript_nuheat_updbtn_mode`, default OFF). 1.1.1 merged, not deployed (objection loop moved to the library; no behaviour change). 1.1.0 in Production (1 Oct 2026); U11–U23 passed, including amendments 1–3 |
 | Opportunity Update Library | 1.3.0 | `nuheat_opp_update_lib.js` | 🔶 1.3.0 in review (dashboard link decode, contact company — additive). 1.2.0 merged, not deployed (customer-safe functions for the customer dashboard). 1.1.0 in Production (1 Oct 2026; upload first) |
-| Opportunity UE | 1.4.0 | `nuheat_opportunity_ue.js` | ✅ In Production (1 Oct 2026) |
-| Opportunity CS | 1.2.0 | `nuheat_opportunity_cs.js` | ✅ In Production (29 Sep 2026) |
+| Opportunity UE | 1.5.0 | `nuheat_opportunity_ue.js` | 🔶 1.5.0 in review (the "Create order" button behind `custscript_nuheat_co_btn_mode`, default OFF; the `nsqs=ord` banner). 1.4.0 in Production (1 Oct 2026) |
+| Opportunity CS | 1.3.0 | `nuheat_opportunity_cs.js` | 🔶 1.3.0 in review (`openCreateOrderSuitelet`). 1.2.0 in Production (29 Sep 2026) |
+| Create Order SL | 1.0.0 | `nuheat_create_order_sl.js` | 🔶 New, in review — not deployed. Create order part 1 (the reps' page) |
+| Order Library | 1.0.0 | `nuheat_order_lib.js` | 🔶 New, in review — not deployed. Shared module (listing, `convertQuote`, inference, the confirmation email) |
 | Analytics Suitelet | v1.0.1 | `nuheat_analytics_sl.js` | ✅ Live in Production |
 | **BUS Grant Module** | **v1.0.0** | **`nuheat_bus_grant.js`** | ✅ Live in Production |
 | **VAT Rates Module** | **v1.0.0** | **`nuheat_vat_rates.js`** | ✅ Live in Production |
@@ -312,10 +314,12 @@ that something has regressed at source. See §6.
 > `SCRIPT_VERSION = '4.0.9'` (~:106) but its header comment still reads `Version: 4.0.8` (~:13).
 > The table follows `SCRIPT_VERSION`. See §6 — JSDoc `@version` drift.
 
-> ⚠️ **`nuheat_bus_grant.js`, `nuheat_vat_rates.js` and `nuheat_opp_update_lib.js` are shared custom
-> modules.** None needs a script deployment record, only a File Cabinet upload — but each must be
-> uploaded to `SuiteScripts/NuHeat/2026 Quote` **before** a consumer (Quote Suitelet, Send Quote SL,
-> Update Opportunity SL) is redeployed, or the consumer fails at load time.
+> ⚠️ **`nuheat_bus_grant.js`, `nuheat_vat_rates.js`, `nuheat_opp_update_lib.js` and (Create order)
+> `nuheat_order_lib.js` are shared custom modules.** None needs a script deployment record, only a File
+> Cabinet upload — but each must be uploaded to `SuiteScripts/NuHeat/2026 Quote` **before** a consumer
+> (Quote Suitelet, Send Quote SL, Update Opportunity SL, Create order SL) is redeployed, or the consumer
+> fails at load time. The order library itself requires the opp update library: upload the opp update
+> library, then the order library, then the Create order Suitelet.
 
 ### Current Configuration
 
@@ -471,7 +475,8 @@ Decisions — **do not reverse without asking Steve**:
 - **Redirect parameters carry codes, never text** (`FIELD_REFERENCE.md` lists them). The banner's
   words come from the record and a fixed key → label map; it expires after **300 seconds**.
 - **`custbody_opportunity_sub_status` is never written.** Some sub-status values create Design
-  Instruction rows. It is permanently out of scope for this Suitelet.
+  Instruction rows. It is permanently out of scope for this Suitelet. (**Create order is the one
+  deliberate exception** — see "Create order flow" below; Send Quote and Update Opportunity are unchanged.)
 - **The button is VIEW-only** (Opportunity UE v1.1.0) and opens the Suitelet **in the same tab**
   (Opportunity CS v1.1.0). In EDIT, a Suitelet write followed by the user's save either fails with
   "record has been changed" or silently overwrites the new values.
@@ -646,6 +651,45 @@ on the dashboard repo: no dashboard file is required and the API Secret is never
   offered is logged at debug (`UpdateOppSL.UpdateButton`).
 - Governance: the four customer columns ride on the existing customer lookup; +1 unit (contact lookup)
   only when a dashboard contact is set and the button is offered. The default page load stays 53 units.
+
+### Create order flow (Create Order SL 1.0.0, order library 1.0.0, Opportunity UE 1.5.0, CS 1.3.0)
+
+Part 1 of Create order: the reps' **Create order** button on the Opportunity (VIEW only, after Update
+opportunity, its own try/catch) opens `nuheat_create_order_sl.js` in the same tab. The page has four numbered
+cards: **1 Quotes** (one row per open Estimate, tick + units + partner commission), **2 Order details**
+(project type, order authority, the rep taking the order), **3 Update the opportunity** (delivery date, next
+contact, build stage, sub-status, value proposition) and **4 Confirmation email** (switch, off). One POST
+creates one Sales Order and one order log per ticked quote, then the email (if on), then the Opportunity
+write, and redirects back with codes (`nsqs=ord`).
+
+| # | Decision |
+|---|---|
+| CO1 | **The exception to the sub-status rule (Steve, 6 Oct 2026).** Create order writes `custbody_opportunity_sub_status` as the rep chooses it on the page, defaulting to **Awaiting Design Info** (`custscript_nuheat_co_substatus`). Moving to Awaiting Design Info creates no Design Instruction row (DSI creates rows only on Design Required / Redraw Required), and the Won workflow uses the same default. Only the offered options (`custscript_nuheat_co_substatus_options`, else every option) are accepted, checked on the server. Send Quote and Update Opportunity **still never write it**, and `OPP_UPDATE_FIELDS` in the library still doesn't contain it |
+| CO2 | **Value proposition is required** (`custbody_value_proposition`): it decides who owns the project after Won (rep or project engineer). It's pre-selected with the current value and checked against the field's options on the server |
+| CO3 | **Validate everything before writing anything.** A failure re-renders the page with every entry restored. Nothing is written and the save token isn't claimed. The ticked IDs must be open Estimates (`Estimate:A`) on this opportunity (header search); every list value must be an option read at run time; the rep must be an active sales rep. The server never trusts a posted price, total or ID. The posted `custpage_upd_fields` list is cut to the three fields on the server, so no other library field (e.g. Status) can ride along |
+| CO4 | **Order of writes:** token → duplicate guard (any SO with `createdfrom` = a ticked quote refuses that quote) → per quote in its own try/catch: lock, re-check, transform, set fields, total check, save, total check, order log → the email (only the orders created) → the Opportunity **last**. Nothing created → no email, no Opportunity write, the token is released and the page says "Nothing was created" with each reason |
+| CO5 | **Totals:** more than 1p between the transformed SO and the Estimate (or either unreadable) → **not saved**. After save, a mismatch is a warning (amber, `nsqtm`), **never deleted** |
+| CO6 | **The order log** sets only `custrecord_order_so`, `_parent_opp`, `_units`, `_auth`, `_rep`. The rest is sourced by NetSuite: **don't set it**. Log failure → the SO stands, amber "Order log not created for SOxxxx" |
+| CO7 | **The Opportunity write:** `lib.updateFields` for the three library fields, then **a second `submitFields`** for the sub-status, the value proposition (each only when changed) and `entitystatus` (only when `custscript_nuheat_co_opp_status` is set and is a status option). `lib.updateFields` takes no extra values and the brief kept the library unchanged. `enableSourcing` only when the status changes. A failure is amber; the SOs stand |
+| CO8 | **Project type:** inferred from the ticked quotes' types (`custscript_nuheat_co_projtype_map`): one mapped type → it; different types → `custscript_nuheat_co_projtype_mixed`; any unmapped → none. The page updates it live until the rep chooses; the server repeats the inference and uses the posted value only if it's a list option. **The rep's choice wins.** The same value goes on every SO in the submission |
+| CO9 | **Deposit:** shown on the page and in the email only when the customer pays up front: `orderLib.paysUpFront` = the customer dashboard's rule (prepay list empty → nobody; customer terms blank or in `custscript_nuheat_co_prepay_terms` → up front). Credit (trade) customers see none |
+| CO10 | **The email is never automatic:** off by default; From = Update Opportunity's options (default the sales rep); To = the recipients component (default Customer); an optional message. It lists only the orders created |
+| CO11 | **The mode:** `custscript_nuheat_co_mode` on the Suitelet, plus a twin `custscript_nuheat_co_btn_mode` on the **UE deployment** for the button (a User Event can't read another script's parameters). OFF / ADMIN / ALL; empty, unknown or unreadable = OFF on both. OFF → no button, and the Suitelet refuses. **Set both the same** |
+| CO12 | **No Estimate loads:** the listing is two searches (header; a fail-safe extras search for units, deposit and ex VAT that can only blank those). The re-check in `convertQuote` is one search filtered to open Estimates on this opportunity, so no status value has to be interpreted |
+
+**Order library: external consumer note.** `nuheat_order_lib.js` is written for the **customer version
+(part 2)**, which will run **as Administrator**. `convertQuote` re-checks ownership and openness itself, and
+checks the shape of every input it writes. It never trusts its caller for that. Option membership (project
+type, authority, rep) is the caller's validation; part 2 must do it too. Don't rename, move or change the
+signatures of `listOrderableQuotes`, `convertQuote`, `inferProjectType`, `orderConfirmationEmail`,
+`paysUpFront`, `loadListOptions` or `LIB_VERSION` without a matching change there. The estimate lock
+(`est_<id>`, cache `nh_order_estimate_lock`) is **PUBLIC** scope so both versions see it.
+
+> ⚠️ **Known duplication (later tidy-up).** `newSaveToken` / `claimToken` / `releaseToken` are **copied**
+> from Update Opportunity into `nuheat_create_order_sl.js` (own cache `nh_create_order_save_guard`), and so
+> are the From options (`senderOptions`) and the email's paragraph helper. This is deliberate: this PR
+> leaves `nuheat_update_opp_sl.js` and `nuheat_opp_update_lib.js` untouched so it can't affect the live
+> pages. Move them into the library in a separate change with its own tests.
 
 ### The Master Proposal never loads an Estimate
 
@@ -1431,6 +1475,14 @@ The scripts log heavily on purpose. These are the keys that answer most question
 | `UpdateOppSL.UpdateButton` | `nuheat_update_opp_sl.js` | *(1.2.0, debug)* why "Request an update" (1.2.0: the tick box) wasn't offered (no link / inactive / out of date), or a failed dashboard-contact lookup; *(1.2.1)* an unknown / unreadable mode (debug) and, at audit, a posted tick "ignored: mode OFF \| ADMIN" |
 | `UpdateOppSL.Guard` | `nuheat_update_opp_sl.js` | *(1.1.0)* a duplicate save stopped, a missing token (a 1.0 page), a token released after a call failure, or the cache being unavailable (error level) |
 | `UpdateOppSL.Redirect` | `nuheat_update_opp_sl.js` | the exact code parameters sent back to the Opportunity |
+| `CreateOrderSL.Summary` | `nuheat_create_order_sl.js` | *(1.0.0)* one line per submission: each SO created (from which quote, log ID or NO LOG), each failure with its reason, the warnings, the fields written, the email, the usage left. "nothing created" when none was |
+| `CreateOrderSL.Convert` | `nuheat_order_lib.js` (via the SL) | per quote: what the transform carried / left blank, the fields set, `TOTAL MISMATCH before save; not saved` (both figures), the SO saved, `TOTAL MISMATCH after save (SO kept)`, the order log or its failure |
+| `CreateOrderSL.Validation` | `nuheat_create_order_sl.js` | a submission rejected before any write, and why |
+| `CreateOrderSL.ProjectType` | `nuheat_create_order_sl.js` | inferred vs posted project type and the one used |
+| `CreateOrderSL.OppUpdate` | SL / library | the update fields (as `UpdateOppSL.OppUpdate`) and the second write (sub-status, value proposition, status) or its failure |
+| `CreateOrderSL.Config` | `nuheat_create_order_sl.js` | a parameter that isn't an ID / idlist / JSON map (treated as empty), an offered sub-status that isn't an option, a status parameter that isn't an option |
+| `CreateOrderSL.Mode` | `nuheat_create_order_sl.js` | a request refused by the mode |
+| `CreateOrderSL.Guard` / `.Email` / `.Redirect` / `.List` | `nuheat_create_order_sl.js` | as their Update Opportunity namesakes; `.List` = the listing searches (the extras search failing is error level) |
 | `SendQuoteSL.OppUpdate` | `nuheat_send_quote_sl.js` | GET: reported field types and any update field not shown (and why). POST: fields changed old → new, "no changes", skipped because the email failed, or the failed write (error level) |
 
 ### Starting a New Session

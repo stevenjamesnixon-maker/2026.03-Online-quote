@@ -87,6 +87,83 @@ record; unknown values are dropped.
 | `nsqof` | comma list of Objection Type IDs | *(upd)* Objections that failed to save — named from the Objection Type records; IDs that are not Objection Types are dropped |
 | `nsqe` | `sent` \| `fail` | *(upd, UE 1.4.0)* The bespoke email: "Email sent to N recipient(s)" / warning "The email was not sent." Anything else ignored. If the email was the only action, the title is "Email sent" / "Email not sent" |
 | `nsqen` | count | *(upd, UE 1.4.0)* To + CC addresses, excluding CC me (only with `nsqe=sent`) |
+| `nsqs` = `ord` | — | *(UE 1.5.0, Create order SL 1.0.0)* "Order created" / "Orders created" / "Orders created — but not everything saved"; `nsq=dup` → "Already created" |
+| `nsqso` | comma list of SO IDs | *(ord)* Orders created: "Created SO239950, SO239951", **only** SOs whose `opportunity` is this one (one search). None verified → no banner |
+| `nsqqf` | comma list of Estimate IDs | *(ord)* Quotes not converted: "Not created: EST…" (this Opportunity's Estimates only; reasons are in the log, never the URL) |
+| `nsqlf` / `nsqtm` | comma list of SO IDs | *(ord)* Order log not created / total after save differs from the quote (verified SOs only) |
+| `nsqf` / `nsqff` keys `sub_status`, `value_prop` | — | *(UE 1.5.0)* Sub-status (`custbody_opportunity_sub_status`) and Value proposition (`custbody_value_proposition`), read from the record. `nsqe` / `nsqen` with `ord` → "Confirmation email sent to N recipient(s)" / "The confirmation email was not sent." |
+
+## Create order (Create Order SL 1.0.0 / order library 1.0.0) — 6 Oct 2026
+
+### Estimate (read: two searches, no loads)
+
+| Field ID | Purpose |
+|---|---|
+| `status` (filter `Estimate:A`) | Only **open** quotes are listed and orderable. Converted quotes are no longer open |
+| `opportunity` | Must be this opportunity (listing, POST validation, and `convertQuote`'s own re-check) |
+| `tranid`, `title`, `custbody_quote_description`, `datecreated` | The row's number (links to the quote), description and date created |
+| `custbody_quote_type` | The row's quote type; the project-type inference key; copied to the SO if the transform leaves it blank |
+| `total` | Total inc VAT (NetSuite's figure); the SO's total must match it within 1p |
+| `duedate` | Before today → the **Expired** tag (still orderable) |
+| `custbody_qdt_number_of_units` | *(extras search)* Units prefill; the rep edits it; written to the order log, **not** back to the Estimate |
+| `custbody_deposit` | *(extras search)* Inc VAT; shown and emailed only for customers who pay up front, and only when > 0 |
+| `netamountnotax` | *(extras search)* Ex VAT (shown only). ⚠️ Sandbox check: the column name |
+
+### Sales Order (set by `convertQuote`)
+
+| Field ID | Value |
+|---|---|
+| `customform` | `custscript_nuheat_co_so_form` ("NH Sales Order (2026)"), set first through the transform's `defaultValues` |
+| `custbody_finance_status` (Record Status) | `custscript_nuheat_co_record_status` (Awaiting Design Info) |
+| `custbody_bund_proj_type` | The project type (list `customlist_bund_proj_type`). The same value on every SO of one submission |
+| `custbody_partner_commission` (%) **or** `custbody_partner_commission_amount` (£) | Only the chosen one; blank → neither. % 0–100, £ ≥ 0, 2 dp |
+| `opportunity`, `custbody_quote_type` | Only when the transform left them blank (copied from the Estimate) |
+
+### Order log (`customrecord_order_log`, form "NH Order Log Administration")
+
+| Field ID | Value |
+|---|---|
+| `custrecord_order_so` | The SO |
+| `custrecord_parent_opp` (mandatory) | The value of the opportunity field named by `custscript_nuheat_co_parent_opp_field`, when set and filled; else this opportunity |
+| `custrecord_order_units` (mandatory) | The units entered (whole number ≥ 1) |
+| `custrecord_order_auth` (mandatory) | List `customlist_order_auth` (Email confirmation, System order form, Deposit, Purchase Order, Online acceptance, Verbal), read at run time |
+| `custrecord_order_rep` | The sales rep taking the order (an active sales-rep employee; default the opportunity's `salesrep`) |
+| everything else (customer, revenue, margin, quote type, department…) | **Sourced by NetSuite. Never set** |
+
+### Opportunity (written last)
+
+| Field ID | Rule |
+|---|---|
+| `custbody_opp_del_date`, `custbody_next_contact`, `custbody_build_stage` | `lib.updateFields` (next contact required, D3) |
+| `custbody_opportunity_sub_status` | **Create order only** (CO1): the rep's choice (default `custscript_nuheat_co_substatus`), one of the offered options; written only when changed |
+| `custbody_value_proposition` | Required; list `customlist_value_proposition` (UFH Design / UFH Design + / HP Design); options from the field; written only when changed |
+| `entitystatus` | `custscript_nuheat_co_opp_status`, only when set (and an option); `enableSourcing` on |
+
+### Customer / Employee
+
+| Record · field | Purpose |
+|---|---|
+| Customer `terms` | Pays up front = in `custscript_nuheat_co_prepay_terms` (or blank: the dashboard's rule) |
+| Customer `email` | The default To |
+| Employee `issalesrep`, `isinactive` | The rep select (search) and the POST check (`lookupFields`) |
+
+### Script parameters
+
+| ID | Deployment | Kind | Empty means |
+|---|---|---|---|
+| `custscript_nuheat_co_mode` | Create order SL | Free-Form Text: OFF / ADMIN / ALL | OFF: the Suitelet refuses |
+| `custscript_nuheat_co_btn_mode` | **Opportunity UE** | Free-Form Text: OFF / ADMIN / ALL | OFF: no button |
+| `custscript_nuheat_co_so_form` | Create order SL | id | refuse to run (error page) |
+| `custscript_nuheat_co_record_status` | Create order SL | id | refuse to run |
+| `custscript_nuheat_co_substatus` | Create order SL | id | the current sub-status is pre-selected |
+| `custscript_nuheat_co_substatus_options` | Create order SL | idlist (comma-separated) | every option of the field |
+| `custscript_nuheat_co_opp_status` | Create order SL | id | the status isn't written |
+| `custscript_nuheat_co_projtype_map` | Create order SL | JSON `{"<quote type id>": "<project type id>"}` | no inference |
+| `custscript_nuheat_co_projtype_mixed` | Create order SL | id | no "mixed" inference |
+| `custscript_nuheat_co_prepay_terms` | Create order SL | idlist | no deposit anywhere |
+| `custscript_nuheat_co_parent_opp_field` | Create order SL | field ID | parent opportunity = this one |
+
+A malformed value (not an ID, bad JSON) is logged under `CreateOrderSL.Config` and treated as empty.
 
 ## Send Quote SL 2.2.0 — proposal email: account manager card
 

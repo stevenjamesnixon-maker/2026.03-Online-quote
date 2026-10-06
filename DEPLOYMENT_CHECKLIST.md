@@ -38,8 +38,10 @@
 | Update Opportunity SL | `nuheat_update_opp_sl.js` | 1.1.0 — ✅ in Production (1 Oct 2026) |
 | Send Quote CS | `nuheat_send_quote_cs.js` | v1.4.0 — detached, kept for reference (no upload needed) |
 | Analytics Suitelet | `nuheat_analytics_sl.js` | v1.0.1 |
-| Opportunity UE | `nuheat_opportunity_ue.js` | 1.4.0 — ✅ in Production (1 Oct 2026) |
-| Opportunity CS | `nuheat_opportunity_cs.js` | 1.2.0 — ✅ in Production (29 Sep 2026) |
+| Opportunity UE | `nuheat_opportunity_ue.js` | 1.5.0 — 🔶 in review (Create order button). 1.4.0 in Production (1 Oct 2026) |
+| Opportunity CS | `nuheat_opportunity_cs.js` | 1.3.0 — 🔶 in review. 1.2.0 in Production (29 Sep 2026) |
+| **Order Library** | `nuheat_order_lib.js` | 1.0.0 — 🔶 new, in review |
+| Create Order SL | `nuheat_create_order_sl.js` | 1.0.0 — 🔶 new, in review |
 
 > Read each version from the `SCRIPT_VERSION` / `MODULE_VERSION` constant in the file, not from the
 > JSDoc header — the two drift. `nuheat_quote_ue.js` is currently out by one patch version
@@ -122,6 +124,18 @@
 >
 > Read back every version header after upload. `nuheat_opportunity_cs.js` stays 1.2.0 (29 Sep). No new
 > script parameters or records.
+
+> **Create order 1.0.0 (6 Oct 2026) — upload in this order:**
+>
+> | # | File | Version |
+> |---|---|---|
+> | 1 | `nuheat_opp_update_lib.js` — already in place (unchanged by this release; the order library requires it) | as live |
+> | 2 | `nuheat_order_lib.js` — **before the Suitelet** | 1.0.0 |
+> | 3 | `nuheat_create_order_sl.js` | 1.0.0 |
+> | 4 | `nuheat_opportunity_cs.js` | 1.3.0 |
+> | 5 | `nuheat_opportunity_ue.js` — **last**, after its parameter exists (empty = no button) | 1.5.0 |
+>
+> Read back every version header after upload. Then create the script record and parameters (2f-3).
 
 2. Upload the scripts (all files live at the **repository root** — there is no `src/` directory):
    - **`nuheat_bus_grant.js`** ← **upload FIRST** (shared module, no script record needed)
@@ -242,6 +256,31 @@ Navigate to **Customization > Scripting > Scripts > New** for each:
 - **1.3.3 (library 1.4.2, unchanged):** the box reads `tranid`, `title` and `custbody_opp_site_adress` again
   (for its title) as well as the stage and the date — the same one lookup.
 
+#### 2f-3. Create order Suitelet (new in Create order 1.0.0)
+- **Name:** Nu-Heat Create Order
+- **Script File:** `SuiteScripts/NuHeat/2026 Quote/nuheat_create_order_sl.js`
+- **Script ID:** `customscript_nuheat_create_order_sl` · **Deployment ID:** `customdeploy_nuheat_create_order_sl`
+- **Deployment:** Released, Audience = the sales roles, **Log Level Audit**. Released is safe before go-live:
+  the mode parameter keeps it switched off.
+- **Parameters** (create them on the script record before the first upload; values on the deployment). Look up
+  each ID in the target environment; never copy Sandbox IDs to Production:
+
+| ID | Type | Suggested value |
+|---|---|---|
+| `custscript_nuheat_co_mode` | Free-Form Text | **ADMIN** for Sandbox testing; **ALL** at go-live. Empty = OFF |
+| `custscript_nuheat_co_so_form` | Free-Form Text (id) | internal ID of **NH Sales Order (2026)** (Customization › Forms › Transaction Forms). Empty → the page refuses |
+| `custscript_nuheat_co_record_status` | Free-Form Text (id) | ID of **Awaiting Design Info** in the Record Status (`custbody_finance_status`) list. Empty → refuses |
+| `custscript_nuheat_co_substatus` | Free-Form Text (id) | ID of **Awaiting Design Info** in the opportunity sub-status list |
+| `custscript_nuheat_co_substatus_options` | Free-Form Text (idlist) | the sub-statuses reps may choose, comma-separated, in display order (Steve to choose); empty = all |
+| `custscript_nuheat_co_opp_status` | Free-Form Text (id) | the Won status's ID **if** Steve decides the page sets it; else empty |
+| `custscript_nuheat_co_projtype_map` | Long Text / Free-Form Text (JSON) | `{"<UFH quote type id>":"<UFH Only id>","<heat pump quote type id>":"<Renewables Only id>","<parts quote type id>":"<Parts id>"}`, one entry per `custbody_quote_type` value |
+| `custscript_nuheat_co_projtype_mixed` | Free-Form Text (id) | ID of **UFH & Renewables** in `customlist_bund_proj_type` |
+| `custscript_nuheat_co_prepay_terms` | Free-Form Text (idlist) | `9` (the dashboard's prepay terms) |
+| `custscript_nuheat_co_parent_opp_field` | Free-Form Text (field ID) | the opportunity field holding a parent opportunity, if there is one; else empty |
+
+- **And on the Opportunity UE deployment** (`customdeploy_nuheat_opportunity_ue`): `custscript_nuheat_co_btn_mode`
+  (Free-Form Text), the button's twin of `custscript_nuheat_co_mode`. **Set both the same.** Empty = OFF = no button.
+
 #### 2g. Opportunity User Event
 - **Name:** Nu-Heat Opportunity UE
 - **Script File:** `SuiteScripts/NuHeat/2026 Quote/nuheat_opportunity_ue.js`
@@ -285,6 +324,13 @@ dropdown or list, not an error on screen — check the Execution Log for **Permi
 - **Edit on Opportunity** and **Edit on Estimate** — Estimate for the forecast flags.
 
 Verify with TESTING_GUIDE **U24** (as a non-admin sales role).
+
+**Create order (1.0.0) also needs, for every role that uses it (start with NH Account Manager):**
+- **Sales Order: Create** (Transactions), and **Estimate: View** — the transform reads the Estimate.
+- **Create on the Order Log custom record** (`customrecord_order_log`) — check its permission list.
+- **Opportunity: Edit** (already needed for Update Opportunity).
+- **Lists › Custom Lists: View** (project type, order authority) and **Lists › Employees: View** (the rep select).
+- **Test as NH Account Manager, not Administrator** (TESTING_GUIDE O12): Administrator hides every one of these.
 
 ### Step 3: Verify Folder Permissions
 
