@@ -21,6 +21,8 @@
  *   C62–C64  amendment 3: partner commission always written as £ (C22 updated: % now writes both fields)
  *   amendment 4: C41–C43b rewritten — one template select, one email per submission filed on the opportunity
  *   C65      amendment 5: the commission £ inline ("→ £64.33", % only); C41: the attachments note
+ *   C68      amendment 8: buildOrderSummary (pure; six cases node = page), the cards, the panel, the slim footer
+ *            (test/create-order-layout.js: the same page in Chromium at desktop and phone widths)
  *   C67      amendment 7: BUS eligibility select + write-back; the voucher / customer pays / deposit totals (display only)
  *   C66      amendment 6: two phases (orderLib.convertQuotes) — the stub closes the siblings on save, as Production
  *
@@ -513,6 +515,18 @@ function writesOf(kind, type) { return state.writes.filter(function (w) { return
 function logged(title, re) { return state.logs.some(function (l) { return l.title === title && re.test(l.details); }); }
 function between(s, a, b) { var i = s.indexOf(a); if (i === -1) return ''; var j = s.indexOf(b, i + a.length); return s.substring(i, j === -1 ? s.length : j); }
 
+// Amendment 8: test/create-order-layout.js asks for a rendered page (Chromium) — then nothing else runs
+if (process.env.CO_DUMP_PAGE) {
+    resetState();
+    setSetting('ORDER_BUS_AMOUNTS', '{"1":"7500","2":"9000"}'); setSetting('ORDER_DEPOSIT_PCT', '20');
+    state.estimates[0].total = 9515.31; state.estimates[0].exvat = 7929.43;
+    state.estimates[0].desc = 'Underfloor heating to the ground floor, first floor bathrooms and the garden room extension, with the manifold upgrade';
+    state.estimates[1].total = 10508.81; state.estimates[1].exvat = 10008.39; state.estimates[1].tranid = 'HP235874';
+    fs.writeFileSync(process.env.CO_DUMP_PAGE, '<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>' +
+        '<body style="margin:0;font-family:Arial,\'Liberation Sans\',sans-serif"><form id="main_form">' + runGet() + '</form></body></html>');
+    process.exit(0);
+}
+
 // ═══ Listing ═════════════════════════════════════════════════════════════════
 
 console.log('C1. Listing: open quotes on this opportunity only, newest first');
@@ -529,7 +543,8 @@ var l1 = orderLib.listOrderableQuotes('123', {});
 ok(l1.quotes[0].id === '901' && l1.quotes[0].total === 12000 && l1.quotes[0].exVat === 10000 && l1.quotes[0].quoteTypeText === 'UFH', 'row: total, ex VAT, quote type');
 ok(l1.quotes[0].description === 'UFH ground floor', 'description cleaned (entities decoded, tags stripped)');
 ok(g1.indexOf('<a href="/app/accounting/transactions/estimate.nl?id=901" target="_blank" rel="noopener">EST901</a>') !== -1, 'quote number links to the quote in a new tab');
-ok(g1.indexOf('£12,000.00') !== -1 && g1.indexOf('£10,000.00 ex VAT') !== -1, 'values inc and ex VAT');
+ok(g1.indexOf('<strong>£12,000.00</strong>') !== -1 && /data-qid="901"[^>]*data-exvat="10000"/.test(g1) && g1.indexOf('£10,000.00 ex VAT') === -1,
+    'the price inc VAT on the card; ex VAT in data- for the summary (amendment 8: off the card)');
 ok(/<div class="nsq-qmeta">UFH · 02\/10\/2026<\/div>/.test(g1), 'type · date created');
 
 console.log('C2. Listing: Expired tag when duedate is before today');
@@ -542,7 +557,7 @@ ok(l1.quotes[1].expired === true && l1.quotes[0].expired === false, 'lib: expire
 
 console.log('C3. Listing: no per-row deposit (amendment 7 — the totals work it out); up front only for prepay customers');
 ok(r901.indexOf('Deposit') === -1 && r902.indexOf('Deposit') === -1 && g1.indexOf('data-deposit=') === -1 && g1.indexOf('nsq-dep') === -1, 'no "Deposit £…" on any row, no data-deposit');
-ok(/class="nsq-qprice"><strong>£12,000\.00<\/strong><span class="nsq-qsub">£10,000\.00 ex VAT<\/span><\/div>/.test(r901), 'the row keeps its inc and ex VAT figures');
+ok(/class="nsq-qprice"><strong>£12,000\.00<\/strong><span class="nsq-qv" hidden><\/span><span class="nsq-qpays" hidden><\/span><\/div>/.test(r901), 'the card: price inc VAT, and the (hidden) voucher / customer pays slots');
 ok(/data-upfront="1"/.test(g1), 'up-front customer: data-upfront 1');
 resetState(); state.customer.terms = [{ value: '4', text: '30 days' }];
 var g3 = runGet();
@@ -565,7 +580,8 @@ ok(logged('CreateOrderSL.List', /extras .* could not be read/), '… logged at e
 resetState(); state.estimates = state.estimates.filter(function (e) { return e.opp !== '123' || e.status !== 'A'; });
 var g4b = runGet();
 ok(g4b.indexOf('No open quotes to order') !== -1, 'no open quotes → "No open quotes to order"');
-ok(/<button type="button" class="nsq-btn nsq-btn-primary" id="nsq-send" disabled>Create orders<\/button>/.test(g4b), 'Create is disabled');
+ok(/<button type="button" class="nsq-btn nsq-btn-primary nsq-ps-btn" id="nsq-send" disabled>Create orders<\/button>/.test(g4b) &&
+   /<button type="button" class="nsq-btn nsq-btn-primary" id="nsq-send-m" disabled>Create orders<\/button>/.test(g4b), 'Create is disabled (the panel’s button and the slim footer’s)');
 ok(g4b.indexOf('if (!rows().length) return "No open quotes to order.";') !== -1, 'and stays disabled (problem())');
 
 // ═══ Validation — nothing written, the token not claimed ═════════════════════════
@@ -649,9 +665,9 @@ ok(orderLib.inferProjectType([], MAP, '2') === '' && orderLib.inferProjectType([
 console.log('C19. The page carries the inference data (no data in the script)');
 resetState();
 var g19 = runGet();
-ok(/data-qid="901" data-tranid="EST901" data-total="12000" data-exvat="10000" data-hp="0" data-projtype="1"/.test(g19), 'UFH row → data-projtype 1');
-ok(/data-qid="902" data-tranid="EST902" data-total="2250" data-exvat="2142.86" data-hp="0" data-projtype="3"/.test(g19), 'HP row → 3');
-ok(/data-qid="903" data-tranid="EST903" data-total="500" data-exvat="416.67" data-hp="0" data-projtype=""/.test(g19), 'unmapped → empty');
+ok(/data-qid="901" data-tranid="EST901" data-total="12000" data-exvat="10000" data-hp="0" data-type="UFH" data-projtype="1"/.test(g19), 'UFH row → data-projtype 1');
+ok(/data-qid="902" data-tranid="EST902" data-total="2250" data-exvat="2142.86" data-hp="0" data-type="Heat Pump \(ASHP\)" data-projtype="3"/.test(g19), 'HP row → 3');
+ok(/data-qid="903" data-tranid="EST903" data-total="500" data-exvat="416.67" data-hp="0" data-type="Parts" data-projtype=""/.test(g19), 'unmapped → empty');
 ok(/id="nsq-projtype" name="custpage_projtype" class="nsq-input" data-mixed="2"/.test(g19), 'the mixed id on the select');
 var s19 = between(g19, '<script>', '</script>');
 ok(s19.indexOf('EST901') === -1 && s19.indexOf('12000') === -1 && s19.indexOf('Customer Ltd') === -1, 'no record data inside the <script>');
@@ -957,9 +973,9 @@ ok(u43b && u43b.type === 'warning' && u43b.message === 'The confirmation email w
 console.log('C43c. Live totals (display only)');
 resetState();
 var g43c = runGet();
-ok(/data-qid="901" data-tranid="EST901" data-total="12000" data-exvat="10000" data-hp="0" data-projtype="1"/.test(g43c), 'row carries total, ex VAT and the heat pump flag (amendment 7: no deposit)');
-ok(/id="nsq-root" class="nsq" data-opp-url="[^"]*" data-upfront="1"/.test(g43c) && g43c.indexOf('id="nsq-qtotal-line"') !== -1 && g43c.indexOf('id="nsq-sum-ex"') !== -1, 'the section 1 total and the footer ex VAT line');
-ok(g43c.indexOf('var deposit = root.getAttribute("data-upfront") === "1" && pct !== null ? pence(pays * pct / 100) : null;') !== -1, 'deposit only for up-front customers with a deposit % (amendment 7)');
+ok(/data-qid="901" data-tranid="EST901" data-total="12000" data-exvat="10000" data-hp="0" data-type="UFH" data-projtype="1"/.test(g43c), 'row carries total, ex VAT and the heat pump flag (amendment 7: no deposit)');
+ok(/id="nsq-root" class="nsq" data-opp-url="[^"]*" data-upfront="1"/.test(g43c) && g43c.indexOf('id="nsq-panel"') !== -1 && g43c.indexOf('id="nsq-sum-line"') !== -1, 'the summary panel and the slim footer line (amendment 8)');
+ok(g43c.indexOf('upFront: root.getAttribute("data-upfront") === "1"') !== -1, 'up front read from the page for buildOrderSummary (amendment 8)');
 resetState(); state.customer.terms = [{ value: '4', text: '30 days' }];
 var g43d = runGet();
 ok(/id="nsq-root" class="nsq" data-opp-url="[^"]*" data-upfront="0"/.test(g43d), 'account customer: data-upfront 0');
@@ -1131,7 +1147,7 @@ ok(!state.cache[uiCacheKey()], 'a failed search is not cached');
 console.log('C57. A blank value counts as missing');
 resetState(); setSetting('ORDER_PROJTYPE_MAP', '   ');
 var g57 = runGet();
-ok(/data-qid="901" data-tranid="EST901" data-total="12000" data-exvat="10000" data-hp="0" data-projtype=""/.test(g57), 'blank ORDER_PROJTYPE_MAP → no inference');
+ok(/data-qid="901" data-tranid="EST901" data-total="12000" data-exvat="10000" data-hp="0" data-type="UFH" data-projtype=""/.test(g57), 'blank ORDER_PROJTYPE_MAP → no inference');
 resetState(); setSetting('ORDER_MODE', '');
 ok(runGet().indexOf('switched off') !== -1, 'blank ORDER_MODE → OFF');
 resetState(); setSetting('ORDER_PROJTYPE_MAP', '{"5": "x"}');
@@ -1231,7 +1247,7 @@ var e64 = null; try { orderLib.commissionValues({ kind: 'pct', n: 5 }, null); } 
 ok(e64 && e64.name === 'ORDERLIB_COMMISSION', 'no base → ORDERLIB_COMMISSION');
 resetState();
 var g64 = runGet();
-ok(g64.indexOf('<span class="nsq-comm-calc" aria-live="polite"></span>') !== -1, 'each % row has the "→ £…" slot (amendment 5: inline)');
+ok(g64.indexOf('<span class="nsq-comm-calc" aria-live="polite"></span>') !== -1, 'each % row has the "= £…" slot (amendment 5 inline; amendment 8 "=")');
 
 // ═══ Amendment 5: the commission £ inline ════════════════════════════════════════
 
@@ -1254,25 +1270,25 @@ function calcRow(kind, value, exVat) {
         getAttribute: function (a) { return a === 'data-exvat' ? exVat : null; } };
 }
 function shown(r) { commCalc(r); return r.out.hidden ? '(hidden)' : r.out.textContent; }
-ok(shown(calcRow('pct', '5', '1286.61')) === '→ £64.33', '% 5 of £1,286.61 ex VAT → "→ £64.33" (the brief’s example)');
+ok(shown(calcRow('pct', '5', '1286.61')) === '= £64.33', '% 5 of £1,286.61 ex VAT → "→ £64.33" (the brief’s example)');
 ok(shown(calcRow('amt', '5', '1286.61')) === '(hidden)', '£ selected → hidden');
 var r65 = calcRow('pct', '', '10000'), seen65 = [];
 ['', '1', '12', '12.', '12.5', '0', '100'].forEach(function (v) { r65.inp.value = v; seen65.push(shown(r65)); });
-ok(seen65.join(' | ') === '→ £0.00 | → £100.00 | → £1,200.00 |  | → £1,250.00 | → £0.00 | → £10,000.00',
+ok(seen65.join(' | ') === '= £0.00 | = £100.00 | = £1,200.00 |  | = £1,250.00 | = £0.00 | = £10,000.00',
     'updates as the rep types: blank → £0.00, 1 → £100.00, 12 → £1,200.00, "12." → nothing (invalid), 12.5 → £1,250.00, 0 → £0.00, 100 → £10,000.00 (' + seen65.join(' | ') + ')');
-ok(shown(calcRow('pct', '', '')) === '→ £0.00' && shown(calcRow('pct', '0', '')) === '→ £0.00' && shown(calcRow('pct', '0.00', '2142.86')) === '→ £0.00',
+ok(shown(calcRow('pct', '', '')) === '= £0.00' && shown(calcRow('pct', '0', '')) === '= £0.00' && shown(calcRow('pct', '0.00', '2142.86')) === '= £0.00',
     'blank or 0 → "→ £0.00" (also when the row has no ex VAT)');
 ok(shown(calcRow('pct', '5', '')) === '', 'a % with no ex VAT on the row → nothing (the server refuses it, C63)');
 ok(shown(calcRow('pct', '101', '1000')) === '' && shown(calcRow('pct', 'abc', '1000')) === '' && shown(calcRow('pct', '1.234', '1000')) === '', 'over 100, not a number or 3 dp → nothing (the footer gives the reason)');
 r65 = calcRow('pct', '5', '1000'); shown(r65); r65.kind = 'amt';
 ok(shown(r65) === '(hidden)' && r65.out.textContent === '', '% → £: hidden and emptied');
 r65.kind = 'pct';
-ok(shown(r65) === '→ £50.00', '£ → % again: shown');
+ok(shown(r65) === '= £50.00', '£ → % again: shown');
 ok(g65.indexOf('each(rows(), commCalc);') !== -1 && g65.indexOf('el.addEventListener("input", update);') !== -1,
     'refreshed on every keystroke (the inputs’ "input" → update() → summary() → commCalc on every row)');
 // The page and the server agree (display only: the server still calculates it itself, order lib unchanged)
 var agree65 = [[5, 1286.61], [37, 416.67], [2.5, 10000], [12.34, 2142.86], [100, 999999.99], [0.01, 0.5]].every(function (c) {
-    return shown(calcRow('pct', String(c[0]), String(c[1]))) === '→ ' + orderLib.money(orderLib.commissionValues({ kind: 'pct', n: c[0] }, c[1]).amount);
+    return shown(calcRow('pct', String(c[0]), String(c[1]))) === '= ' + orderLib.money(orderLib.commissionValues({ kind: 'pct', n: c[0] }, c[1]).amount);
 });
 ok(agree65, 'the page’s figure = orderLib.commissionValues for 5% / 37% / 2.5% / 12.34% / 100% / 0.01%');
 resetState(); state.estimates[0].exvat = 1286.61; state.estimates[0].total = 1543.93;
@@ -1287,11 +1303,9 @@ resetState();
 var r65b = runPost(post({ custpage_q_sel: '["901","902"]', custpage_units_902: '0', custpage_comm_kind_901: 'amt', custpage_comm_901: '25', custpage_comm_kind_902: 'pct', custpage_comm_902: '3' }));
 ok(!r65b.redirect && /name="custpage_comm_901"[^>]*><span class="nsq-comm-calc" aria-live="polite" hidden><\/span>/.test(r65b.html) &&
     /name="custpage_comm_902"[^>]*><span class="nsq-comm-calc" aria-live="polite"><\/span>/.test(r65b.html), 'a page restored after a refusal: £ row hidden, % row shown');
-ok(/\.nsq-comm-calc\{flex:0 0 108px;width:108px;font-size:14px;line-height:32px;color:#5f5b66;/.test(g65) &&
-    g65.indexOf('.nsq-qrow .nsq-input{min-height:32px;height:32px;padding:4px 8px;font-size:14px;') !== -1,
-    'the figure: a fixed 108px, 14px like the units and commission inputs, the muted colour');
-ok(g65.indexOf('.nsq-comm-calc[hidden]{display:inline-block;visibility:hidden;}') !== -1, 'hidden keeps its space (the row never moves)');
-ok(g65.indexOf('grid-template-columns:24px minmax(100px,1fr) 150px 100px 340px 112px;') !== -1, 'desktop: the commission column 340px (232 + 108), fixed so the rows line up');
+ok(/\.nsq-comm-calc\{font-size:14px;color:#2b2a2e;/.test(g65) && g65.indexOf('.nsq-qrow .nsq-input{min-height:32px;height:32px;padding:4px 8px;font-size:14px;') !== -1,
+    'amendment 8: "= £…" in normal-size text (14px, the text colour), as the inputs');
+ok(g65.indexOf('.nsq-comm-calc[hidden]{display:none;}') !== -1 && g65.indexOf('108px') === -1, 'hidden for £; amendment 5’s fixed 108px column is gone (no columns to line up)');
 ok(g65.indexOf('font-size:10px') === -1 && g65.indexOf('position:absolute;right:0;top:100%') === -1, 'the small "= £…" under the field is gone');
 
 // ═══ Amendment 6: several quotes when NetSuite closes the siblings ═══════════════
@@ -1306,7 +1320,7 @@ var c66a = orderLib.convertQuotes([{ estimateId: '901', units: '4' }, { estimate
     { oppId: '123', projectType: '2', auth: '2', repId: '30', cfg: CFG });
 ok(c66a.ok && c66a.prepared === 2 && c66a.created.length === 2 && c66a.failed.length === 0 && c66a.problems.length === 0, 'convertQuotes: both converted');
 ok(['convertQuotes', 'prepareOrder', 'saveOrder', 'releaseOrder', 'convertQuote', 'findExistingOrders'].every(function (f) { return typeof orderLib[f] === 'function'; }) &&
-    orderLib.LIB_VERSION === '1.3.0', 'lib 1.3.0 exports convertQuotes, prepareOrder, saveOrder, releaseOrder (convertQuote kept)');
+    /^1\.[34]\./.test(orderLib.LIB_VERSION), 'lib 1.3.0+ exports convertQuotes, prepareOrder, saveOrder, releaseOrder (convertQuote kept)');
 
 console.log('C66b. Two quotes, the second closed by the first save → both SOs');
 resetState();
@@ -1432,50 +1446,7 @@ var g67b3 = runGet();
 ok(!/data-hp="1"/.test(g67b3) && logged('CreateOrderSL.BUS', /could not be read for types 5,6,9 \(Invalid column custrecord_qt_requires_installer_certs\); no quote counts as a heat pump quote/),
     'the search failing → no heat pump quote (no deduction), logged with the raw message');
 
-console.log('C67c. The totals (the page’s own script, on stub rows)');
-resetState(); busSettings();
-var gs67 = runGet();
-function fnSrc(name) { var m = gs67.match(new RegExp('  function ' + name + '\\([^)]*\\) \\{[\\s\\S]*?\\n  \\}\\n')); if (!m) m = gs67.match(new RegExp('  function ' + name + '\\([^)]*\\) \\{[^\\n]*\\}\\n')); return m ? m[0] : ''; }
-var src67 = ['money', 'pence', 'busOpt', 'busFigures', 'totals', 'bold', 'busVoucherText'].map(fnSrc);
-ok(src67.every(function (x) { return x; }), 'money, pence, busOpt, busFigures, totals, bold, busVoucherText found in the page script');
-function pageTotals(o) {
-    // o: { rows: [[total, exVat, hp]], voucher, short, upFront, pct }
-    var opt = { getAttribute: function (a) { return a === 'data-voucher' ? String(o.voucher || 0) : (a === 'data-short' ? (o.short || '') : null); } };
-    var sel = { options: [opt], selectedIndex: 0 };
-    var root = { getAttribute: function (a) { return a === 'data-upfront' ? (o.upFront ? '1' : '0') : (a === 'data-deposit-pct' ? (o.pct === undefined ? '20' : o.pct) : null); } };
-    var rowsStub = o.rows.map(function (r) { return { getAttribute: function (a) { return { 'data-total': String(r[0]), 'data-exvat': String(r[1]), 'data-hp': r[2] ? '1' : '0' }[a]; } }; });
-    var doc = { createTextNode: function (t) { return { text: t }; }, createElement: function () { return { set textContent(t) { this.text = '**' + t + '**'; } }; } };
-    var f = new Function('root', '$', 'tickedRows', 'document', src67.join('') + 'return { totals: totals, voucher: busVoucherText };')(root, function () { return o.noSelect ? null : sel; }, function () { return rowsStub; }, doc);
-    var t = f.totals();
-    return { line: t.line, bus: t.bus.map(function (n) { return n.text; }).join(''), ex: t.ex, note: t.note, voucher: f.voucher() };
-}
-var t67 = pageTotals({ rows: [[14293.93, 11911.61, false], [2250, 2142.86, true]], voucher: 7500, short: 'Standard', upFront: true });
-ok(t67.line === '2 orders · £16,543.93 inc VAT', 'line 1: "2 orders · £16,543.93 inc VAT"');
-ok(t67.bus === 'BUS voucher (Standard) −£7,500.00 · **Customer pays £9,043.93** · Deposit (20%) £1,808.79', 'the brief’s example: ' + t67.bus);
-ok(t67.ex === '£14,054.47 ex VAT', 'the ex VAT line is the FULL ex VAT, unaffected by the voucher');
-ok(t67.note === true && t67.voucher === 'Voucher £7,500', 'the display-only note shows; beside the select: "Voucher £7,500"');
-var t67b = pageTotals({ rows: [[2250, 2142.86, true], [3000, 2857.14, true]], voucher: 9000, short: 'Enhanced', upFront: true });
-ok(t67b.bus === 'BUS voucher (Enhanced) −£9,000.00 · **Customer pays £0.00** · Deposit (20%) £0.00', 'two heat pump quotes: ONE voucher; customer pays never below £0 (' + t67b.bus + ')');
-var t67c = pageTotals({ rows: [[12000, 10000, false]], voucher: 7500, short: 'Standard', upFront: true });
-ok(t67c.bus === 'BUS voucher: applies when a heat pump quote is ordered · Deposit (20%) £2,400.00', 'no heat pump quote ticked: no deduction, the "applies when…" line (' + t67c.bus + ')');
-var t67d = pageTotals({ rows: [[12000, 10000, false], [2250, 2142.86, true]], voucher: 7500, short: 'Standard', upFront: false });
-ok(t67d.bus === 'BUS voucher (Standard) −£7,500.00 · **Customer pays £6,750.00**', 'account customer: no deposit');
-var t67e = pageTotals({ rows: [[12000, 10000, false], [2250, 2142.86, true]], voucher: 0, upFront: true });
-ok(t67e.bus === 'Deposit (20%) £2,850.00' && t67e.note === false && t67e.voucher === 'No voucher', 'no voucher (Not set / Ineligible): no voucher line, the deposit of the full total; "No voucher"');
-var t67f = pageTotals({ rows: [[12000, 10000, false], [2250, 2142.86, true]], voucher: 7500, short: 'Standard', upFront: true, pct: '' });
-ok(t67f.bus === 'BUS voucher (Standard) −£7,500.00 · **Customer pays £6,750.00**', 'empty ORDER_DEPOSIT_PCT: no deposit line');
-var t67g = pageTotals({ rows: [[12000, 10000, false], [2250, 2142.86, true]], voucher: 0, upFront: true, pct: '', noSelect: true });
-ok(t67g.bus === '' && t67g.line === '2 orders · £14,250.00 inc VAT', 'nothing set (no select, no %): the totals as before, no extra line');
-ok(pageTotals({ rows: [[1000.03, 0, true]], voucher: 0, upFront: true, pct: '12.5' }).bus === 'Deposit (12.5%) £125.00', 'deposit rounded to 2 dp (12.5% of £1,000.03 = 125.00375 → £125.00)');
-ok(pageTotals({ rows: [], voucher: 7500, upFront: true }).bus === '', 'nothing ticked: no BUS line');
-ok(gs67.indexOf('id="nsq-sum-bus"') !== -1 && gs67.indexOf('fill($("nsq-sum-bus"), tt.bus);') !== -1 && gs67.indexOf('fill($("nsq-qtotal-bus"), tt.bus);') !== -1,
-    'the same line under the quotes and in the sticky footer, live');
-ok(gs67.indexOf('<div class="nsq-qtotal-note" id="nsq-qtotal-note" hidden>Display only. The orders keep their full value; the voucher is taken off at invoice.</div>') !== -1, 'the note, small and muted, beside the totals');
-ok(/data-upfront="1" data-deposit-pct="20"/.test(gs67), 'the deposit % on the page (ORDER_DEPOSIT_PCT)');
-resetState(); busSettings(undefined, 'twenty');
-ok(/data-deposit-pct=""/.test(runGet()) && logged('CreateOrderSL.Config', /ORDER_DEPOSIT_PCT = "twenty" is not a number from 0 to 100; no deposit is shown/), 'an invalid % → no deposit (logged)');
-resetState(); busSettings('{"1":"lots"}');
-ok(/data-voucher="0" data-short="Standard" selected/.test(runGet()) && logged('CreateOrderSL.Config', /ORDER_BUS_AMOUNTS could not be read/), 'an invalid map → no voucher anywhere (logged)');
+// C67c (amendment 7's single totals line) is replaced by C68 (amendment 8's order summary)
 
 console.log('C67d. The write-back: in the final opportunity write, only when changed');
 function busWrite(over) { return writesOf('submitFields', 'opportunity').filter(function (w) { return 'custbody_value_proposition' in w.values || 'custbody_opportunity_sub_status' in w.values || 'custbody_bus_eligibility' in w.values; })[0]; }
@@ -1523,8 +1494,8 @@ ok(!state.calls.some(function (c) { return /^transform:|^save:/.test(c) && /bus/
 console.log('C67f. CreateOrderSL.BUS: the audit line');
 resetState(); busSettings();
 runPost(post({ custpage_q_sel: '["901","902"]', custpage_units_902: '2', custpage_projtype: '2', custpage_bus_elig: '1' }));
-ok(logged('CreateOrderSL.BUS', /^Opportunity 123 — eligibility 1 \(was 1\); heat pump quote ticked: yes \(EST902\); total £14,250\.00 inc VAT; voucher £7,500\.00; customer pays £6,750\.00; deposit £1,350\.00 \(20%, up front\)\. Display only — the orders keep their full value$/),
-    'eligibility, heat pump ticked, voucher, customer pays, deposit and % — the same figures as the page');
+ok(logged('CreateOrderSL.BUS', /^Opportunity 123 — eligibility 1 \(was 1\); heat pump quote ticked: yes \(EST902\); total £14,250\.00 inc VAT; voucher £2,250\.00 against EST902 \(capped at the order value; £7,500\.00 eligible\), which pays £0\.00; customer pays £12,000\.00; deposit £2,400\.00 \(20%, up front\)\. Display only — the orders keep their full value$/),
+    'amendment 8: the voucher against the heat pump order, capped at its £2,250 — customer pays £12,000, deposit £2,400 (buildOrderSummary)');
 resetState(); busSettings(); state.customer.terms = [{ value: '4', text: '30 days' }];
 runPost(post({ custpage_bus_elig: '2' }));
 ok(logged('CreateOrderSL.BUS', /eligibility 2 \(was 1\); heat pump quote ticked: no; total £12,000\.00 inc VAT; voucher £0\.00 \(eligible, no heat pump quote\); customer pays £12,000\.00; deposit none \(20%, account customer\)/),
@@ -1532,6 +1503,110 @@ ok(logged('CreateOrderSL.BUS', /eligibility 2 \(was 1\); heat pump quote ticked:
 resetState();
 runPost(post());
 ok(logged('CreateOrderSL.BUS', /eligibility not posted \(was 1\); ORDER_BUS_AMOUNTS and ORDER_DEPOSIT_PCT not set — nothing to show$/) && !state.qtSearches, 'neither setting → one line, no extra search');
+
+// ═══ Amendment 8: the checkout layout; the BUS voucher against the heat pump order ═══
+
+var CASES = require('./order-summary-cases.js');
+console.log('C68a. buildOrderSummary (pure): the voucher against ONE heat pump order');
+ok(typeof orderLib.buildOrderSummary === 'function' && typeof orderLib.pickVoucherOrder === 'function' && orderLib.LIB_VERSION === '1.4.0', 'lib 1.4.0 exports buildOrderSummary and pickVoucherOrder');
+ok(!/N\/|record\.|search\.|log\.|cache\.|require\(|define\(/.test(orderLib.SUMMARY_SCRIPT) && orderLib.SUMMARY_SCRIPT.indexOf('function pickVoucherOrder(orders)') === 0,
+    'SUMMARY_SCRIPT is the two functions’ source: no N/ module, no record / search / log call');
+var s68 = orderLib.buildOrderSummary(CASES[0].input);
+ok(s68.voucherOrderId === '902' && s68.lines[0].voucher === 0 && s68.lines[0].pays === 9515.31 && s68.lines[1].voucher === 7500 && s68.lines[1].pays === 3008.81,
+    'against the heat pump order (HP235874 pays £3,008.81), not the total; the UFH order pays in full');
+ok(s68.totalIncVat === 20024.12 && s68.customerPays === 12524.12 && s68.customerPays === Math.round((s68.lines[0].pays + s68.lines[1].pays) * 100) / 100,
+    'overall customer pays (£12,524.12) = the sum of each order’s customer pays');
+ok(s68.totalExVat === 17937.82 && s68.vat === 2086.3, 'orders total inc VAT, ex VAT and VAT (£2,086.30)');
+ok(s68.deposit === 2504.82 && s68.balance === 10019.3 && s68.depositPct === 20, 'deposit = round(20% × £12,524.12) = £2,504.82; balance before delivery £10,019.30');
+ok(s68.showNote === true && s68.voucherPending === false && s68.voucherLabel === 'Standard', 'the "full value" note shows when a voucher applies');
+var s68b = orderLib.buildOrderSummary(CASES[1].input);
+ok(s68b.voucherOrderId === '902' && s68b.lines[0].voucher === 9000 && s68b.lines[1].voucher === 0 && s68b.voucherApplied === 9000 &&
+   s68b.lines.reduce(function (a, l) { return a + l.voucher; }, 0) === 9000, 'two heat pump quotes: against the first in page order, once');
+ok(orderLib.pickVoucherOrder(CASES[1].input.orders).id === '902' && orderLib.pickVoucherOrder([CASES[1].input.orders[1], CASES[1].input.orders[0]]).id === '905' &&
+   orderLib.pickVoucherOrder([CASES[0].input.orders[0]]) === null, 'pickVoucherOrder: the first heat pump order in the order given, else null');
+var s68c = orderLib.buildOrderSummary(CASES[2].input);
+ok(s68c.lines[1].voucher === 4200 && s68c.lines[1].capped === true && s68c.lines[1].pays === 0 && s68c.voucherCapped && s68c.voucherAmount === 7500,
+    'a £4,200 heat pump order: the voucher capped at £4,200, that order pays £0.00');
+ok(s68c.lines[0].voucher === 0 && s68c.lines[0].pays === 9515.31 && s68c.customerPays === 9515.31, 'the unused £3,300 is not carried to the UFH order');
+var s68d = orderLib.buildOrderSummary(CASES[3].input);
+ok(s68d.voucherPending === true && s68d.voucherOrderId === null && s68d.lines[0].voucher === 0 && s68d.customerPays === 9515.31 && s68d.showNote === false,
+    'no heat pump quote: voucherPending (the note), no deduction anywhere');
+var s68e = orderLib.buildOrderSummary(CASES[4].input);
+ok(s68e.deposit === null && s68e.balance === null && s68e.customerPays === 12524.12, 'account customer: no deposit, no balance');
+var s68f = orderLib.buildOrderSummary(CASES[5].input);
+ok(s68f.voucherApplied === 0 && !s68f.voucherPending && s68f.deposit === null && s68f.totalIncVat === 10015.31 && s68f.totalExVat === null && s68f.vat === null,
+    'no voucher, no %: nothing deducted, no deposit; an unknown ex VAT → no VAT figure');
+ok(orderLib.buildOrderSummary({ orders: [{ id: '1', incVat: 2000, isHeatPump: true }], voucher: { amount: 7500 }, depositPct: 20, upFront: true }).deposit === null,
+    'customer pays £0 → no deposit (shown only above £0)');
+ok(orderLib.buildOrderSummary({ orders: [{ id: '1', incVat: 1000.03 }], depositPct: 12.5, upFront: true }).deposit === 125, 'deposit rounded to 2 dp (12.5% of £1,000.03)');
+ok(orderLib.buildOrderSummary({}).count === 0 && orderLib.buildOrderSummary({}).customerPays === 0, 'nothing ticked: zeros');
+
+console.log('C68b. The page inlines the same source, and it gives identical results (six cases)');
+resetState(); busSettings();
+var g68 = runGet();
+ok(g68.indexOf(orderLib.SUMMARY_SCRIPT) !== -1, 'the page script carries SUMMARY_SCRIPT verbatim (not hand-copied)');
+var pageSrc68 = g68.substring(g68.indexOf('function pickVoucherOrder('), g68.indexOf('  var CAPPED = '));
+var pageBuild = new Function(pageSrc68 + '\nreturn buildOrderSummary;')();
+CASES.forEach(function (c, k) {
+    var a = JSON.stringify(orderLib.buildOrderSummary(c.input)), b = JSON.stringify(pageBuild(c.input));
+    ok(a === b, 'case ' + (k + 1) + ' (' + c.name + '): node and the page agree');
+});
+
+console.log('C68c. The cards: ticked = two lines; unticked = one faint line, inputs hidden; ticking expands');
+var r68t = between(g68, 'data-qid="901"', 'data-qid="902"');
+ok(/^data-qid="901"[^>]*>/.test(r68t) && g68.indexOf('<div class="nsq-qrow" data-qid="901"') !== -1 && /<div class="nsq-qin" hidden>/.test(r68t) &&
+   /id="nsq-units-901"[^>]*disabled/.test(r68t) && /id="nsq-comm-901"[^>]*disabled/.test(r68t), 'unticked on load: collapsed, inputs hidden and disabled (they never post)');
+ok(g68.indexOf('.nsq-qrow:not(.nsq-qrow-on){border-style:dashed;') !== -1 && g68.indexOf('.nsq-qrow:not(.nsq-qrow-on) .nsq-qmeta::before{content:"· ";}') !== -1,
+    'one faint dashed line: number · description · type · date, the price');
+ok(g68.indexOf('.nsq-qmain{font-size:14px;line-height:20px;display:-webkit-box;-webkit-line-clamp:2;') !== -1, 'ticked: the full description, up to 2 lines');
+var setRowSrc = g68.match(/  function setRow\(r\) \{[\s\S]*?\n  \}\n/)[0];
+var eachSrc = 'function each(l, f) { for (var i = 0; i < l.length; i++) f(l[i]); }';
+function cardStub(on) {
+    var cls = {}, qin = { hidden: !on }, inputs = [{ disabled: !on }, { disabled: !on }, { disabled: !on }, { disabled: !on }];
+    return { qin: qin, inputs: inputs, cls: cls,
+        classList: { add: function (c) { cls[c] = true; }, remove: function (c) { delete cls[c]; } },
+        querySelector: function (sel) { return sel === '.nsq-qsel' ? this.box : (sel === '.nsq-qin' ? qin : null); },
+        querySelectorAll: function () { return inputs; }, box: { checked: on } };
+}
+var setRow = new Function(eachSrc + setRowSrc + 'return setRow;')();
+var c68 = cardStub(false); c68.box.checked = true; setRow(c68);
+ok(c68.cls['nsq-qrow-on'] && c68.qin.hidden === false && c68.inputs.every(function (i) { return !i.disabled; }), 'ticking: expands (class on, inputs shown and enabled)');
+c68.box.checked = false; setRow(c68);
+ok(!c68.cls['nsq-qrow-on'] && c68.qin.hidden === true && c68.inputs.every(function (i) { return i.disabled; }), 'unticking: collapses again');
+var r68r = runPost(post({ custpage_units_901: '0' }));
+ok(/<div class="nsq-qrow nsq-qrow-on" data-qid="901"/.test(r68r.html) && /data-qid="901"[\s\S]*?<div class="nsq-qin">/.test(r68r.html), 'a ticked quote restored after a refusal comes back expanded');
+ok(/<span class="nsq-qv" hidden><\/span><span class="nsq-qpays" hidden><\/span>/.test(g68) && g68.indexOf('"BUS voucher −\\u2060" + money(l.voucher) + (l.capped ? " " + CAPPED : "")') !== -1 &&
+   g68.indexOf('var CAPPED = "(capped at the order value)";') !== -1, 'the voucher order’s card: "BUS voucher −£…" (+ "(capped at the order value)") and "Customer pays £…"');
+ok(g68.indexOf('<span class="nsq-comm-calc" aria-live="polite"></span>') !== -1 && g68.indexOf('"= " + money(') !== -1, 'line 2: "= £…" beside the commission (%)');
+
+console.log('C68d. The summary panel, the slim footer');
+ok(/<h2 class="nsq-h2"><span class="nsq-num">1<\/span>Choose quotes<\/h2><p class="nsq-help">Each ticked quote becomes its own order\.<\/p>/.test(g68), '"Choose quotes" — "Each ticked quote becomes its own order."');
+ok(/<aside class="nsq-co-side"><div class="nsq-panel" id="nsq-panel"><h2 class="nsq-ph">Order summary<\/h2>/.test(g68) &&
+   g68.indexOf('<p class="nsq-ps-pending" id="nsq-ps-pending" hidden>BUS voucher applies when a heat pump quote is ordered</p>') !== -1 &&
+   g68.indexOf('<p class="nsq-ps-note" id="nsq-ps-note" hidden>The orders keep their full value. The BUS voucher is taken off at invoice.</p>') !== -1,
+    'the panel: title, the pending note, the full-value note (both hidden until they apply)');
+ok(g68.indexOf('"Deposit due now · " + s.depositPct + "%"') !== -1 && g68.indexOf('<span>Balance before delivery</span>') !== -1 &&
+   g68.indexOf('"Orders total " + money(s.totalIncVat) + " inc VAT" + (s.vat === null ? "" : " (VAT " + money(s.vat) + ")")') !== -1, 'deposit box, balance, orders total (VAT)');
+ok((g68.match(/id="nsq-send"/g) || []).length === 1 && (g68.match(/id="nsq-reason"/g) || []).length === 1 && (g68.match(/id="nsq-sum-line"/g) || []).length === 1,
+    'one #nsq-send (in the panel), one reason, one footer line — the library’s update() contract');
+ok(g68.indexOf('"Create " + n + " order" + (n === 1 ? "" : "s")') !== -1 && g68.indexOf('return s.count ? "Customer pays " + money(s.customerPays) : "No quotes ticked";') !== -1,
+    '"Create N orders"; the slim footer: "Customer pays £x"');
+ok(g68.indexOf('@media (min-width:1001px){.nsq-footer-slim{display:none;}') !== -1 && g68.indexOf('.nsq-panel{position:sticky;top:16px;') !== -1 &&
+   g68.indexOf('@media (max-width:1000px){.nsq-co{grid-template-columns:minmax(0,1fr);grid-template-rows:none;grid-template-areas:"quotes" "side" "rest";}') !== -1,
+    'desktop: sticky panel, no footer; ≤ 1000px: the panel below the quotes, the slim footer (checked in Chromium by test/create-order-layout.js)');
+ok(g68.indexOf('nsq-qtotal') === -1 && g68.indexOf('nsq-sum-bus') === -1 && g68.indexOf('ex VAT</span>') === -1, 'amendment 7’s totals line and the card’s ex VAT are gone');
+
+console.log('C68e. The SO is unchanged by any of this (capped voucher too)');
+function soSnap68(settings, over) {
+    resetState(); settings(); state.estimates[1].total = 4200; state.estimates[1].exvat = 4000;
+    runPost(post(Object.assign({ custpage_q_sel: '["901","902"]', custpage_units_902: '1', custpage_projtype: '2' }, over)));
+    return JSON.stringify({ so: writesOf('create', 'salesorder').map(function (w) { return w.values; }), log: writesOf('create', 'customrecord_order_log').map(function (w) { return w.values; }) });
+}
+var with68 = soSnap68(function () { busSettings(); }, { custpage_bus_elig: '1' });
+ok(logged('CreateOrderSL.BUS', /voucher £4,200\.00 against EST902 \(capped at the order value; £7,500\.00 eligible\), which pays £0\.00; customer pays £12,000\.00; deposit £2,400\.00 \(20%, up front\)/),
+    'the audit line (buildOrderSummary on the server): £4,200 against EST902, capped; customer pays £12,000; deposit £2,400');
+var without68 = soSnap68(function () { busSettings('', ''); }, { custpage_bus_elig: '3' });
+ok(with68 === without68 && with68.indexOf('"total":4200') !== -1 && with68.indexOf('"total":12000') !== -1, 'SO values and order logs identical with a capped voucher and without; full totals');
 
 // ═══ Governance ══════════════════════════════════════════════════════════════════
 

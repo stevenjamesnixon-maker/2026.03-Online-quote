@@ -95,7 +95,7 @@ record; unknown values are dropped.
 | `nsqf` / `nsqff` keys `sub_status`, `value_prop` | — | *(UE 1.5.0)* Sub-status (`custbody_opportunity_sub_status`) and Value proposition (`custbody_value_proposition`), read from the record. |
 | `nsqf` / `nsqff` key `bus_elig` | — | *(UE 1.5.4)* BUS eligibility (`custbody_bus_eligibility`), read from the record |
 
-## Create order (Create Order SL 1.4.0 / order library 1.3.0) — 6 Oct 2026
+## Create order (Create Order SL 1.5.0 / order library 1.4.0) — 6 Oct 2026
 
 ### Estimate (read: two searches, no loads)
 

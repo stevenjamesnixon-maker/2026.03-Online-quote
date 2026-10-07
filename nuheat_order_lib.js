@@ -8,7 +8,7 @@
  *              transformed and total-checked BEFORE any save; then each saved → total check → order log), project-type inference and the settings record. Used by the
  *              reps' "Create order" page (nuheat_create_order_sl.js); written for reuse by the
  *              customer version (part 2), which will run as Administrator.
- * @version     1.3.0
+ * @version     1.4.0
  * @author      Nu-Heat Development
  *
  * ⚠️ DEPLOYMENT: a shared AMD module — no script record, no deployment. Upload it to
@@ -18,8 +18,10 @@
  * ⚠️ EXTERNAL CONSUMER (planned): the customer version of Create order (part 2) will require this
  *    library. Don't rename, move or change the signatures of listOrderableQuotes, convertQuotes,
  *    prepareOrder, saveOrder, releaseOrder, convertQuote, findExistingOrders, inferProjectType,
- *    paysUpFront, loadListOptions, loadOrderSettings, parseSettingRows or LIB_VERSION without a matching
- *    change there. 1.3.0: part 2 converts through convertQuotes (or prepareOrder for every quote, then
+ *    paysUpFront, loadListOptions, loadOrderSettings, parseSettingRows, pickVoucherOrder, buildOrderSummary,
+ *    SUMMARY_SCRIPT or LIB_VERSION without a matching change there. 1.4.0: part 2's Place order builds its
+ *    summary with buildOrderSummary(input) (pure, plain data in and out — see its comment) or inlines
+ *    SUMMARY_SCRIPT into its page, exactly as the reps' page does. 1.3.0: part 2 converts through convertQuotes (or prepareOrder for every quote, then
  *    saveOrder for each) — NOT convertQuote in a loop, which fails from the second quote (see 1.3.0).
  *
  * ⚠️ RECORD DEPENDENCY (1.1.0): the settings live on the customer dashboard's settings record,
@@ -27,6 +29,14 @@
  *    record dependency, not a code dependency: nothing of the dashboard is required. The rules mirror
  *    the dashboard's cdb_lib_config.js 3.x (trimmed Name, blank = missing, two active rows = that key
  *    missing, a failed search = every key missing).
+ *
+ * CHANGELOG v1.4.0 (Create order amendment 8 — the checkout layout, the BUS voucher against the heat pump order; Steve 7 Oct):
+ *   - ADDED: buildOrderSummary(input) — PURE (no N/ module, no closure): the ticked orders → per-order lines, the
+ *     voucher order and its capped amount, totals inc / ex VAT, VAT, customer pays, the deposit and the balance.
+ *     Display only: nothing it returns is ever written to a transaction.
+ *   - ADDED: pickVoucherOrder(orders) — the voucher goes against the FIRST heat pump order (page order, newest
+ *     first); capped at that order's total; the unused part is not carried.
+ *   - ADDED: SUMMARY_SCRIPT — the two functions' source (Function.prototype.toString), inlined by the page.
  *
  * CHANGELOG v1.3.0 (Create order amendment 6 — several quotes, when NetSuite closes the siblings; Steve 7 Oct):
  *   - FIXED: with two quotes ticked, the second was always refused ("is not an open quote on this opportunity"):
@@ -87,7 +97,7 @@ function (record, search, log, cache, format, lib) {
 
     'use strict';
 
-    var LIB_VERSION = '1.3.0';
+    var LIB_VERSION = '1.4.0';
 
     // ─── Account objects (script IDs only) ────────────────────────────────────────
 
@@ -264,6 +274,93 @@ function (record, search, log, cache, format, lib) {
             (failed ? ' | search FAILED' : ''));
         return out;
     }
+
+    // ─── Order summary (1.4.0) — PURE: no N/ module, no closure. The page inlines this source ───────
+
+    /**
+     * 1.4.0: which order the BUS voucher goes against — the FIRST heat pump order in the order given (the page's
+     * order: newest first, as listed). One function so the rule is easy to change (Steve, 7 Oct).
+     * @param {Array<{isHeatPump: boolean}>} orders
+     * @returns {Object|null} that order, or null when none is a heat pump order
+     */
+    function pickVoucherOrder(orders) {
+        for (var i = 0; i < (orders || []).length; i++) {
+            if (orders[i] && orders[i].isHeatPump) return orders[i];
+        }
+        return null;
+    }
+
+    /**
+     * 1.4.0: the order summary — DISPLAY ONLY (the Sales Orders keep their full value; the voucher is taken off at
+     * invoice). PURE and self-contained (only pickVoucherOrder): the reps' page inlines this exact source
+     * (SUMMARY_SCRIPT) for its live summary, the Suitelet's CreateOrderSL.BUS log calls it, and the customer
+     * Place order (part 2) will call it from the dashboard. ES5 only.
+     *
+     *   - The voucher goes against ONE order: pickVoucherOrder (the first heat pump order). Capped at that order's
+     *     total inc VAT (its customer pays never below £0); any unused part is NOT carried to another order.
+     *   - An eligibility voucher with no heat pump order → no deduction anywhere; voucherPending = true.
+     *   - Customer pays (overall) = the sum of each order's customer pays.
+     *   - Deposit = round(customer pays × depositPct / 100, 2) — up-front customers with a % only, and only when
+     *     above 0 (else null); balance = customer pays − deposit (null with no deposit).
+     *
+     * @param {Object} input
+     * @param {Array<{id, label, typeLabel, incVat, exVat, isHeatPump}>} input.orders - the ticked orders, in page order
+     * @param {{amount: number, label: string}} [input.voucher] - the eligibility's voucher (amount 0 / absent = none)
+     * @param {number|null} [input.depositPct] - 0–100, null = no deposit
+     * @param {boolean} [input.upFront] - the customer pays up front (the dashboard's terms rule)
+     * @returns {{ lines: Array<{id, label, typeLabel, incVat, exVat, voucher, capped, pays}>, count, voucherAmount,
+     *             voucherLabel, voucherOrderId, voucherApplied, voucherCapped, voucherPending, totalIncVat,
+     *             totalExVat, vat, customerPays, depositPct, deposit, balance, showNote }}
+     *          totalExVat / vat null when any order's ex VAT is unknown
+     */
+    function buildOrderSummary(input) {
+        input = input || {};
+        function n(x) { var v = typeof x === 'number' ? x : parseFloat(x); return isFinite(v) ? v : null; }
+        function pence(x) { return Math.round((x + (x < 0 ? -1e-9 : 1e-9)) * 100) / 100; }
+        var orders = (input.orders || []).map(function (o) {
+            return { id: String(o.id), label: String(o.label || ''), typeLabel: String(o.typeLabel || ''),
+                     incVat: n(o.incVat) === null ? 0 : n(o.incVat), exVat: n(o.exVat), isHeatPump: !!o.isHeatPump };
+        });
+        var v = input.voucher || {};
+        var amount = n(v.amount) !== null && n(v.amount) > 0 ? n(v.amount) : 0;
+        var target = amount > 0 ? pickVoucherOrder(orders) : null;
+        var out = {
+            lines: [], count: orders.length, voucherAmount: amount, voucherLabel: String(v.label || ''),
+            voucherOrderId: target ? target.id : null, voucherApplied: 0, voucherCapped: false,
+            voucherPending: amount > 0 && !target && orders.length > 0,
+            totalIncVat: 0, totalExVat: 0, vat: null, customerPays: 0, depositPct: null, deposit: null, balance: null, showNote: false
+        };
+        var exKnown = true;
+        orders.forEach(function (o) {
+            var line = { id: o.id, label: o.label, typeLabel: o.typeLabel, incVat: o.incVat, exVat: o.exVat, voucher: 0, capped: false, pays: o.incVat };
+            if (o === target) {
+                line.voucher = pence(Math.min(amount, Math.max(0, o.incVat)));
+                line.capped = line.voucher < amount;
+                line.pays = pence(o.incVat - line.voucher);
+                out.voucherApplied = line.voucher;
+                out.voucherCapped = line.capped;
+            }
+            out.lines.push(line);
+            out.totalIncVat += o.incVat;
+            out.customerPays += line.pays;
+            if (o.exVat === null) exKnown = false; else out.totalExVat += o.exVat;
+        });
+        out.totalIncVat = pence(out.totalIncVat);
+        out.customerPays = pence(out.customerPays);
+        out.totalExVat = exKnown ? pence(out.totalExVat) : null;
+        out.vat = exKnown ? pence(out.totalIncVat - out.totalExVat) : null;
+        var pct = n(input.depositPct);
+        out.depositPct = pct !== null && pct >= 0 && pct <= 100 ? pct : null;
+        if (input.upFront && out.depositPct !== null) {
+            var d = pence(out.customerPays * out.depositPct / 100);
+            if (d > 0) { out.deposit = d; out.balance = pence(out.customerPays - d); }
+        }
+        out.showNote = out.voucherApplied > 0;
+        return out;
+    }
+
+    /** 1.4.0: the exact source of pickVoucherOrder + buildOrderSummary, for a page's inline script. */
+    var SUMMARY_SCRIPT = pickVoucherOrder.toString() + '\n' + buildOrderSummary.toString() + '\n';
 
     // ─── Terms rule (the customer dashboard's) ────────────────────────────────────
 
@@ -919,7 +1016,10 @@ function (record, search, log, cache, format, lib) {
         prepareOrder:           prepareOrder,    // 1.3.0
         saveOrder:              saveOrder,       // 1.3.0
         releaseOrder:           releaseOrder,    // 1.3.0
-        convertQuote:           convertQuote
+        convertQuote:           convertQuote,
+        pickVoucherOrder:       pickVoucherOrder,    // 1.4.0 (pure)
+        buildOrderSummary:      buildOrderSummary,   // 1.4.0 (pure)
+        SUMMARY_SCRIPT:         SUMMARY_SCRIPT       // 1.4.0: their source, for a page's inline script
     };
 
 });

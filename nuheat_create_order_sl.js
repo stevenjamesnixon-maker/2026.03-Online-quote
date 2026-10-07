@@ -11,7 +11,7 @@
  *              Creates one Sales Order and one order log per ticked quote (nuheat_order_lib.convertQuotes, 1.3.2),
  *              sends the confirmation only when switched on, writes the Opportunity LAST, and returns to
  *              the Opportunity with the result banner (nuheat_opportunity_ue.js, nsqs=ord).
- * @version     1.4.0
+ * @version     1.5.0
  * @author      Nu-Heat Development
  *
  * Script ID:      customscript_nuheat_create_order_sl
@@ -38,6 +38,22 @@
  *   ORDER_DEPOSIT_PCT        number 0–100 1.4.0  → no deposit is shown
  *   The settings search failing (no View permission on the record, no record type) → the page refuses:
  *   "Create order can’t run: its settings can’t be read. Ask an administrator."
+ *
+ * CHANGELOG v1.5.0 (amendment 8 — the checkout layout; the BUS voucher against the heat pump order; Steve 7 Oct, option B):
+ *   - LAYOUT (desktop ≥ 1001px): [1 Choose quotes | Order summary panel, 380px, sticky], sections 2–4 under the quotes
+ *     (the panel's column runs the page's height so its button stays in view). No footer on desktop. ≤ 1000px: the
+ *     panel below the quotes; a slim sticky footer "Customer pays £x" + a button that presses the panel's.
+ *   - Cards: ticked = two lines (~96–116px): tick · number · the full description (≤ 2 lines) · meta; price inc VAT;
+ *     for the voucher order "BUS voucher −£…" (green) and "Customer pays £…"; line 2 Units · Commission [%|£] "= £…"
+ *     (replaces 1.3.1's fixed-width "→ £…"). The ex VAT moves to the summary. Unticked = one faint dashed line, its
+ *     inputs hidden and disabled; ticking expands it.
+ *   - The panel: per order (name · type, inc VAT; the voucher order's green "BUS voucher · Standard −£…" and "Customer
+ *     pays"); "Orders total £… inc VAT (VAT £…)"; Customer pays (large); "Deposit due now · 20%" (up front, > £0);
+ *     "Balance before delivery"; the full-value note (when a voucher applies); "Create N orders" + the reason.
+ *   - THE VOUCHER goes against ONE heat pump order (orderLib.pickVoucherOrder: the first, page order), capped at its
+ *     total; nothing carried. Customer pays = the sum per order; deposit = pct × that. Display only, as 1.4.0.
+ *   - ONE summary function: orderLib.buildOrderSummary (pure) — inlined into the page script from its own source
+ *     (orderLib.SUMMARY_SCRIPT) and called by the CreateOrderSL.BUS log. Amendment 7's single totals line is gone.
  *
  * CHANGELOG v1.4.0 (amendment 7 — BUS voucher in the totals (display only) and the BUS eligibility write-back, Steve 7 Oct):
  *   - BUS IS DISPLAY ONLY: the quote and the SO keep their full value; nothing BUS is written to any transaction
@@ -160,7 +176,7 @@ define([
 
     'use strict';
 
-    var SCRIPT_VERSION = '1.4.0';
+    var SCRIPT_VERSION = '1.5.0';
 
     /** Page rules for the shared update fields: Next contact must end up set (D3, as Update Opportunity). */
     var RULES = { required: ['next_contact'], logKey: 'CreateOrderSL.OppUpdate' };
@@ -254,7 +270,9 @@ define([
         noTemplates:  'No confirmation templates are set up (ORDER_EMAIL_TEMPLATES).',
         badTemplates: 'The confirmation templates could not be read.',
         attachNote:   'Attached to the confirmation email.',
-        busNote:      'Display only. The orders keep their full value; the voucher is taken off at invoice.',   // 1.4.0
+        busNote:      'The orders keep their full value. The BUS voucher is taken off at invoice.',   // 1.5.0 (1.4.0: "Display only. …")
+        busPending:   'BUS voucher applies when a heat pump quote is ordered',                       // 1.5.0
+        busCapped:    '(capped at the order value)',                                                  // 1.5.0
         tplLabel:     'Confirmation email template'
     };
 
@@ -542,24 +560,6 @@ define([
         return out;
     }
 
-    /** 1.4.0: round to pence (the page's own rounding is the same). */
-    function pence(x) { return Math.round((x + 1e-9) * 100) / 100; }
-
-    /**
-     * 1.4.0: the display-only BUS figures — the SAME rule as the page's busFigures (static script). Never written
-     * to any transaction: the orders keep their full value; the voucher is taken off at invoice.
-     *   voucher = the eligibility's amount when at least one ticked quote is a heat pump quote (once), else 0
-     *   pays    = max(0, total inc VAT − voucher)
-     *   deposit = round(pays × pct / 100, 2) — for up-front customers with a deposit % only, else null
-     */
-    function busFigures(o) {
-        var amount = Object.prototype.hasOwnProperty.call(o.amounts || {}, String(o.eligibility || '')) ? o.amounts[String(o.eligibility)] : 0;
-        var voucher = amount > 0 && o.hp ? amount : 0;
-        var pays = Math.max(0, pence((o.total || 0) - voucher));
-        var deposit = (o.upFront && o.pct !== null && o.pct !== undefined) ? pence(pays * o.pct / 100) : null;
-        return { amount: amount, voucher: voucher, pending: amount > 0 && !o.hp, pays: pays, deposit: deposit };
-    }
-
     function hasOption(options, id) {
         return options.some(function (o) { return o.id === String(id); });
     }
@@ -789,10 +789,14 @@ define([
     }
 
     /**
-     * 1.2.0: one compact row per quote (~56px): tick · number + description (one line, ellipsis, full text on
-     * hover) · type · created · Units · Commission · total (1.3.0: no template column) (ex VAT small beneath; 1.4.0:
-     * the Estimate's deposit is no longer shown on the row — the totals work it out from what the customer pays). The inputs sit inline; an unticked row greys them out (disabled) at the same height. At phone
-     * width the inputs wrap to a second line. Totals sit in data- attributes for the live totals only.
+     * 1.5.0 (amendment 8, the checkout layout): one card per quote.
+     *   Ticked (~96px): line 1 — the tick; the number (a link) · the full description (up to 2 lines); the meta line
+     *   (type · date created) beneath; on the right the price inc VAT in bold and, for the order the BUS voucher goes
+     *   against, "BUS voucher −£…" (green) and "Customer pays £…" (filled live by the page). Line 2, under the text:
+     *   Units · Commission [%|£] [ ] "= £…" (% only). The ex VAT figure is in the summary, not on the card.
+     *   Unticked: one faint line (dashed border): tick · number · description · type · date · price; its inputs are
+     *   hidden (and disabled, so they never post) until it's ticked.
+     * The figures sit in data- attributes for the live summary only — the server never reads them.
      */
     function quoteRowHTML(q, page, r) {
         var sel = (r.sel || []).indexOf(q.id) !== -1;
@@ -809,30 +813,56 @@ define([
         var h = [];
         h.push('<div class="nsq-qrow' + (sel ? ' nsq-qrow-on' : '') + '" data-qid="' + id + '" data-tranid="' + escapeHtml(name) +
             '" data-total="' + escapeHtml(q.total === null ? '' : String(q.total)) + '" data-exvat="' + escapeHtml(q.exVat === null ? '' : String(q.exVat)) +
-            '" data-hp="' + (page.hpTypes[q.quoteTypeId] ? '1' : '0') + '" data-projtype="' + escapeHtml(pt) + '">');   // 1.4.0: no per-row deposit
+            '" data-hp="' + (page.hpTypes[q.quoteTypeId] ? '1' : '0') + '" data-type="' + escapeHtml(q.quoteTypeText || '') +
+            '" data-projtype="' + escapeHtml(pt) + '">');
+        h.push('<div class="nsq-qline">');
         h.push('<label class="nsq-qtick"><input type="checkbox" class="nsq-qsel" data-qid="' + id + '"' + (sel ? ' checked' : '') +
             ' aria-label="Order ' + escapeHtml(name) + '"></label>');
         var full = name + (text ? ' · ' + text : '');
-        h.push('<div class="nsq-qmain" title="' + escapeHtml(full) + '">' +
+        h.push('<div class="nsq-qtext"><div class="nsq-qmain" title="' + escapeHtml(full) + '">' +
             (link ? '<a href="' + escapeHtml(link) + '" target="_blank" rel="noopener">' + escapeHtml(name) + '</a>' : escapeHtml(name)) +
             (q.expired ? ' <span class="nsq-tag-exp">' + escapeHtml(COPY.expired) + '</span>' : '') +
             (text ? ' · ' + escapeHtml(text) : '') + '</div>');
-        h.push('<div class="nsq-qmeta">' + [q.quoteTypeText, q.dateCreated].filter(function (x) { return x; }).map(escapeHtml).join(' · ') + '</div>');
-        h.push('<div class="nsq-qin">');
+        h.push('<div class="nsq-qmeta">' + [q.quoteTypeText, q.dateCreated].filter(function (x) { return x; }).map(escapeHtml).join(' · ') + '</div></div>');
+        h.push('<div class="nsq-qprice"><strong>' + escapeHtml(q.total === null ? '—' : orderLib.money(q.total)) + '</strong>' +
+            '<span class="nsq-qv" hidden></span><span class="nsq-qpays" hidden></span></div>');
+        h.push('</div>');   // .nsq-qline
+        h.push('<div class="nsq-qin"' + (sel ? '' : ' hidden') + '>');
         h.push('<label class="nsq-qf nsq-qf-units" for="' + uid + '"><span class="nsq-ql">Units</span>' +
             '<input type="text" inputmode="numeric" class="nsq-input nsq-units" id="' + uid + '" name="custpage_units_' + id +
-            '" maxlength="6" autocomplete="off" value="' + escapeHtml(units) + '"></label>');
-        h.push('<div class="nsq-qf nsq-qf-comm"><label class="nsq-ql" for="' + cid + '"><span class="nsq-ql-long">Commission</span><span class="nsq-ql-short">Comm.</span></label>' +
+            '" maxlength="6" autocomplete="off" value="' + escapeHtml(units) + '"' + (sel ? '' : ' disabled') + '></label>');
+        h.push('<div class="nsq-qf nsq-qf-comm"><label class="nsq-ql" for="' + cid + '">Commission</label>' +
             '<span class="nsq-comm-box"><span class="nsq-seg-row" role="radiogroup" aria-label="Commission as">' +
-            '<label class="nsq-seg"><input type="radio" class="nsq-comm-kind" name="custpage_comm_kind_' + id + '" value="pct"' + (kind === 'pct' ? ' checked' : '') + '><span>%</span></label>' +
-            '<label class="nsq-seg"><input type="radio" class="nsq-comm-kind" name="custpage_comm_kind_' + id + '" value="amt"' + (kind === 'amt' ? ' checked' : '') + '><span>£</span></label>' +
+            '<label class="nsq-seg"><input type="radio" class="nsq-comm-kind" name="custpage_comm_kind_' + id + '" value="pct"' + (kind === 'pct' ? ' checked' : '') + (sel ? '' : ' disabled') + '><span>%</span></label>' +
+            '<label class="nsq-seg"><input type="radio" class="nsq-comm-kind" name="custpage_comm_kind_' + id + '" value="amt"' + (kind === 'amt' ? ' checked' : '') + (sel ? '' : ' disabled') + '><span>£</span></label>' +
             '</span><input type="text" inputmode="decimal" class="nsq-input nsq-comm" id="' + cid + '" name="custpage_comm_' + id +
-            '" maxlength="12" autocomplete="off" value="' + escapeHtml(comm) + '"><span class="nsq-comm-calc" aria-live="polite"' + (kind === 'pct' ? '' : ' hidden') + '></span></span></div>');
-        h.push('</div>');
-        h.push('<div class="nsq-qprice"><strong>' + escapeHtml(q.total === null ? '—' : orderLib.money(q.total)) + '</strong>' +
-            (q.exVat === null ? '' : '<span class="nsq-qsub">' + escapeHtml(orderLib.money(q.exVat)) + ' ex VAT</span>') + '</div>');
+            '" maxlength="12" autocomplete="off" value="' + escapeHtml(comm) + '"' + (sel ? '' : ' disabled') + '>' +
+            '<span class="nsq-comm-calc" aria-live="polite"' + (kind === 'pct' ? '' : ' hidden') + '></span></span></div>');
+        h.push('</div>');   // .nsq-qin
         h.push('</div>');
         return h.join('');
+    }
+
+    /**
+     * 1.5.0: the Order summary panel (right column on desktop, sticky; below the quotes on a phone). Static shell —
+     * the page fills it from orderLib.buildOrderSummary (inlined). Holds the primary button (#nsq-send), its reason
+     * and the changes line the library's update() writes.
+     */
+    function summaryPanelHTML(page) {
+        return '<aside class="nsq-co-side"><div class="nsq-panel" id="nsq-panel">' +
+            '<h2 class="nsq-ph">Order summary</h2>' +
+            '<div class="nsq-ps-orders" id="nsq-ps-orders" aria-live="polite"></div>' +
+            '<p class="nsq-ps-pending" id="nsq-ps-pending" hidden>' + escapeHtml(COPY.busPending) + '</p>' +
+            '<div class="nsq-ps-total" id="nsq-ps-total"></div>' +
+            '<div class="nsq-ps-pays"><span>Customer pays</span><strong id="nsq-ps-pays">£0.00</strong></div>' +
+            '<div class="nsq-ps-dep" id="nsq-ps-dep" hidden><span id="nsq-ps-dep-label"></span><strong id="nsq-ps-dep-amt"></strong></div>' +
+            '<div class="nsq-ps-bal" id="nsq-ps-bal" hidden><span>Balance before delivery</span><span id="nsq-ps-bal-amt"></span></div>' +
+            '<p class="nsq-ps-note" id="nsq-ps-note" hidden>' + escapeHtml(COPY.busNote) + '</p>' +
+            '<button type="button" class="nsq-btn nsq-btn-primary nsq-ps-btn" id="nsq-send" disabled>Create orders</button>' +
+            '<div class="nsq-reason nsq-ps-reason" id="nsq-reason"></div>' +
+            '<div class="nsq-sum-sub nsq-ps-changes" id="nsq-sum-changes"></div>' +
+            '<a class="nsq-btn nsq-btn-link nsq-ps-cancel" href="' + escapeHtml(page.oppUrl) + '">Cancel</a>' +
+            '</div></aside>';
     }
 
     function buildPageHTML(page, restore, error) {
@@ -852,23 +882,22 @@ define([
         h.push('<input type="hidden" name="custpage_email_on" id="nsq-email-on-val" value="' + (emailOn ? 'T' : 'F') + '">');
         h.push('<input type="hidden" name="custpage_save_token" value="' + escapeHtml(page.saveToken) + '">');
 
-        // ── 1 Quotes ──
-        h.push('<section class="nsq-card"><h2 class="nsq-h2"><span class="nsq-num">1</span>Quotes</h2>');
+        // ── 1.5.0: the checkout layout — [section 1 | the summary panel] then sections 2–4 under section 1. On desktop
+        // the panel's column runs the full height (sticky), so the button stays in view; on a phone it drops below
+        // the quotes (grid areas). ──
+        h.push('<div class="nsq-co"><div class="nsq-co-quotes">');
+        h.push('<section class="nsq-card"><h2 class="nsq-h2"><span class="nsq-num">1</span>Choose quotes</h2>');
         if (page.listError) {
             h.push('<p class="nsq-help nsq-bad">The quotes could not be read. Please reload the page.</p>');
         } else if (!page.quotes.length) {
             h.push('<p class="nsq-help" id="nsq-no-quotes">' + escapeHtml(COPY.noQuotes) + '</p>');
         } else {
-            h.push('<p class="nsq-help">Tick each quote to order. One sales order is created per quote.</p>');
+            h.push('<p class="nsq-help">Each ticked quote becomes its own order.</p>');
             page.quotes.forEach(function (q) { h.push(quoteRowHTML(q, page, r)); });
-            // 1.2.0: the live total of the ticked quotes (display only — the server never reads it)
-            // 1.4.0: + the BUS voucher / customer pays / deposit line and the display-only note
-            h.push('<div class="nsq-qtotal" id="nsq-qtotal" aria-live="polite"><div class="nsq-qtotal-line" id="nsq-qtotal-line"></div>' +
-                '<div class="nsq-qtotal-bus" id="nsq-qtotal-bus"></div>' +
-                '<div class="nsq-qtotal-ex" id="nsq-qtotal-ex"></div>' +
-                '<div class="nsq-qtotal-note" id="nsq-qtotal-note" hidden>' + escapeHtml(COPY.busNote) + '</div></div>');
         }
-        h.push('</section>');
+        h.push('</section></div>');   // .nsq-co-quotes
+        h.push(summaryPanelHTML(page));
+        h.push('<div class="nsq-co-rest">');
 
         // ── 2 Order details ──
         h.push('<section class="nsq-card"><h2 class="nsq-h2"><span class="nsq-num">2</span>Order details</h2>');
@@ -922,15 +951,14 @@ define([
             escapeHtml(senderNote(fromOpt)) + '</p>');
         h.push('</div></section>');
 
+        h.push('</div></div>'); // .nsq-co-rest, .nsq-co
         h.push('</div>'); // .nsq-wrap
 
-        // ── Sticky footer ──
-        h.push('<div class="nsq-footer"><div class="nsq-footer-in">');
-        h.push('<div class="nsq-sum"><div class="nsq-sum-main" id="nsq-sum-line"></div><div class="nsq-sum-bus" id="nsq-sum-bus"></div><div class="nsq-sum-ex" id="nsq-sum-ex"></div>' +
-            '<div class="nsq-sum-sub" id="nsq-sum-changes"></div></div>');
-        h.push('<div class="nsq-actions"><span class="nsq-reason" id="nsq-reason"></span>' +
-            '<a class="nsq-btn nsq-btn-link" href="' + escapeHtml(page.oppUrl) + '">Cancel</a>' +
-            '<button type="button" class="nsq-btn nsq-btn-primary" id="nsq-send" disabled>Create orders</button></div>');
+        // ── 1.5.0: a slim sticky footer on phones and narrow screens only (the panel replaces it on desktop):
+        // "Customer pays £x" (#nsq-sum-line, from summary()) and a button that presses #nsq-send ──
+        h.push('<div class="nsq-footer nsq-footer-slim"><div class="nsq-footer-in">');
+        h.push('<div class="nsq-sum"><div class="nsq-sum-main" id="nsq-sum-line"></div></div>');
+        h.push('<button type="button" class="nsq-btn nsq-btn-primary" id="nsq-send-m" disabled>Create orders</button>');
         h.push('</div></div>');
 
         h.push('</div>'); // #nsq-root
@@ -938,7 +966,8 @@ define([
         return h.join('');
     }
 
-    var CALC_W = 108;   // 1.3.1: the worked-out commission £ — room for "→ £999,999.99" at 14px (see .nsq-comm-calc)
+    var GREEN = '#1d6b3a';      // 1.5.0: the BUS voucher lines
+    var TINT  = '#f6f1f7';      // 1.5.0: the deposit box (a tint of the accent)
 
     var PAGE_CSS = '<style>' +
         '.nsq-req{color:#a4262c;}' +
@@ -952,47 +981,71 @@ define([
         '.nsq-tick input{width:18px;height:18px;}' +
         '.nsq-tick-addr{color:' + lib.PAGE_COLORS.muted + ';}' +
         '.nsq-email-note{margin-top:12px;}' +
-        // 1.2.0: compact rows — one line per quote at desktop (~56px), the inputs on a second line at phone width
-        // fixed widths (except the description) so the columns line up from row to row
-        '.nsq-qrow{display:grid;grid-template-columns:24px minmax(100px,1fr) 150px 100px ' + (232 + CALC_W) + 'px 112px;grid-template-areas:"tick main meta units comm price";' +
-            'align-items:center;column-gap:14px;row-gap:6px;min-height:56px;padding:6px 12px;border:1px solid ' + lib.PAGE_COLORS.border + ';border-radius:8px;margin-bottom:6px;background:#fff;}' +
-        '.nsq-qrow-on{border-color:' + lib.PAGE_COLORS.accent + ';box-shadow:inset 0 0 0 1px ' + lib.PAGE_COLORS.accent + ';}' +
-        '.nsq-qtick{grid-area:tick;display:flex;align-items:center;}' +
+        // 1.5.0: the checkout layout. Desktop: [quotes | panel 380px] with sections 2–4 under the quotes; the panel's
+        // column spans both rows and the panel is sticky. ≤ 1000px: one column — quotes, panel, sections 2–4.
+        '.nsq-wrap{max-width:1240px;}' +
+        '.nsq-co{display:grid;grid-template-columns:minmax(0,1fr) 380px;grid-template-rows:auto 1fr;grid-template-areas:"quotes side" "rest side";column-gap:20px;align-items:start;}' +
+        '.nsq-co-quotes{grid-area:quotes;min-width:0;}.nsq-co-rest{grid-area:rest;min-width:0;}' +
+        '.nsq-co-side{grid-area:side;align-self:stretch;min-width:0;}' +
+        '.nsq-panel{position:sticky;top:16px;background:#fff;border:1px solid ' + lib.PAGE_COLORS.border + ';border-radius:10px;padding:20px;margin-bottom:16px;}' +
+        '.nsq-ph{font-size:18px;margin:0 0 12px;color:' + lib.PAGE_COLORS.text + ';}' +
+        '.nsq-ps-empty{color:' + lib.PAGE_COLORS.muted + ';font-size:14px;margin:0 0 4px;}' +
+        '.nsq-ps-order{padding:8px 0;border-bottom:1px solid ' + lib.PAGE_COLORS.border + ';}' +
+        '.nsq-ps-row{display:flex;justify-content:space-between;gap:12px;align-items:baseline;font-size:14px;}' +
+        '.nsq-ps-row > span:first-child{min-width:0;overflow-wrap:anywhere;}.nsq-ps-row > :last-child{white-space:nowrap;}' +
+        '.nsq-ps-head{font-weight:600;}' +
+        '.nsq-ps-v{padding-left:14px;color:' + GREEN + ';font-size:13px;margin-top:2px;}' +
+        '.nsq-ps-sub{padding-left:14px;color:' + lib.PAGE_COLORS.muted + ';font-size:13px;margin-top:2px;}' +
+        '.nsq-ps-pending{font-size:12px;color:' + lib.PAGE_COLORS.muted + ';margin:8px 0 0;}' +
+        '.nsq-ps-total{font-size:12px;color:' + lib.PAGE_COLORS.muted + ';padding:10px 0;border-bottom:1px solid ' + lib.PAGE_COLORS.border + ';}' +
+        '.nsq-ps-pays{display:flex;justify-content:space-between;align-items:baseline;gap:12px;padding:12px 0 10px;font-weight:600;}' +
+        '.nsq-ps-pays strong{font-size:24px;line-height:1.2;white-space:nowrap;}' +
+        '.nsq-ps-dep{display:flex;justify-content:space-between;align-items:center;gap:12px;background:' + TINT + ';border:1px solid #e3d6e6;border-radius:8px;padding:10px 12px;font-size:14px;}' +
+        '.nsq-ps-dep strong{font-size:16px;white-space:nowrap;}' +
+        '.nsq-ps-bal{display:flex;justify-content:space-between;gap:12px;font-size:13px;color:' + lib.PAGE_COLORS.muted + ';padding:8px 2px 0;}' +
+        '.nsq-ps-note{font-size:12px;color:' + lib.PAGE_COLORS.muted + ';margin:10px 0 0;}' +
+        '.nsq-ps-btn{width:100%;justify-content:center;margin-top:14px;}' +
+        '.nsq-ps-reason{display:block;font-size:13px;color:' + lib.PAGE_COLORS.muted + ';margin-top:8px;}' +
+        '.nsq-ps-reason:empty,.nsq-ps-changes:empty{display:none;}.nsq-ps-changes{margin-top:6px;}' +
+        '.nsq-ps-cancel{width:100%;justify-content:center;margin-top:6px;}' +
+        '.nsq-ps-pending[hidden],.nsq-ps-dep[hidden],.nsq-ps-bal[hidden],.nsq-ps-note[hidden],.nsq-qin[hidden],.nsq-qv[hidden],.nsq-qpays[hidden]{display:none;}' +
+        // the quote cards
+        '.nsq-qrow{border:1px solid ' + lib.PAGE_COLORS.border + ';border-radius:8px;margin-bottom:8px;padding:8px 12px;background:#fff;}' +
+        '.nsq-qrow-on{border-color:' + lib.PAGE_COLORS.accent + ';box-shadow:inset 0 0 0 1px ' + lib.PAGE_COLORS.accent + ';min-height:96px;}' +
+        '.nsq-qline{display:flex;align-items:flex-start;gap:10px;}' +
+        '.nsq-qtick{flex:0 0 24px;display:flex;align-items:center;min-height:22px;}' +
         '.nsq-qtick input{width:20px;height:20px;margin:0;cursor:pointer;}' +
-        '.nsq-qmain{grid-area:main;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:14px;}' +
+        '.nsq-qtext{flex:1 1 auto;min-width:0;}' +
+        '.nsq-qmain{font-size:14px;line-height:20px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;overflow-wrap:anywhere;}' +
         '.nsq-qmain a{font-weight:600;}' +
-        '.nsq-qmeta{grid-area:meta;font-size:12px;color:' + lib.PAGE_COLORS.muted + ';white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}' +
-        '.nsq-sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;}' +
-        '.nsq-ql-short{display:none;}' +
-        '.nsq-qin{display:contents;}' +
+        '.nsq-qmeta{font-size:12px;color:' + lib.PAGE_COLORS.muted + ';margin-top:2px;}' +
+        '.nsq-qprice{flex:0 0 auto;text-align:right;line-height:1.25;max-width:45%;}' +
+        '.nsq-qprice strong{display:block;font-size:15px;white-space:nowrap;}' +
+        '.nsq-qv{display:block;font-size:13px;color:' + GREEN + ';font-weight:600;}' +
+        '.nsq-qpays{display:block;font-size:13px;color:' + lib.PAGE_COLORS.muted + ';}' +
+        // unticked: one faint line — dashed, number · description · type · date, the price; no inputs
+        '.nsq-qrow:not(.nsq-qrow-on){border-style:dashed;padding:8px 12px;opacity:.72;}' +
+        '.nsq-qrow:not(.nsq-qrow-on) .nsq-qline{align-items:center;}' +
+        '.nsq-qrow:not(.nsq-qrow-on) .nsq-qtext{display:flex;align-items:baseline;gap:6px;white-space:nowrap;overflow:hidden;}' +
+        '.nsq-qrow:not(.nsq-qrow-on) .nsq-qmain{display:block;flex:0 1 auto;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}' +
+        '.nsq-qrow:not(.nsq-qrow-on) .nsq-qmeta{flex:0 0 auto;margin:0;}' +
+        '.nsq-qrow:not(.nsq-qrow-on) .nsq-qmeta::before{content:"· ";}' +
+        '.nsq-qrow:not(.nsq-qrow-on) .nsq-qprice strong{font-weight:400;font-size:14px;}' +
+        // line 2: Units · Commission [%|£] [ ] = £…, indented under the text
+        '.nsq-qin{display:flex;flex-wrap:wrap;align-items:center;gap:8px 18px;margin:6px 0 0 34px;}' +
         '.nsq-qf{display:inline-flex;align-items:center;gap:6px;margin:0;}' +
-        '.nsq-qf-units{grid-area:units;}.nsq-qf-comm{grid-area:comm;}' +
-        // 1.3.1: "→ £64.33" inline to the right of the commission input, the inputs' size in the muted colour. A
-        // fixed width so the columns line up whatever the figure; visibility, not display, hides it for £ so the row
-        // never moves. The commission column = label (~75) + toggle (~70) + input 72 + two 6px gaps + 6 + CALC_W
-        // (232 + CALC_W; was 198, which the label, toggle and input already overflowed). The description gives way
-        // (min 100px, was 120) so the row still fits at 1001px.
+        '.nsq-qf-comm{flex-wrap:wrap;max-width:100%;}' +
+        '.nsq-ql{font-size:13px;color:' + lib.PAGE_COLORS.muted + ';white-space:nowrap;}' +
         '.nsq-comm-box{display:inline-flex;align-items:center;gap:6px;flex:0 0 auto;}' +
-        '.nsq-comm-calc{flex:0 0 ' + CALC_W + 'px;width:' + CALC_W + 'px;font-size:14px;line-height:32px;color:' + lib.PAGE_COLORS.muted + ';white-space:nowrap;font-variant-numeric:tabular-nums;}' +
-        '.nsq-comm-calc[hidden]{display:inline-block;visibility:hidden;}' +
-        '.nsq-qf[hidden]{display:none;}' +
-        '.nsq-ql{font-size:12px;color:' + lib.PAGE_COLORS.muted + ';white-space:nowrap;}' +
+        // 1.5.0: "= £525.44" — normal-size text, % only (replaces 1.3.1's fixed-width "→ £…")
+        '.nsq-comm-calc{font-size:14px;color:' + lib.PAGE_COLORS.text + ';white-space:nowrap;font-variant-numeric:tabular-nums;}' +
+        '.nsq-comm-calc[hidden]{display:none;}' +
         '.nsq-qrow .nsq-input{min-height:32px;height:32px;padding:4px 8px;font-size:14px;text-align:right;}' +
         '.nsq-qrow .nsq-units{width:56px;}.nsq-qrow .nsq-comm{width:72px;}' +
-        '.nsq-qrow:not(.nsq-qrow-on) .nsq-qf{opacity:.45;}' +
-        '.nsq-qprice{grid-area:price;text-align:right;white-space:nowrap;line-height:1.2;}' +
-        '.nsq-qprice strong{display:block;font-size:14px;}' +
-        '.nsq-qsub{display:block;font-size:11px;color:' + lib.PAGE_COLORS.muted + ';}' +
         '.nsq-tag-exp{display:inline-block;background:#fbeaea;color:#7a1d1d;border-radius:999px;padding:0 7px;font-size:11px;font-weight:600;vertical-align:1px;}' +
-        '.nsq-qtotal{margin-top:10px;padding-top:10px;border-top:1px solid ' + lib.PAGE_COLORS.border + ';text-align:right;}' +
-        '.nsq-qtotal-line{font-weight:600;}' +
-        // 1.4.0: the BUS line (customer pays bold), the display-only note, the eligibility select + its voucher
-        '.nsq-qtotal-bus,.nsq-sum-bus{font-size:13px;}.nsq-qtotal-bus strong,.nsq-sum-bus strong{font-weight:600;}' +
-        '.nsq-qtotal-note{font-size:11px;color:' + lib.PAGE_COLORS.muted + ';margin-top:2px;}' +
-        '.nsq-qtotal-note[hidden]{display:none;}' +
+        // 1.4.0: the eligibility select + its voucher
         '.nsq-bus-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap;}.nsq-bus-row select{flex:1 1 180px;min-width:0;}' +
         '.nsq-bus-voucher{font-size:14px;color:' + lib.PAGE_COLORS.muted + ';white-space:nowrap;}' +
-        '.nsq-qtotal-ex,.nsq-sum-ex{font-size:12px;color:' + lib.PAGE_COLORS.muted + ';}' +
         '.nsq-seg-row{display:inline-flex;flex:0 0 auto;border:1px solid ' + lib.PAGE_COLORS.border + ';border-radius:8px;overflow:hidden;}' +
         '.nsq-seg{position:relative;cursor:pointer;}' +
         '.nsq-seg input{position:absolute;opacity:0;width:1px;height:1px;}' +
@@ -1001,19 +1054,18 @@ define([
         '.nsq-seg input:checked + span{background:' + lib.PAGE_COLORS.accent + ';color:#fff;font-weight:600;}' +
         '.nsq-seg input:focus-visible + span{outline:2px solid ' + lib.PAGE_COLORS.accent + ';outline-offset:-4px;}' +
         '.nsq-seg input:disabled + span{cursor:not-allowed;}' +
-        '@media (max-width:1000px){.nsq-qrow{grid-template-columns:24px minmax(0,1fr) auto;grid-template-areas:"tick main price" "tick meta price" ". in in";}' +
-            '.nsq-qin{grid-area:in;display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px;}' +
-            '.nsq-ql-long{display:none;}.nsq-ql-short{display:inline;}' +
-            '.nsq-qrow .nsq-units{width:44px;}.nsq-qrow .nsq-comm{width:56px;}.nsq-qrow .nsq-seg span{padding:0 7px;}' +
-            // 1.3.1: the toggle, input and figure never part (the figure stays on the input's line); only the
-            // "Comm." label may go above them when the line is too narrow (under ~375px). The figure keeps its
-            // fixed width (also when hidden for £), so every row wraps the same way.
-            '.nsq-qf-comm{flex-wrap:wrap;max-width:100%;}' +
+        // the slim footer: phones and narrow screens only
+        '.nsq-footer-slim .nsq-footer-in{padding:8px 16px;flex-wrap:nowrap;gap:12px;}' +
+        '.nsq-footer-slim .nsq-sum{min-width:0;}.nsq-footer-slim .nsq-sum-main{font-size:14px;line-height:1.25;overflow-wrap:anywhere;}' +
+        '.nsq-footer-slim .nsq-btn{flex:0 0 auto;}' +
+        '@media (min-width:1001px){.nsq-footer-slim{display:none;}.nsq{padding-bottom:24px;}}' +
+        '@media (max-width:1000px){.nsq-co{grid-template-columns:minmax(0,1fr);grid-template-rows:none;grid-template-areas:"quotes" "side" "rest";}' +
+            '.nsq-panel{position:static;}' +
             '}' +
-        // 1.3.1: on a phone the inputs use the row's full width (under the tick too)
-        '@media (max-width:480px){.nsq-qrow{grid-template-areas:"tick main price" "tick meta price" "in in in";}.nsq-comm-box{gap:4px;}' +
-            '.nsq-qrow .nsq-seg span{padding:0 6px;}}' +
-        '@media (max-width:360px){.nsq-qrow .nsq-comm{width:52px;}}' +
+        '@media (max-width:600px){.nsq-qin{margin-left:0;gap:8px 14px;}.nsq-qrow .nsq-units{width:48px;}.nsq-qrow .nsq-comm{width:60px;}' +
+            '.nsq-qrow .nsq-seg span{padding:0 7px;}.nsq-comm-box{gap:4px;}' +
+            '.nsq-qrow:not(.nsq-qrow-on) .nsq-qmeta{display:none;}' +
+            '}' +
         '</style>';
 
     /**
@@ -1049,6 +1101,7 @@ define([
         '  function setRow(r) {',
         '    var on = r.querySelector(".nsq-qsel").checked;',
         '    if (on) r.classList.add("nsq-qrow-on"); else r.classList.remove("nsq-qrow-on");',
+        '    var q = r.querySelector(".nsq-qin"); if (q) q.hidden = !on;',   // 1.5.0: unticked = one line, no inputs
         '    each(r.querySelectorAll(".nsq-qin input, .nsq-qin select"), function (el) { el.disabled = !on; });',
         '  }',
         '  function money(n) { var neg = n < 0; return (neg ? "-£" : "£") + Math.abs(n).toFixed(2).replace(/\\B(?=(\\d{3})+(?!\\d))/g, ","); }',
@@ -1088,6 +1141,10 @@ define([
         '    sw.addEventListener("change", function () { setEmail(); update(); });',
         '    applyInference();',
         '    $("nsq-send").addEventListener("click", function () { submitForm("Creating…"); });',
+        '    $("nsq-send-m").addEventListener("click", function () {',   // 1.5.0: the slim footer's button presses the panel's
+        '      var b = $("nsq-send"); if (b.disabled) return;',
+        '      b.click(); var m = $("nsq-send-m"); m.disabled = true; m.textContent = b.textContent;',
+        '    });',
         '  }',
         '  function problem() {',
         '    if (!rows().length) return "No open quotes to order.";',
@@ -1122,57 +1179,82 @@ define([
         '    }',
         '    return "";',
         '  }',
-        '  function pence(x) { return Math.round((x + 1e-9) * 100) / 100; }',
+        // 1.5.0: orderLib.buildOrderSummary + pickVoucherOrder, inlined from the library's own source (SUMMARY_SCRIPT)
+        orderLib.SUMMARY_SCRIPT,
+        '  var CAPPED = ' + JSON.stringify(COPY.busCapped) + ';',
         '  function busOpt() { var s = $("nsq-bus"); return s ? s.options[s.selectedIndex] : null; }',
-        '  function busFigures(total, hp) {',   // 1.4.0: display only — the same rule as the server's busFigures (the log)
-        '    var o = busOpt(), amount = o ? parseFloat(o.getAttribute("data-voucher")) || 0 : 0;',
-        '    var voucher = amount > 0 && hp ? amount : 0, pays = Math.max(0, pence(total - voucher));',
-        '    var pctRaw = root.getAttribute("data-deposit-pct"), pct = pctRaw === "" ? null : parseFloat(pctRaw);',
-        '    var deposit = root.getAttribute("data-upfront") === "1" && pct !== null ? pence(pays * pct / 100) : null;',
-        '    return { amount: amount, voucher: voucher, pending: amount > 0 && !hp, pays: pays, deposit: deposit, pct: pct, short: o ? o.getAttribute("data-short") : "" };',
-        '  }',
-        '  function totals() {',
-        '    var t = tickedRows(), sum = 0, ex = 0, exMissing = false, hp = false;',
-        '    t.forEach(function (r) {',
-        '      sum += parseFloat(r.getAttribute("data-total")) || 0;',
-        '      var e = r.getAttribute("data-exvat"); if (e === "") exMissing = true; else ex += parseFloat(e) || 0;',
-        '      if (r.getAttribute("data-hp") === "1") hp = true;',   // one voucher per submission, however many heat pump quotes
-        '    });',
-        '    var line = t.length + " order" + (t.length === 1 ? "" : "s") + " · " + money(sum) + " inc VAT";',
-        '    var exLine = !t.length ? "" : (exMissing ? "ex VAT not available for every quote" : money(ex) + " ex VAT");',   // the FULL ex VAT
-        '    var b = busFigures(sum, hp), parts = [];',
-        '    var dep = b.deposit === null ? "" : "Deposit (" + String(b.pct) + "%) " + money(b.deposit);',
-        '    if (b.voucher > 0) parts.push(document.createTextNode("BUS voucher" + (b.short ? " (" + b.short + ")" : "") + " −" + money(b.voucher) + " · "),',
-        '      bold("Customer pays " + money(b.pays)));',
-        '    else if (b.pending) parts.push(document.createTextNode("BUS voucher: applies when a heat pump quote is ordered"));',
-        '    if (dep) parts.push(document.createTextNode((parts.length ? " · " : "") + dep));',
-        '    return { line: line, ex: exLine, bus: t.length ? parts : [], note: t.length > 0 && (b.voucher > 0 || b.pending) };',
-        '  }',
-        '  function bold(text) { var s = document.createElement("strong"); s.textContent = text; return s; }',
-        '  function fill(el, nodes) { if (!el) return; while (el.firstChild) el.removeChild(el.firstChild); nodes.forEach(function (n) { el.appendChild(n.cloneNode(true)); }); }',
         '  function busVoucherText() {',   // 1.4.0: beside the select — the voucher the eligibility means
         '    var o = busOpt(), a = o ? parseFloat(o.getAttribute("data-voucher")) || 0 : 0;',
         '    return a > 0 ? "Voucher " + money(a).replace(/\\.00$/, "") : "No voucher";',
         '  }',
-        '  function commCalc(r) {',   // % × the row's ex VAT, display only (the server recalculates from the SO). 1.3.1: "→ £…" inline,
+        '  function summaryInput() {',   // the ticked quotes, in page order, as buildOrderSummary's plain data
+        '    var o = busOpt(), pctRaw = root.getAttribute("data-deposit-pct");',
+        '    return {',
+        '      orders: tickedRows().map(function (r) {',
+        '        var ex = r.getAttribute("data-exvat");',
+        '        return { id: r.getAttribute("data-qid"), label: r.getAttribute("data-tranid"), typeLabel: r.getAttribute("data-type"),',
+        '                 incVat: r.getAttribute("data-total"), exVat: ex === "" ? null : ex, isHeatPump: r.getAttribute("data-hp") === "1" };',
+        '      }),',
+        '      voucher: { amount: o ? parseFloat(o.getAttribute("data-voucher")) || 0 : 0, label: o ? o.getAttribute("data-short") || "" : "" },',
+        '      depositPct: pctRaw === null || pctRaw === "" ? null : parseFloat(pctRaw),',
+        '      upFront: root.getAttribute("data-upfront") === "1"',
+        '    };',
+        '  }',
+        '  function el(tag, cls, text) { var e = document.createElement(tag); if (cls) e.className = cls; if (text !== undefined) e.textContent = text; return e; }',
+        '  function pair(cls, left, right) { var d = el("div", "nsq-ps-row " + cls); d.appendChild(el("span", "", left)); d.appendChild(el("span", "", right)); return d; }',
+        '  function renderRows(s) {',   // the voucher order's card: "BUS voucher −£…" and "Customer pays £…" under its price
+        '    each(rows(), function (r) {',
+        '      var l = null;',
+        '      s.lines.forEach(function (x) { if (x.id === r.getAttribute("data-qid") && x.voucher > 0) l = x; });',
+        '      var v = r.querySelector(".nsq-qv"), p = r.querySelector(".nsq-qpays");',
+        '      v.hidden = !l; p.hidden = !l;',
+        '      v.textContent = l ? "BUS voucher −\\u2060" + money(l.voucher) + (l.capped ? " " + CAPPED : "") : "";',   // never break inside −£
+        '      p.textContent = l ? "Customer pays " + money(l.pays) : "";',
+        '    });',
+        '  }',
+        '  function renderSummary(s) {',   // the Order summary panel
+        '    var box = $("nsq-ps-orders");',
+        '    while (box.firstChild) box.removeChild(box.firstChild);',
+        '    if (!s.count) box.appendChild(el("p", "nsq-ps-empty", "No quotes ticked."));',
+        '    s.lines.forEach(function (l) {',
+        '      var b = el("div", "nsq-ps-order");',
+        '      b.appendChild(pair("nsq-ps-head", l.label + (l.typeLabel ? " · " + l.typeLabel : ""), money(l.incVat)));',
+        '      if (l.voucher > 0) {',
+        '        b.appendChild(pair("nsq-ps-v", "BUS voucher" + (s.voucherLabel ? " · " + s.voucherLabel : "") + (l.capped ? " " + CAPPED : ""), "−" + money(l.voucher)));',
+        '        b.appendChild(pair("nsq-ps-sub", "Customer pays", money(l.pays)));',
+        '      }',
+        '      box.appendChild(b);',
+        '    });',
+        '    $("nsq-ps-pending").hidden = !s.voucherPending;',
+        '    $("nsq-ps-total").textContent = s.count ? "Orders total " + money(s.totalIncVat) + " inc VAT" + (s.vat === null ? "" : " (VAT " + money(s.vat) + ")") : "";',
+        '    $("nsq-ps-pays").textContent = money(s.customerPays);',
+        '    $("nsq-ps-dep").hidden = s.deposit === null;',
+        '    $("nsq-ps-dep-label").textContent = s.deposit === null ? "" : "Deposit due now · " + s.depositPct + "%";',
+        '    $("nsq-ps-dep-amt").textContent = s.deposit === null ? "" : money(s.deposit);',
+        '    $("nsq-ps-bal").hidden = s.balance === null;',
+        '    $("nsq-ps-bal-amt").textContent = s.balance === null ? "" : money(s.balance);',
+        '    $("nsq-ps-note").hidden = !s.showNote;',
+        '  }',
+        '  function commCalc(r) {',   // % × the row's ex VAT, display only (the server recalculates from the SO). 1.5.0: "= £…",
         '    var out = r.querySelector(".nsq-comm-calc"); if (!out) return;',   // % only; blank or 0 → £0.00; nothing for an invalid entry
         '    var k = r.querySelector(".nsq-comm-kind:checked"), c = r.querySelector(".nsq-comm").value.trim(), ex = r.getAttribute("data-exvat");',
         '    var pct = !k || k.value === "pct";',
         '    out.hidden = !pct;',
         '    var n = c === "" ? 0 : (/^\\d+(\\.\\d{1,2})?$/.test(c) && parseFloat(c) <= 100 ? parseFloat(c) : null);',
-        '    out.textContent = !pct || n === null || (n > 0 && ex === "") ? "" : "→ " + money(n > 0 ? Math.round(n * parseFloat(ex)) / 100 : 0);',
+        '    out.textContent = !pct || n === null || (n > 0 && ex === "") ? "" : "= " + money(n > 0 ? Math.round(n * parseFloat(ex)) / 100 : 0);',
         '  }',
-        '  function summary() {',   // also refreshes the section 1 total, the footer's ex VAT line and the commission £ (display only)
+        '  function createLabel(n) { return n ? "Create " + n + " order" + (n === 1 ? "" : "s") : "Create orders"; }',
+        '  function summary() {',   // 1.5.0: the cards' voucher lines, the panel, the buttons; returns the slim footer's line
         '    each(rows(), commCalc);',
-        '    var tt = totals();',
-        '    if ($("nsq-qtotal-line")) {',
-        '      $("nsq-qtotal-line").textContent = tt.line; $("nsq-qtotal-ex").textContent = tt.ex;',
-        '      fill($("nsq-qtotal-bus"), tt.bus); $("nsq-qtotal-note").hidden = !tt.note;',
-        '    }',
-        '    fill($("nsq-sum-bus"), tt.bus);',
-        '    $("nsq-sum-ex").textContent = tt.ex;',
+        '    var s = buildOrderSummary(summaryInput());',
+        '    renderRows(s);',
+        '    renderSummary(s);',
         '    if ($("nsq-bus-voucher")) $("nsq-bus-voucher").textContent = busVoucherText();',
-        '    return tt.line;',
+        '    var label = createLabel(s.count), m = $("nsq-send-m");',
+        '    $("nsq-send").textContent = label; m.textContent = label;',
+        '    var why = problem() || requiredProblem();',   // update() sets #nsq-send from the same check; the footer's mirrors it
+        '    m.disabled = !!why; m.title = why;',
+        '    return s.count ? "Customer pays " + money(s.customerPays) : "No quotes ticked";',
         '  }',
         '  function beforeSubmit() {',
         '    $("nsq-q-sel").value = JSON.stringify(tickedRows().map(function (r) { return r.getAttribute("data-qid"); }));',
@@ -1266,7 +1348,7 @@ define([
      * customer pays, the deposit and its %. Audit only: the figures are display-only and written nowhere. One
      * quote type search (10) + the customer's terms (1), only when a voucher or a deposit can show.
      */
-    function logBus(opportunityId, cfg, quotes, eligibility, posted, was, customerId) {
+    function logBus(opportunityId, cfg, quotes, eligibility, posted, was, customerId, listed) {
         try {
             if (!Object.keys(cfg.busAmounts).length && cfg.depositPct === null) {
                 log.audit('CreateOrderSL.BUS', 'Opportunity ' + opportunityId + ' — eligibility ' + (posted ? (eligibility || 'blank') : 'not posted') +
@@ -1274,19 +1356,33 @@ define([
                 return;
             }
             var hp = heatPumpTypes(quotes.map(function (x) { return x.q.quoteTypeId; }));
-            var hpQuotes = quotes.filter(function (x) { return hp.ids[x.q.quoteTypeId]; }).map(function (x) { return x.q.tranId || x.q.id; });
-            var total = pence(quotes.reduce(function (a, x) { return a + (x.q.total || 0); }, 0));
             var upFront = false;
             if (cfg.depositPct !== null && ID_RE.test(String(customerId))) {
                 var f = search.lookupFields({ type: search.Type.CUSTOMER, id: customerId, columns: ['terms'] }) || {};
                 upFront = orderLib.paysUpFront(firstId(f.terms), cfg.prepayTerms);
             }
-            var b = busFigures({ total: total, eligibility: eligibility, amounts: cfg.busAmounts, hp: hpQuotes.length > 0, pct: cfg.depositPct, upFront: upFront });
+            // 1.5.0: the same summary as the page (orderLib.buildOrderSummary), the ticked quotes in PAGE order (as listed)
+            var ticked = {};
+            quotes.forEach(function (x) { ticked[x.q.id] = true; });
+            var amount = Object.prototype.hasOwnProperty.call(cfg.busAmounts, String(eligibility || '')) ? cfg.busAmounts[String(eligibility)] : 0;
+            var orders = listed.filter(function (q) { return ticked[q.id]; }).map(function (q) {
+                return { id: q.id, label: q.tranId || q.id, typeLabel: q.quoteTypeText || '', incVat: q.total, exVat: q.exVat, isHeatPump: !!hp.ids[q.quoteTypeId] };
+            });
+            var sm = orderLib.buildOrderSummary({
+                orders:     orders,
+                voucher:    { amount: amount, label: '' },
+                depositPct: cfg.depositPct,
+                upFront:    upFront
+            });
+            var vLine = sm.lines.filter(function (l) { return l.id === sm.voucherOrderId; })[0];
+            var hpQuotes = orders.filter(function (o) { return o.isHeatPump; }).map(function (o) { return o.label; });
             log.audit('CreateOrderSL.BUS', 'Opportunity ' + opportunityId + ' — eligibility ' + (posted ? (eligibility || 'blank') : 'not posted') +
                 ' (was ' + (was || 'blank') + '); heat pump quote ticked: ' + (hpQuotes.length ? 'yes (' + hpQuotes.join(', ') + ')' : 'no') +
-                (hp.error ? ' [types unreadable]' : '') + '; total ' + orderLib.money(total) + ' inc VAT; voucher ' + orderLib.money(b.voucher) +
-                (b.pending ? ' (eligible, no heat pump quote)' : '') + '; customer pays ' + orderLib.money(b.pays) +
-                '; deposit ' + (b.deposit === null ? 'none' : orderLib.money(b.deposit)) + ' (' + (cfg.depositPct === null ? 'no %' : cfg.depositPct + '%') +
+                (hp.error ? ' [types unreadable]' : '') + '; total ' + orderLib.money(sm.totalIncVat) + ' inc VAT; voucher ' +
+                (vLine ? orderLib.money(vLine.voucher) + ' against ' + vLine.label + (vLine.capped ? ' (capped at the order value; ' + orderLib.money(sm.voucherAmount) + ' eligible)' : '') +
+                    ', which pays ' + orderLib.money(vLine.pays) : orderLib.money(0) + (sm.voucherPending ? ' (eligible, no heat pump quote)' : '')) +
+                '; customer pays ' + orderLib.money(sm.customerPays) +
+                '; deposit ' + (sm.deposit === null ? 'none' : orderLib.money(sm.deposit)) + ' (' + (cfg.depositPct === null ? 'no %' : cfg.depositPct + '%') +
                 ', ' + (upFront ? 'up front' : 'account customer') + '). Display only — the orders keep their full value');
         } catch (e) {
             log.error('CreateOrderSL.BUS', 'Opportunity ' + opportunityId + ' — the BUS figures could not be logged: ' + e.message);
@@ -1494,7 +1590,7 @@ define([
         }
 
         // ── 1.4.0: the BUS figures, for the audit log only — nothing here is written to any transaction ──
-        logBus(opportunityId, cfg, quotes, busPosted ? busElig : busWas, busPosted, busWas, customerId);
+        logBus(opportunityId, cfg, quotes, busPosted ? busElig : busWas, busPosted, busWas, customerId, listing.quotes);
 
         // ── Save guard — before the first write ─────────────────────────────────
         var guard = claimToken(restore.token, opportunityId);

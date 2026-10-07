@@ -5,7 +5,7 @@
 
 ---
 
-## Create order, part 1 (Create Order SL 1.4.0 / order library 1.3.0 / Opportunity UE 1.5.4 / CS 1.3.0)
+## Create order, part 1 (Create Order SL 1.5.0 / order library 1.4.0 / Opportunity UE 1.5.4 / CS 1.3.0)
 
 > **Status: 🔶 not yet tested in Sandbox.** Upload `nuheat_order_lib.js`, then `nuheat_create_order_sl.js`,
 > then the CS, then the UE (DEPLOYMENT_CHECKLIST 2f-3). **No script parameters:** add the `ORDER_*` rows to
@@ -16,7 +16,8 @@
 ### Automated (before uploading)
 
 ```bash
-node test/create-order.js            # must end "513 passed, 0 failed" (C1–C67; C52 re-runs the three suites below)
+node test/create-order.js            # must end "535 passed, 0 failed" (C1–C68; C52 re-runs the three suites below)
+NODE_PATH=$(npm root -g) node test/create-order-layout.js   # amendment 8: the page in Chromium (Playwright; skips if absent) — 74 passed
 node test/update-opp.js              # 684 passed — unchanged
 node test/send-quote-opp-update.js   # 400 passed — assertions unchanged (amendment 1 adds only an N/cache stub)
 node test/opp-lib-customer.js        # 72 passed — unchanged
@@ -49,6 +50,8 @@ for f in nuheat_order_lib.js nuheat_create_order_sl.js nuheat_opportunity_ue.js 
 | S21 | *(amendment 6)* NetSuite saves a transformed SO whose source Estimate became **Processed** after the transform (phase 1 transforms every quote; saving the first SO closes the others) | Steve's two-quote test (O14). If the second save fails with an error about the Estimate's status, copy the exact message from `CreateOrderSL.Convert` ("Estimate … — SO save FAILED, not created: …"). **Don't re-open Estimates or work around it** — the next step is decided from the message |
 | S22 | *(amendment 7)* `customrecord16` (Quote Type) has the checkbox `custrecord_qt_requires_installer_certs`, ticked on the heat pump types only. The ID is not referenced anywhere else in the code | Open a heat pump quote's row: the BUS line deducts the voucher. A wrong ID logs `CreateOrderSL.BUS` "… could not be read for types … (<NetSuite message>); no quote counts as a heat pump quote" — and nothing is deducted |
 | S23 | *(amendment 7)* `custbody_bus_eligibility` is on the opportunity form the script loads (getSelectOptions returns 1 / 2 / 3) | The section 2 select lists Standard / Enhanced / Ineligible; no select = the options couldn't be read (`CreateOrderSL.Lists`) |
+| S24 | *(amendment 8)* The page script carries `buildOrderSummary` via `Function.prototype.toString` on the server (GraalJS returns the source) | The Order summary fills in as you tick. An empty panel and a script error in the browser console = the source didn't come through |
+| S25 | *(amendment 8)* The summary panel stays in view while scrolling inside NetSuite (`position: sticky` needs no ancestor with `overflow` set) | On desktop, scroll to section 4: the panel and its Create button stay at the top right. If it scrolls away, the button is still at the panel's end |
 | S20 | Merging against the **opportunity** fills the template's fields. Parts that refer to Sales Order-only fields show blank | Steve judges it from the email he receives. If unacceptable, the alternative (not built) is to merge against the first Sales Order created and still file on the opportunity |
 
 ### Scenarios
@@ -72,7 +75,7 @@ for f in nuheat_order_lib.js nuheat_create_order_sl.js nuheat_opportunity_ue.js 
 | O12 | **As NH Account Manager (not Administrator)**: O6 again | The button shows, lists populated, SO and order log created. No button and "its settings can’t be read" = the role lacks **View** on Customer Dashboard Settings (`ORDER_SETTINGS_UNAVAILABLE` in the log). Any other Permission Violation → DEPLOYMENT_CHECKLIST › Roles and permissions |
 | O14 | *(amendment 6)* Two quotes ticked (Steve's 7 Oct case) | Both SOs created, both order logs; the log shows `prepared 2/2`, then each save. If the second save fails: SO 1 stands, amber "Not created: <quote 2>", NetSuite's message in `CreateOrderSL.Convert` (S21) |
 | O15 | *(amendment 6)* Two quotes, one of which already has an SO (or is open in a second tab being converted) | "Nothing was created: … already converted to SO…" / "… is being converted by another request"; **neither** SO created |
-| O16 | *(amendment 7)* Up-front customer, eligibility Standard, a UFH and a heat pump quote ticked | "BUS voucher (Standard) −£7,500.00 · **Customer pays** £… · Deposit (20%) £…" under the quotes and in the footer; untick the heat pump quote → "BUS voucher: applies when a heat pump quote is ordered". Create: **both SOs at their full totals** (no discount line); `CreateOrderSL.BUS` logs the figures |
+| O16 | *(amendments 7, 8)* Up-front customer, eligibility Standard, a UFH and a heat pump quote ticked | The heat pump card: "BUS voucher −£7,500.00" (green) and "Customer pays £…"; the panel: that order's voucher line, Orders total (VAT), Customer pays (the sum), "Deposit due now · 20%", Balance before delivery, the full-value note. A heat pump quote under £7,500 → the voucher capped at its total "(capped at the order value)". Untick the heat pump quote → "BUS voucher applies when a heat pump quote is ordered". Create: **both SOs at their full totals** (no discount line); `CreateOrderSL.BUS` logs the figures |
 | O17 | *(amendment 7)* Change BUS eligibility Standard → Enhanced, create | Opportunity shows Enhanced; banner "Opportunity updated: … BUS eligibility → Enhanced BUS (£9000)". Unchanged → not in the banner. Account customer → no deposit anywhere |
 | O13 | Send Quote and Update opportunity after the release | Both buttons present and unchanged |
 

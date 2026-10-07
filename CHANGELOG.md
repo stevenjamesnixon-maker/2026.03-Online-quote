@@ -1,3 +1,18 @@
+## [Create Order SL v1.5.0 / Order Library v1.4.0] — 7 October 2026 (Create order amendment 8: checkout layout, the BUS voucher against the heat pump order)
+**Status:** 🔶 In review — not deployed (PR #38). Opportunity UE (1.5.4) and CS (1.3.0) unchanged.
+**Components:** `nuheat_create_order_sl.js`, `nuheat_order_lib.js`, `test/create-order.js`, `test/create-order-layout.js`, `test/order-summary-cases.js`
+
+- CHANGED: the page's checkout layout (Steve's option B): quotes on the left, an **Order summary** panel on the right
+  (380px, sticky, with the Create button); on phones the panel drops below the quotes and a slim footer shows
+  "Customer pays £x" and the button. Unticked quotes collapse to one faint line; ticked ones show Units and
+  Commission ("= £…") on a second line. The ex VAT moves into the summary.
+- CHANGED: the BUS voucher goes against **one heat pump order** (the first, newest first), capped at that order's
+  total, nothing carried; overall customer pays = the sum per order; deposit = 20% of it (up front, above £0).
+  Still display only — the Sales Orders keep their full value.
+- ADDED (lib 1.4.0): `buildOrderSummary(input)` and `pickVoucherOrder(orders)` — pure; the page inlines their source
+  (`SUMMARY_SCRIPT`); the `CreateOrderSL.BUS` log uses them; part 2 will too.
+- ADDED: `test/create-order-layout.js` — the page in Chromium at 1440 / 1001 / 1000 / 768 / 375 / 320px.
+
 ## [Create Order SL v1.4.0 / Opportunity UE v1.5.4] — 7 October 2026 (Create order amendment 7: BUS voucher in the totals, eligibility write-back)
 **Status:** 🔶 In review — not deployed (PR #38). Order library (1.3.0) and Opportunity CS (1.3.0) unchanged.
 **Components:** `nuheat_create_order_sl.js`, `nuheat_opportunity_ue.js`, `test/create-order.js`

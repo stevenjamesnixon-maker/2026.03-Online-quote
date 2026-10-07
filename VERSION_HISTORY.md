@@ -361,6 +361,12 @@
 
 ## Create order (`nuheat_create_order_sl.js`, `nuheat_order_lib.js`) & Opportunity UE / CS
 
+### Create Order SL v1.5.0 / Order Library v1.4.0 — 7 October 2026 🔶 In review (amendment 8)
+
+- Checkout layout: quotes + a sticky Order summary panel (desktop), panel below + slim footer (phone); collapsible
+  quote cards. The BUS voucher against the first heat pump order, capped, not carried. lib: `buildOrderSummary`,
+  `pickVoucherOrder`, `SUMMARY_SCRIPT` (pure; inlined into the page).
+
 ### Create Order SL v1.4.0 / Opportunity UE v1.5.4 — 7 October 2026 🔶 In review (amendment 7)
 
 - BUS eligibility select + write-back (only when changed; UE key `bus_elig`). Totals: BUS voucher (heat pump quote
