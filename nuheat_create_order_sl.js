@@ -11,7 +11,7 @@
  *              Creates one Sales Order and one order log per ticked quote (nuheat_order_lib.convertQuotes, 1.3.2),
  *              sends the confirmation only when switched on, writes the Opportunity LAST, and returns to
  *              the Opportunity with the result banner (nuheat_opportunity_ue.js, nsqs=ord).
- * @version     1.3.2
+ * @version     1.4.0
  * @author      Nu-Heat Development
  *
  * Script ID:      customscript_nuheat_create_order_sl
@@ -34,8 +34,27 @@
  *   PREPAY_TERMS             idlist (dashboard)  → no deposit is shown anywhere
  *   ORDER_PARENT_OPP_FIELD   field ID            → the order log's parent opportunity = this one
  *   ORDER_EMAIL_TEMPLATES    idlist (1.2.0)      → the email switch is disabled ("No confirmation templates are set up")
+ *   ORDER_BUS_AMOUNTS        JSON {elig: £} 1.4.0 → no BUS voucher is ever deducted on the page (display only)
+ *   ORDER_DEPOSIT_PCT        number 0–100 1.4.0  → no deposit is shown
  *   The settings search failing (no View permission on the record, no record type) → the page refuses:
  *   "Create order can’t run: its settings can’t be read. Ask an administrator."
+ *
+ * CHANGELOG v1.4.0 (amendment 7 — BUS voucher in the totals (display only) and the BUS eligibility write-back, Steve 7 Oct):
+ *   - BUS IS DISPLAY ONLY: the quote and the SO keep their full value; nothing BUS is written to any transaction
+ *     (the voucher is taken off at invoice, by hand). The SO and the order log are byte-for-byte as before.
+ *   - Section 2: "BUS eligibility" (optional) — the opportunity's custbody_bus_eligibility options (getSelectOptions)
+ *     + "Not set", pre-selected with the current value; beside it "Voucher £7,500" / "No voucher" (ORDER_BUS_AMOUNTS).
+ *   - The voucher applies when at least one ticked quote is a heat pump quote — its quote type (customrecord16) has
+ *     custrecord_qt_requires_installer_certs ticked; one search when the page loads (only when ORDER_BUS_AMOUNTS is
+ *     set). One voucher per submission. Eligible with no heat pump quote → "BUS voucher: applies when a heat pump
+ *     quote is ordered", no deduction.
+ *   - Totals (section 1 and the footer, live): "2 orders · £… inc VAT", then "BUS voucher (Standard) −£7,500.00 ·
+ *     Customer pays £… · Deposit (20%) £…"; customer pays = max(0, total − voucher); deposit = round(pays × % / 100,
+ *     2), up-front customers only, ORDER_DEPOSIT_PCT set only. The ex VAT line stays the full ex VAT. The note
+ *     "Display only. The orders keep their full value; the voucher is taken off at invoice."
+ *   - REMOVED: the per-row "Deposit £…" (the Estimate's custbody_deposit) and data-deposit.
+ *   - Server: a posted eligibility must be blank or an option; written in the final opportunity write (the second
+ *     submitFields) only when changed (banner key bus_elig, UE 1.5.4). CreateOrderSL.BUS logs the figures (audit).
  *
  * CHANGELOG v1.3.2 (amendment 6 — several quotes when NetSuite closes the siblings, Steve's Production tests 7 Oct):
  *   - FIXED: with two quotes ticked only the first converted; the second was refused "is not an open quote on this
@@ -141,7 +160,7 @@ define([
 
     'use strict';
 
-    var SCRIPT_VERSION = '1.3.2';
+    var SCRIPT_VERSION = '1.4.0';
 
     /** Page rules for the shared update fields: Next contact must end up set (D3, as Update Opportunity). */
     var RULES = { required: ['next_contact'], logKey: 'CreateOrderSL.OppUpdate' };
@@ -153,8 +172,17 @@ define([
 
     var OPP_FIELDS = {
         subStatus: 'custbody_opportunity_sub_status',
-        valueProp: 'custbody_value_proposition'
+        valueProp: 'custbody_value_proposition',
+        busElig:   'custbody_bus_eligibility'   // 1.4.0: list customlist_bus_eligibility; options read at run time
     };
+
+    /**
+     * 1.4.0: the quote type record and its "requires installer certs" checkbox — a ticked quote whose type has it
+     * ticked is a heat pump quote, so the BUS voucher applies (Steve, 7 Oct: the readiness rule already in use).
+     * ⚠️ Sandbox check S22: the field ID is not referenced anywhere else in this repository; a failed search is
+     * logged at error with the raw message and means "no heat pump quote" (no deduction shown).
+     */
+    var QUOTE_TYPE = { record: 'customrecord16', hpField: 'custrecord_qt_requires_installer_certs' };
     var LISTS = {
         projType: 'customlist_bund_proj_type',
         auth:     'customlist_order_auth'
@@ -175,7 +203,9 @@ define([
         projTypeMixed:   'ORDER_PROJTYPE_MIXED',
         prepayTerms:     'PREPAY_TERMS',
         parentOppField:  'ORDER_PARENT_OPP_FIELD',
-        emailTemplates:  'ORDER_EMAIL_TEMPLATES'   // 1.2.0: the confirmation templates offered, in display order
+        emailTemplates:  'ORDER_EMAIL_TEMPLATES',  // 1.2.0: the confirmation templates offered, in display order
+        busAmounts:      'ORDER_BUS_AMOUNTS',      // 1.4.0: JSON {"<eligibility id>": "<£ amount>"}; display only
+        depositPct:      'ORDER_DEPOSIT_PCT'       // 1.4.0: number 0–100; display only
     };
     var SETTING_KEYS = Object.keys(S).map(function (k) { return S[k]; });
 
@@ -224,6 +254,7 @@ define([
         noTemplates:  'No confirmation templates are set up (ORDER_EMAIL_TEMPLATES).',
         badTemplates: 'The confirmation templates could not be read.',
         attachNote:   'Attached to the confirmation email.',
+        busNote:      'Display only. The orders keep their full value; the voucher is taken off at invoice.',   // 1.4.0
         tplLabel:     'Confirmation email template'
     };
 
@@ -279,6 +310,39 @@ define([
     /** The settings value for a key: trimmed, '' when missing (missing, blank, duplicate, unreadable). */
     function setting(settings, key) {
         return Object.prototype.hasOwnProperty.call(settings.values, key) ? String(settings.values[key]).trim() : '';
+    }
+
+    /** 1.4.0: ORDER_BUS_AMOUNTS — { "<id>": amount > 0 }. Unreadable → {} (no voucher anywhere; logged). */
+    function amountMapSetting(settings, key) {
+        var raw = setting(settings, key);
+        if (!raw) return {};
+        try {
+            var m = JSON.parse(raw);
+            if (!m || typeof m !== 'object' || Array.isArray(m)) throw new Error('not an object');
+            var out = {};
+            Object.keys(m).forEach(function (k) {
+                var v = String(m[k] === null || m[k] === undefined ? '' : m[k]).trim();
+                if (!ID_RE.test(String(k).trim()) || !/^\d{1,7}(\.\d{1,2})?$/.test(v) || !(parseFloat(v) > 0)) {
+                    throw new Error('"' + k + '" → "' + v + '" is not id → amount');
+                }
+                out[String(k).trim()] = parseFloat(v);
+            });
+            return out;
+        } catch (e) {
+            log.error('CreateOrderSL.Config', key + ' could not be read (' + e.message + '); no BUS voucher is shown');
+            return {};
+        }
+    }
+
+    /** 1.4.0: ORDER_DEPOSIT_PCT — a number 0–100, else null (no deposit line; logged when not blank). */
+    function pctSetting(settings, key) {
+        var v = setting(settings, key);
+        if (!v) return null;
+        if (!/^\d{1,3}(\.\d{1,2})?$/.test(v) || parseFloat(v) > 100) {
+            log.error('CreateOrderSL.Config', key + ' = "' + v.substring(0, 20) + '" is not a number from 0 to 100; no deposit is shown');
+            return null;
+        }
+        return parseFloat(v);
     }
 
     /** An id setting: digits, else '' (logged). */
@@ -344,6 +408,8 @@ define([
             prepayTerms:     idListSetting(settings, S.prepayTerms),
             parentOppField:  '',
             emailTemplates:  idListSetting(settings, S.emailTemplates),   // 1.2.0
+            busAmounts:      amountMapSetting(settings, S.busAmounts),   // 1.4.0
+            depositPct:      pctSetting(settings, S.depositPct),         // 1.4.0
             errors:          []
         };
         var m = setting(settings, S.mode).toUpperCase();
@@ -433,6 +499,65 @@ define([
             else log.error('CreateOrderSL.Config', S.subStatusOpts + ': ' + id + ' is not a sub-status option; not offered');
         });
         return out;
+    }
+
+    /**
+     * 1.4.0: the BUS eligibility options — the opportunity field's own (getSelectOptions), plus the current value
+     * when it isn't among them (an inactive option), so pre-selecting it never clears it. Options unreadable → [].
+     */
+    function busOptions(oppRecord) {
+        var opts = fieldOptions(oppRecord, OPP_FIELDS.busElig);
+        var cur = currentValue(oppRecord, OPP_FIELDS.busElig);
+        if (opts.length && cur && !hasOption(opts, cur)) {   // unreadable options → [] (no select, nothing written)
+            var text = '';
+            try { text = lib.cleanText(oppRecord.getText({ fieldId: OPP_FIELDS.busElig }) || ''); } catch (e) { text = ''; }
+            opts.push({ id: cur, text: text || cur });
+        }
+        return opts;
+    }
+
+    /**
+     * 1.4.0: which quote types are heat pump types (QUOTE_TYPE.hpField ticked) — ONE search on the quote type
+     * record for the given type IDs. { ids: { typeId: true }, error }. A failure → no heat pump type (logged).
+     */
+    function heatPumpTypes(typeIds) {
+        var out = { ids: {}, error: '' };
+        var ids = (typeIds || []).map(String).filter(function (id, i, a) { return ID_RE.test(id) && a.indexOf(id) === i; });
+        if (!ids.length) return out;
+        try {
+            search.create({
+                type:    QUOTE_TYPE.record,
+                filters: [['internalid', 'anyof', ids]],
+                columns: ['internalid', QUOTE_TYPE.hpField]
+            }).run().each(function (r) {
+                var v = r.getValue({ name: QUOTE_TYPE.hpField });
+                if (v === true || v === 'T') out.ids[String(r.getValue({ name: 'internalid' }) || r.id)] = true;
+                return true;
+            });
+        } catch (e) {
+            out.error = e.message || String(e);
+            log.error('CreateOrderSL.BUS', QUOTE_TYPE.record + '.' + QUOTE_TYPE.hpField + ' could not be read for types ' + ids.join(',') +
+                ' (' + out.error + '); no quote counts as a heat pump quote, so no BUS voucher is deducted');
+        }
+        return out;
+    }
+
+    /** 1.4.0: round to pence (the page's own rounding is the same). */
+    function pence(x) { return Math.round((x + 1e-9) * 100) / 100; }
+
+    /**
+     * 1.4.0: the display-only BUS figures — the SAME rule as the page's busFigures (static script). Never written
+     * to any transaction: the orders keep their full value; the voucher is taken off at invoice.
+     *   voucher = the eligibility's amount when at least one ticked quote is a heat pump quote (once), else 0
+     *   pays    = max(0, total inc VAT − voucher)
+     *   deposit = round(pays × pct / 100, 2) — for up-front customers with a deposit % only, else null
+     */
+    function busFigures(o) {
+        var amount = Object.prototype.hasOwnProperty.call(o.amounts || {}, String(o.eligibility || '')) ? o.amounts[String(o.eligibility)] : 0;
+        var voucher = amount > 0 && o.hp ? amount : 0;
+        var pays = Math.max(0, pence((o.total || 0) - voucher));
+        var deposit = (o.upFront && o.pct !== null && o.pct !== undefined) ? pence(pays * o.pct / 100) : null;
+        return { amount: amount, voucher: voucher, pending: amount > 0 && !o.hp, pays: pays, deposit: deposit };
     }
 
     function hasOption(options, id) {
@@ -595,6 +720,12 @@ define([
         }
         page.valueProps   = fieldOptions(opp, OPP_FIELDS.valueProp);
         page.valuePropCur = currentValue(opp, OPP_FIELDS.valueProp);
+        page.busOpts      = busOptions(opp);                                 // 1.4.0
+        page.busCur       = currentValue(opp, OPP_FIELDS.busElig);
+        page.busAmounts   = cfg.busAmounts;
+        page.depositPct   = cfg.depositPct;
+        // 1.4.0: heat pump quote types — one search, only when a voucher can apply at all
+        page.hpTypes      = Object.keys(cfg.busAmounts).length ? heatPumpTypes(page.quotes.map(function (q) { return q.quoteTypeId; })).ids : {};
         page.senders      = senderOptions(opp);
         var tpl           = loadTemplates(cfg.emailTemplates);   // 1.2.0
         page.templates    = tpl.list;
@@ -629,6 +760,29 @@ define([
             optionsHTML(options, selected, '') + '</select></div>';
     }
 
+    /**
+     * 1.4.0: BUS eligibility — optional; the opportunity's options + "Not set"; each option carries the voucher it
+     * means (data-voucher, from ORDER_BUS_AMOUNTS) and a short label; the voucher shown read-only beside it.
+     * No options readable → no select (nothing posted, nothing written).
+     */
+    function busFieldHTML(page, selected) {
+        if (!page.busOpts.length) return '';
+        var opts = '<option value="" data-voucher="0" data-short="">Not set</option>' + page.busOpts.map(function (o) {
+            var amt = Object.prototype.hasOwnProperty.call(page.busAmounts, o.id) ? page.busAmounts[o.id] : 0;
+            return '<option value="' + escapeHtml(o.id) + '" data-voucher="' + amt + '" data-short="' + escapeHtml(busShort(o.text)) + '"' +
+                (o.id === String(selected || '') ? ' selected' : '') + '>' + escapeHtml(o.text) + '</option>';
+        }).join('');
+        return '<div class="nsq-field"><label class="nsq-label" for="nsq-bus">BUS eligibility <span class="nsq-opt">(optional)</span></label>' +
+            '<div class="nsq-bus-row"><select id="nsq-bus" name="custpage_bus_elig" class="nsq-input">' + opts + '</select>' +
+            '<span class="nsq-bus-voucher" id="nsq-bus-voucher" aria-live="polite"></span></div></div>';
+    }
+
+    /** 1.4.0: "Standard BUS (£7500)" → "Standard" for the totals line; anything else as it is. */
+    function busShort(text) {
+        var t = String(text || '').replace(/\s*\([^)]*\)\s*$/, '').replace(/\s*\bBUS\b\s*/i, ' ').trim();
+        return t || String(text || '');
+    }
+
     function switchHTML(id, label, on, offId) {
         return '<label class="nsq-switch"><input type="checkbox" id="' + id + '"' + (on ? ' checked' : '') + '> ' + escapeHtml(label) + '</label>' +
             '<span class="nsq-off" id="' + offId + '"' + (on ? ' hidden' : '') + '>Off</span>';
@@ -636,8 +790,8 @@ define([
 
     /**
      * 1.2.0: one compact row per quote (~56px): tick · number + description (one line, ellipsis, full text on
-     * hover) · type · created · Units · Commission · total (1.3.0: no template column) (ex VAT and deposit small
-     * beneath). The inputs sit inline; an unticked row greys them out (disabled) at the same height. At phone
+     * hover) · type · created · Units · Commission · total (1.3.0: no template column) (ex VAT small beneath; 1.4.0:
+     * the Estimate's deposit is no longer shown on the row — the totals work it out from what the customer pays). The inputs sit inline; an unticked row greys them out (disabled) at the same height. At phone
      * width the inputs wrap to a second line. Totals sit in data- attributes for the live totals only.
      */
     function quoteRowHTML(q, page, r) {
@@ -650,13 +804,12 @@ define([
         var link = estimateUrl(q.id);
         var name = q.tranId || ('Quote ' + q.id);
         var text = q.description || q.title;
-        var deposit = page.upFront && q.deposit !== null && q.deposit > 0 ? q.deposit : null;
         var id = escapeHtml(q.id);
         var uid = 'nsq-units-' + q.id, cid = 'nsq-comm-' + q.id;
         var h = [];
         h.push('<div class="nsq-qrow' + (sel ? ' nsq-qrow-on' : '') + '" data-qid="' + id + '" data-tranid="' + escapeHtml(name) +
             '" data-total="' + escapeHtml(q.total === null ? '' : String(q.total)) + '" data-exvat="' + escapeHtml(q.exVat === null ? '' : String(q.exVat)) +
-            '" data-deposit="' + escapeHtml(deposit === null ? '' : String(deposit)) + '" data-projtype="' + escapeHtml(pt) + '">');
+            '" data-hp="' + (page.hpTypes[q.quoteTypeId] ? '1' : '0') + '" data-projtype="' + escapeHtml(pt) + '">');   // 1.4.0: no per-row deposit
         h.push('<label class="nsq-qtick"><input type="checkbox" class="nsq-qsel" data-qid="' + id + '"' + (sel ? ' checked' : '') +
             ' aria-label="Order ' + escapeHtml(name) + '"></label>');
         var full = name + (text ? ' · ' + text : '');
@@ -677,8 +830,7 @@ define([
             '" maxlength="12" autocomplete="off" value="' + escapeHtml(comm) + '"><span class="nsq-comm-calc" aria-live="polite"' + (kind === 'pct' ? '' : ' hidden') + '></span></span></div>');
         h.push('</div>');
         h.push('<div class="nsq-qprice"><strong>' + escapeHtml(q.total === null ? '—' : orderLib.money(q.total)) + '</strong>' +
-            (q.exVat === null ? '' : '<span class="nsq-qsub">' + escapeHtml(orderLib.money(q.exVat)) + ' ex VAT</span>') +
-            (deposit === null ? '' : '<span class="nsq-qsub nsq-dep">Deposit ' + escapeHtml(orderLib.money(deposit)) + '</span>') + '</div>');
+            (q.exVat === null ? '' : '<span class="nsq-qsub">' + escapeHtml(orderLib.money(q.exVat)) + ' ex VAT</span>') + '</div>');
         h.push('</div>');
         return h.join('');
     }
@@ -689,7 +841,8 @@ define([
         var emailFresh = !restore || !emailOn;
         var h = [];
         h.push(lib.baseCss() + PAGE_CSS);
-        h.push('<div id="nsq-root" class="nsq" data-opp-url="' + escapeHtml(page.oppUrl) + '" data-upfront="' + (page.upFront ? '1' : '0') + '">');
+        h.push('<div id="nsq-root" class="nsq" data-opp-url="' + escapeHtml(page.oppUrl) + '" data-upfront="' + (page.upFront ? '1' : '0') +
+            '" data-deposit-pct="' + (page.depositPct === null ? '' : String(page.depositPct)) + '">');
         h.push('<div class="nsq-wrap">');
         h.push(lib.buildHeaderHTML(page, COPY.title));
         if (error) h.push(lib.buildErrorAlertHTML(error.lead, error.message));
@@ -709,8 +862,11 @@ define([
             h.push('<p class="nsq-help">Tick each quote to order. One sales order is created per quote.</p>');
             page.quotes.forEach(function (q) { h.push(quoteRowHTML(q, page, r)); });
             // 1.2.0: the live total of the ticked quotes (display only — the server never reads it)
+            // 1.4.0: + the BUS voucher / customer pays / deposit line and the display-only note
             h.push('<div class="nsq-qtotal" id="nsq-qtotal" aria-live="polite"><div class="nsq-qtotal-line" id="nsq-qtotal-line"></div>' +
-                '<div class="nsq-qtotal-ex" id="nsq-qtotal-ex"></div></div>');
+                '<div class="nsq-qtotal-bus" id="nsq-qtotal-bus"></div>' +
+                '<div class="nsq-qtotal-ex" id="nsq-qtotal-ex"></div>' +
+                '<div class="nsq-qtotal-note" id="nsq-qtotal-note" hidden>' + escapeHtml(COPY.busNote) + '</div></div>');
         }
         h.push('</section>');
 
@@ -721,6 +877,7 @@ define([
             ' data-mixed="' + escapeHtml(page.mixed) + '"' + (r.projType ? ' data-touched="1"' : '')));
         h.push(selectHTML('nsq-auth', 'custpage_auth', 'Order authority', page.auths, r.auth || ''));
         h.push(selectHTML('nsq-rep', 'custpage_rep', 'Sales rep taking the order', page.reps, restore ? (r.rep || '') : page.repDefault));
+        h.push(busFieldHTML(page, restore ? (r.busElig || '') : page.busCur));   // 1.4.0
         h.push('</div></section>');
 
         // ── 3 Update the opportunity ──
@@ -769,7 +926,7 @@ define([
 
         // ── Sticky footer ──
         h.push('<div class="nsq-footer"><div class="nsq-footer-in">');
-        h.push('<div class="nsq-sum"><div class="nsq-sum-main" id="nsq-sum-line"></div><div class="nsq-sum-ex" id="nsq-sum-ex"></div>' +
+        h.push('<div class="nsq-sum"><div class="nsq-sum-main" id="nsq-sum-line"></div><div class="nsq-sum-bus" id="nsq-sum-bus"></div><div class="nsq-sum-ex" id="nsq-sum-ex"></div>' +
             '<div class="nsq-sum-sub" id="nsq-sum-changes"></div></div>');
         h.push('<div class="nsq-actions"><span class="nsq-reason" id="nsq-reason"></span>' +
             '<a class="nsq-btn nsq-btn-link" href="' + escapeHtml(page.oppUrl) + '">Cancel</a>' +
@@ -826,10 +983,15 @@ define([
         '.nsq-qprice{grid-area:price;text-align:right;white-space:nowrap;line-height:1.2;}' +
         '.nsq-qprice strong{display:block;font-size:14px;}' +
         '.nsq-qsub{display:block;font-size:11px;color:' + lib.PAGE_COLORS.muted + ';}' +
-        '.nsq-dep{color:' + lib.PAGE_COLORS.accent + ';font-weight:600;}' +
         '.nsq-tag-exp{display:inline-block;background:#fbeaea;color:#7a1d1d;border-radius:999px;padding:0 7px;font-size:11px;font-weight:600;vertical-align:1px;}' +
         '.nsq-qtotal{margin-top:10px;padding-top:10px;border-top:1px solid ' + lib.PAGE_COLORS.border + ';text-align:right;}' +
         '.nsq-qtotal-line{font-weight:600;}' +
+        // 1.4.0: the BUS line (customer pays bold), the display-only note, the eligibility select + its voucher
+        '.nsq-qtotal-bus,.nsq-sum-bus{font-size:13px;}.nsq-qtotal-bus strong,.nsq-sum-bus strong{font-weight:600;}' +
+        '.nsq-qtotal-note{font-size:11px;color:' + lib.PAGE_COLORS.muted + ';margin-top:2px;}' +
+        '.nsq-qtotal-note[hidden]{display:none;}' +
+        '.nsq-bus-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap;}.nsq-bus-row select{flex:1 1 180px;min-width:0;}' +
+        '.nsq-bus-voucher{font-size:14px;color:' + lib.PAGE_COLORS.muted + ';white-space:nowrap;}' +
         '.nsq-qtotal-ex,.nsq-sum-ex{font-size:12px;color:' + lib.PAGE_COLORS.muted + ';}' +
         '.nsq-seg-row{display:inline-flex;flex:0 0 auto;border:1px solid ' + lib.PAGE_COLORS.border + ';border-radius:8px;overflow:hidden;}' +
         '.nsq-seg{position:relative;cursor:pointer;}' +
@@ -911,6 +1073,7 @@ define([
         '      each(r.querySelectorAll(".nsq-comm-kind"), function (k) { k.addEventListener("change", update); });',
         '    });',
         '    ["nsq-auth", "nsq-rep", "nsq-substatus", "nsq-valueprop", "nsq-email-tpl"].forEach(function (id) { $(id).addEventListener("change", update); });',
+        '    if ($("nsq-bus")) $("nsq-bus").addEventListener("change", update);',   // 1.4.0
         '    $("nsq-att").addEventListener("change", update);',
         '    var from = $("nsq-email-from"), note = $("nsq-email-note");',
         '    function setNote() {',
@@ -959,17 +1122,37 @@ define([
         '    }',
         '    return "";',
         '  }',
+        '  function pence(x) { return Math.round((x + 1e-9) * 100) / 100; }',
+        '  function busOpt() { var s = $("nsq-bus"); return s ? s.options[s.selectedIndex] : null; }',
+        '  function busFigures(total, hp) {',   // 1.4.0: display only — the same rule as the server's busFigures (the log)
+        '    var o = busOpt(), amount = o ? parseFloat(o.getAttribute("data-voucher")) || 0 : 0;',
+        '    var voucher = amount > 0 && hp ? amount : 0, pays = Math.max(0, pence(total - voucher));',
+        '    var pctRaw = root.getAttribute("data-deposit-pct"), pct = pctRaw === "" ? null : parseFloat(pctRaw);',
+        '    var deposit = root.getAttribute("data-upfront") === "1" && pct !== null ? pence(pays * pct / 100) : null;',
+        '    return { amount: amount, voucher: voucher, pending: amount > 0 && !hp, pays: pays, deposit: deposit, pct: pct, short: o ? o.getAttribute("data-short") : "" };',
+        '  }',
         '  function totals() {',
-        '    var t = tickedRows(), sum = 0, ex = 0, dep = 0, exMissing = false;',
+        '    var t = tickedRows(), sum = 0, ex = 0, exMissing = false, hp = false;',
         '    t.forEach(function (r) {',
         '      sum += parseFloat(r.getAttribute("data-total")) || 0;',
         '      var e = r.getAttribute("data-exvat"); if (e === "") exMissing = true; else ex += parseFloat(e) || 0;',
-        '      dep += parseFloat(r.getAttribute("data-deposit")) || 0;',
+        '      if (r.getAttribute("data-hp") === "1") hp = true;',   // one voucher per submission, however many heat pump quotes
         '    });',
-        '    var line = t.length + " order" + (t.length === 1 ? "" : "s") + " · " + money(sum) + " inc VAT" +',
-        '      (root.getAttribute("data-upfront") === "1" ? " · Deposit " + money(dep) : "");',
-        '    var exLine = !t.length ? "" : (exMissing ? "ex VAT not available for every quote" : money(ex) + " ex VAT");',
-        '    return { line: line, ex: exLine };',
+        '    var line = t.length + " order" + (t.length === 1 ? "" : "s") + " · " + money(sum) + " inc VAT";',
+        '    var exLine = !t.length ? "" : (exMissing ? "ex VAT not available for every quote" : money(ex) + " ex VAT");',   // the FULL ex VAT
+        '    var b = busFigures(sum, hp), parts = [];',
+        '    var dep = b.deposit === null ? "" : "Deposit (" + String(b.pct) + "%) " + money(b.deposit);',
+        '    if (b.voucher > 0) parts.push(document.createTextNode("BUS voucher" + (b.short ? " (" + b.short + ")" : "") + " −" + money(b.voucher) + " · "),',
+        '      bold("Customer pays " + money(b.pays)));',
+        '    else if (b.pending) parts.push(document.createTextNode("BUS voucher: applies when a heat pump quote is ordered"));',
+        '    if (dep) parts.push(document.createTextNode((parts.length ? " · " : "") + dep));',
+        '    return { line: line, ex: exLine, bus: t.length ? parts : [], note: t.length > 0 && (b.voucher > 0 || b.pending) };',
+        '  }',
+        '  function bold(text) { var s = document.createElement("strong"); s.textContent = text; return s; }',
+        '  function fill(el, nodes) { if (!el) return; while (el.firstChild) el.removeChild(el.firstChild); nodes.forEach(function (n) { el.appendChild(n.cloneNode(true)); }); }',
+        '  function busVoucherText() {',   // 1.4.0: beside the select — the voucher the eligibility means
+        '    var o = busOpt(), a = o ? parseFloat(o.getAttribute("data-voucher")) || 0 : 0;',
+        '    return a > 0 ? "Voucher " + money(a).replace(/\\.00$/, "") : "No voucher";',
         '  }',
         '  function commCalc(r) {',   // % × the row's ex VAT, display only (the server recalculates from the SO). 1.3.1: "→ £…" inline,
         '    var out = r.querySelector(".nsq-comm-calc"); if (!out) return;',   // % only; blank or 0 → £0.00; nothing for an invalid entry
@@ -982,8 +1165,13 @@ define([
         '  function summary() {',   // also refreshes the section 1 total, the footer's ex VAT line and the commission £ (display only)
         '    each(rows(), commCalc);',
         '    var tt = totals();',
-        '    if ($("nsq-qtotal-line")) { $("nsq-qtotal-line").textContent = tt.line; $("nsq-qtotal-ex").textContent = tt.ex; }',
+        '    if ($("nsq-qtotal-line")) {',
+        '      $("nsq-qtotal-line").textContent = tt.line; $("nsq-qtotal-ex").textContent = tt.ex;',
+        '      fill($("nsq-qtotal-bus"), tt.bus); $("nsq-qtotal-note").hidden = !tt.note;',
+        '    }',
+        '    fill($("nsq-sum-bus"), tt.bus);',
         '    $("nsq-sum-ex").textContent = tt.ex;',
+        '    if ($("nsq-bus-voucher")) $("nsq-bus-voucher").textContent = busVoucherText();',
         '    return tt.line;',
         '  }',
         '  function beforeSubmit() {',
@@ -1038,6 +1226,7 @@ define([
             rep:       String(params.custpage_rep || ''),
             subStatus: String(params.custpage_substatus || ''),
             valueProp: String(params.custpage_valueprop || ''),
+            busElig:   String(params.custpage_bus_elig || ''),   // 1.4.0
             upd:       lib.readPostedUpdateValues(params),
             emailOn:   params.custpage_email_on === 'T',
             from:      String(params.custpage_email_from || ''),
@@ -1072,6 +1261,38 @@ define([
     }
 
     /** A failure reason with the quote's number: "EST901 is not an open quote…" / "EST901: total differs…". */
+    /**
+     * 1.4.0: CreateOrderSL.BUS — the eligibility (posted / was), whether a heat pump quote is ticked, the voucher,
+     * customer pays, the deposit and its %. Audit only: the figures are display-only and written nowhere. One
+     * quote type search (10) + the customer's terms (1), only when a voucher or a deposit can show.
+     */
+    function logBus(opportunityId, cfg, quotes, eligibility, posted, was, customerId) {
+        try {
+            if (!Object.keys(cfg.busAmounts).length && cfg.depositPct === null) {
+                log.audit('CreateOrderSL.BUS', 'Opportunity ' + opportunityId + ' — eligibility ' + (posted ? (eligibility || 'blank') : 'not posted') +
+                    ' (was ' + (was || 'blank') + '); ' + S.busAmounts + ' and ' + S.depositPct + ' not set — nothing to show');
+                return;
+            }
+            var hp = heatPumpTypes(quotes.map(function (x) { return x.q.quoteTypeId; }));
+            var hpQuotes = quotes.filter(function (x) { return hp.ids[x.q.quoteTypeId]; }).map(function (x) { return x.q.tranId || x.q.id; });
+            var total = pence(quotes.reduce(function (a, x) { return a + (x.q.total || 0); }, 0));
+            var upFront = false;
+            if (cfg.depositPct !== null && ID_RE.test(String(customerId))) {
+                var f = search.lookupFields({ type: search.Type.CUSTOMER, id: customerId, columns: ['terms'] }) || {};
+                upFront = orderLib.paysUpFront(firstId(f.terms), cfg.prepayTerms);
+            }
+            var b = busFigures({ total: total, eligibility: eligibility, amounts: cfg.busAmounts, hp: hpQuotes.length > 0, pct: cfg.depositPct, upFront: upFront });
+            log.audit('CreateOrderSL.BUS', 'Opportunity ' + opportunityId + ' — eligibility ' + (posted ? (eligibility || 'blank') : 'not posted') +
+                ' (was ' + (was || 'blank') + '); heat pump quote ticked: ' + (hpQuotes.length ? 'yes (' + hpQuotes.join(', ') + ')' : 'no') +
+                (hp.error ? ' [types unreadable]' : '') + '; total ' + orderLib.money(total) + ' inc VAT; voucher ' + orderLib.money(b.voucher) +
+                (b.pending ? ' (eligible, no heat pump quote)' : '') + '; customer pays ' + orderLib.money(b.pays) +
+                '; deposit ' + (b.deposit === null ? 'none' : orderLib.money(b.deposit)) + ' (' + (cfg.depositPct === null ? 'no %' : cfg.depositPct + '%') +
+                ', ' + (upFront ? 'up front' : 'account customer') + '). Display only — the orders keep their full value');
+        } catch (e) {
+            log.error('CreateOrderSL.BUS', 'Opportunity ' + opportunityId + ' — the BUS figures could not be logged: ' + e.message);
+        }
+    }
+
     /** 1.3.2: the worst case for n quotes (see QUOTE_UNITS): checked once, before any write. */
     function usageNeeded(n, emailOn) {
         return MIN_USAGE_TO_CONVERT + n * QUOTE_UNITS + (emailOn ? EMAIL_UNITS : 0);
@@ -1237,6 +1458,22 @@ define([
         if (!valueProp) return invalid('Choose a value proposition.');
         if (!hasOption(fieldOptions(opp, OPP_FIELDS.valueProp), valueProp)) return invalid('Choose a value proposition from the list.');
 
+        // 1.4.0: BUS eligibility — optional; blank or one of the field's options. Not posted (no select on the page,
+        // the options unreadable) → not written.
+        var busPosted = Object.prototype.hasOwnProperty.call(params, 'custpage_bus_elig');
+        var busElig = String(params.custpage_bus_elig || '').trim();
+        var busWas = currentValue(opp, OPP_FIELDS.busElig);
+        if (busPosted) {
+            var busOpts = busOptions(opp);
+            if (!busOpts.length) {
+                busPosted = false;
+                log.error('CreateOrderSL.BUS', 'Opportunity ' + opportunityId + ' — ' + OPP_FIELDS.busElig + ' options could not be read; posted "' +
+                    busElig.substring(0, 20) + '" not written');
+            } else if (busElig && !hasOption(busOpts, busElig)) {
+                return invalid('Choose a BUS eligibility from the list.');
+            }
+        }
+
         // The status the parameter names must be one of this opportunity's options (else not written; amber)
         var statusTo = '', statusProblem = false;
         if (cfg.oppStatus) {
@@ -1255,6 +1492,9 @@ define([
                 (emailOn ? ' + the email' : '') + ' need up to ' + needed + ' units; ' + left + ' left');
             return invalid('These ' + quotes.length + ' orders can’t all be created in one go (NetSuite’s usage limit). Create fewer at a time.');
         }
+
+        // ── 1.4.0: the BUS figures, for the audit log only — nothing here is written to any transaction ──
+        logBus(opportunityId, cfg, quotes, busPosted ? busElig : busWas, busPosted, busWas, customerId);
 
         // ── Save guard — before the first write ─────────────────────────────────
         var guard = claimToken(restore.token, opportunityId);
@@ -1357,6 +1597,7 @@ define([
         var extra = {}, extraKeys = [];
         if (subStatus !== currentValue(opp, OPP_FIELDS.subStatus)) { extra[OPP_FIELDS.subStatus] = subStatus; extraKeys.push('sub_status'); }
         if (valueProp !== currentValue(opp, OPP_FIELDS.valueProp)) { extra[OPP_FIELDS.valueProp] = valueProp; extraKeys.push('value_prop'); }
+        if (busPosted && busElig !== busWas) { extra[OPP_FIELDS.busElig] = busElig; extraKeys.push('bus_elig'); }   // 1.4.0: only when changed
         if (statusTo && statusTo !== currentValue(opp, 'entitystatus')) { extra.entitystatus = statusTo; extraKeys.push('entitystatus'); }
         var extraError = '';
         if (extraKeys.length) {

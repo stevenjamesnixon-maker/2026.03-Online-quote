@@ -21,6 +21,7 @@
  *   C62–C64  amendment 3: partner commission always written as £ (C22 updated: % now writes both fields)
  *   amendment 4: C41–C43b rewritten — one template select, one email per submission filed on the opportunity
  *   C65      amendment 5: the commission £ inline ("→ £64.33", % only); C41: the attachments note
+ *   C67      amendment 7: BUS eligibility select + write-back; the voucher / customer pays / deposit totals (display only)
  *   C66      amendment 6: two phases (orderLib.convertQuotes) — the stub closes the siblings on save, as Production
  *
  *   node test/create-order.js
@@ -96,17 +97,20 @@ function resetState() {
             custbody_opportunity_sub_status: '40', custbody_value_proposition: '2',
             custbody_opp_site_adress: '1 Test Street',
             custbody_next_contact: new Date(2026, 9, 20), custbody_opp_del_date: new Date(2026, 10, 15),
-            custbody_build_stage: '3', expectedclosedate: new Date(2026, 11, 20), custbody_parent_opp: ''
+            custbody_build_stage: '3', expectedclosedate: new Date(2026, 11, 20), custbody_parent_opp: '',
+            custbody_bus_eligibility: '1'   // amendment 7
         },
-        oppTexts: { entity: 'Customer Ltd', entitystatus: 'Proposal', salesrep: 'Rita Rep' },
-        fieldTypes: { entitystatus: 'select', custbody_next_contact: 'date', custbody_opp_del_date: 'date', custbody_build_stage: 'select',
+        oppTexts: { entity: 'Customer Ltd', entitystatus: 'Proposal', salesrep: 'Rita Rep', custbody_bus_eligibility: 'Standard BUS (£7500)' },
+        fieldTypes: { custbody_bus_eligibility: 'select', entitystatus: 'select', custbody_next_contact: 'date', custbody_opp_del_date: 'date', custbody_build_stage: 'select',
                       expectedclosedate: 'date', custbody_opportunity_sub_status: 'select', custbody_value_proposition: 'select' },
         options: {
             entitystatus: [{ value: '10', text: 'Proposal' }, { value: '12', text: 'Quoted' }, { value: '13', text: 'Closed Won' }],
             custbody_build_stage: [{ value: '3', text: 'Foundations' }, { value: '4', text: 'Roof on' }],
             custbody_opportunity_sub_status: [{ value: '', text: '' }, { value: '40', text: 'Quoted' }, { value: '41', text: 'Awaiting Design Info' },
                                               { value: '42', text: 'Design Required' }, { value: '43', text: 'On &amp; hold' }],
-            custbody_value_proposition: [{ value: '1', text: 'UFH Design' }, { value: '2', text: 'UFH Design +' }, { value: '3', text: 'HP Design' }]
+            custbody_value_proposition: [{ value: '1', text: 'UFH Design' }, { value: '2', text: 'UFH Design +' }, { value: '3', text: 'HP Design' }],
+            custbody_bus_eligibility: [{ value: '', text: '' }, { value: '1', text: 'Standard BUS (£7500)' }, { value: '2', text: 'Enhanced BUS (£9000)' },
+                                       { value: '3', text: 'Ineligible for BUS' }]   // amendment 7
         },
         lookup: { custbody_next_contact: '20/10/2026' },
         lists: {
@@ -148,6 +152,8 @@ function resetState() {
         templates: { '3198': { name: 'Order confirmation – UFH', inactive: false }, '4186': { name: 'Order confirmation – Heat pump', inactive: false },
                      '3182': { name: 'Old confirmation', inactive: true }, '4185': { name: 'Order confirmation – Parts', inactive: false } },
         templateSearchThrows: null, repSearchThrows: null, mergeThrows: {}, merges: [], files: {},
+ quoteTypes: { '5': false, '6': true, '9': false },   // amendment 7: customrecord16 id → custrecord_qt_requires_installer_certs (6 = Heat Pump)
+        qtSearchThrows: null,
         closeOnSave: true        // amendment 6: as Production (7 Oct) — saving an SO marks its quote AND the opportunity's other open quotes Processed
     };
 }
@@ -379,6 +385,13 @@ var searchStub = {
                 .map(function (id) { return row({ internalid: id, entityid: state.employees[id].entityid }); });
             return resultSet(reps, state.repSearchThrows);
         }
+        if (o.type === 'customrecord16') {   // amendment 7: the quote types' "requires installer certs" checkbox
+            state.qtSearches = (state.qtSearches || 0) + 1;
+            var qids = fval(o.filters, 'internalid') || [];
+            return resultSet(Object.keys(state.quoteTypes).filter(function (id) { return anyof(qids, id); }).map(function (id) {
+                return row({ internalid: id, custrecord_qt_requires_installer_certs: state.quoteTypes[id] });
+            }), state.qtSearchThrows);
+        }
         if (o.type === 'emailtemplate') {
             var tids = fval(o.filters, 'internalid') || [];
             return resultSet(Object.keys(state.templates).filter(function (id) { return anyof(tids, id); }).map(function (id) {
@@ -527,12 +540,13 @@ ok(r901.indexOf('Expired') === -1, 'EST901 (due in future) is not');
 ok(between(g1, 'data-qid="903" data-tranid', 'nsq-qtotal').indexOf('Expired') === -1, 'EST903 (no due date) is not');
 ok(l1.quotes[1].expired === true && l1.quotes[0].expired === false, 'lib: expired flag');
 
-console.log('C3. Listing: deposit only for customers who pay up front');
-ok(r901.indexOf('Deposit £1,200.00') !== -1, 'up-front customer: the deposit is shown');
-ok(r902.indexOf('Deposit') === -1, 'a zero deposit is not shown');
+console.log('C3. Listing: no per-row deposit (amendment 7 — the totals work it out); up front only for prepay customers');
+ok(r901.indexOf('Deposit') === -1 && r902.indexOf('Deposit') === -1 && g1.indexOf('data-deposit=') === -1 && g1.indexOf('nsq-dep') === -1, 'no "Deposit £…" on any row, no data-deposit');
+ok(/class="nsq-qprice"><strong>£12,000\.00<\/strong><span class="nsq-qsub">£10,000\.00 ex VAT<\/span><\/div>/.test(r901), 'the row keeps its inc and ex VAT figures');
+ok(/data-upfront="1"/.test(g1), 'up-front customer: data-upfront 1');
 resetState(); state.customer.terms = [{ value: '4', text: '30 days' }];
 var g3 = runGet();
-ok(g3.indexOf('Deposit £') === -1, 'credit terms: no deposit anywhere');
+ok(g3.indexOf('Deposit £') === -1 && /data-upfront="0"/.test(g3), 'credit terms: data-upfront 0, no deposit anywhere');
 resetState(); setSetting('PREPAY_TERMS', '');
 ok(runGet().indexOf('Deposit £') === -1, 'prepay parameter empty: no deposit anywhere');
 ok(orderLib.paysUpFront('9', ['9']) === true && orderLib.paysUpFront('4', ['9']) === false && orderLib.paysUpFront('', ['9']) === true && orderLib.paysUpFront('9', []) === false,
@@ -635,9 +649,9 @@ ok(orderLib.inferProjectType([], MAP, '2') === '' && orderLib.inferProjectType([
 console.log('C19. The page carries the inference data (no data in the script)');
 resetState();
 var g19 = runGet();
-ok(/data-qid="901" data-tranid="EST901" data-total="12000" data-exvat="10000" data-deposit="1200" data-projtype="1"/.test(g19), 'UFH row → data-projtype 1');
-ok(/data-qid="902" data-tranid="EST902" data-total="2250" data-exvat="2142.86" data-deposit="" data-projtype="3"/.test(g19), 'HP row → 3');
-ok(/data-qid="903" data-tranid="EST903" data-total="500" data-exvat="416.67" data-deposit="" data-projtype=""/.test(g19), 'unmapped → empty');
+ok(/data-qid="901" data-tranid="EST901" data-total="12000" data-exvat="10000" data-hp="0" data-projtype="1"/.test(g19), 'UFH row → data-projtype 1');
+ok(/data-qid="902" data-tranid="EST902" data-total="2250" data-exvat="2142.86" data-hp="0" data-projtype="3"/.test(g19), 'HP row → 3');
+ok(/data-qid="903" data-tranid="EST903" data-total="500" data-exvat="416.67" data-hp="0" data-projtype=""/.test(g19), 'unmapped → empty');
 ok(/id="nsq-projtype" name="custpage_projtype" class="nsq-input" data-mixed="2"/.test(g19), 'the mixed id on the select');
 var s19 = between(g19, '<script>', '</script>');
 ok(s19.indexOf('EST901') === -1 && s19.indexOf('12000') === -1 && s19.indexOf('Customer Ltd') === -1, 'no record data inside the <script>');
@@ -943,12 +957,12 @@ ok(u43b && u43b.type === 'warning' && u43b.message === 'The confirmation email w
 console.log('C43c. Live totals (display only)');
 resetState();
 var g43c = runGet();
-ok(/data-qid="901" data-tranid="EST901" data-total="12000" data-exvat="10000" data-deposit="1200" data-projtype="1"/.test(g43c), 'row carries total, ex VAT and deposit (up front)');
+ok(/data-qid="901" data-tranid="EST901" data-total="12000" data-exvat="10000" data-hp="0" data-projtype="1"/.test(g43c), 'row carries total, ex VAT and the heat pump flag (amendment 7: no deposit)');
 ok(/id="nsq-root" class="nsq" data-opp-url="[^"]*" data-upfront="1"/.test(g43c) && g43c.indexOf('id="nsq-qtotal-line"') !== -1 && g43c.indexOf('id="nsq-sum-ex"') !== -1, 'the section 1 total and the footer ex VAT line');
-ok(g43c.indexOf('(root.getAttribute("data-upfront") === "1" ? " · Deposit " + money(dep) : "")') !== -1, 'deposit part only for up-front customers');
+ok(g43c.indexOf('var deposit = root.getAttribute("data-upfront") === "1" && pct !== null ? pence(pays * pct / 100) : null;') !== -1, 'deposit only for up-front customers with a deposit % (amendment 7)');
 resetState(); state.customer.terms = [{ value: '4', text: '30 days' }];
 var g43d = runGet();
-ok(/id="nsq-root" class="nsq" data-opp-url="[^"]*" data-upfront="0"/.test(g43d) && /data-qid="901"[^>]*data-deposit=""/.test(g43d), 'account customer: no deposit data, data-upfront 0');
+ok(/id="nsq-root" class="nsq" data-opp-url="[^"]*" data-upfront="0"/.test(g43d), 'account customer: data-upfront 0');
 resetState();
 runPost(post({ custpage_q_sel: '["901"]', custpage_total: '1', custpage_qtotal: '1' }));
 ok(writesOf('create', 'salesorder').length === 1, 'a posted total is ignored (the server never reads totals)');
@@ -983,7 +997,8 @@ function runUe(params, mode, role) {
     if (role) state.roleId = role;
     var buttons = [];
     var form = { addButton: function (b) { buttons.push(b); }, removeButton: function () {}, addPageInitMessage: function (m) { state.pageMessages.push(m); } };
-    var rec = { id: '123', getText: function (o) { return { custbody_opportunity_sub_status: 'Awaiting Design Info', custbody_value_proposition: 'HP Design' }[o.fieldId] || ''; },
+    var rec = { id: '123', getText: function (o) { return { custbody_opportunity_sub_status: 'Awaiting Design Info', custbody_value_proposition: 'HP Design',
+                                                             custbody_bus_eligibility: 'Enhanced BUS (£9000)' }[o.fieldId] || ''; },
                 getValue: function () { return ''; } };
     var t = null;
     try { ue.beforeLoad({ type: 'view', UserEventType: { VIEW: 'view' }, newRecord: rec, form: form, request: params ? { parameters: params } : undefined }); } catch (e) { t = e; }
@@ -1070,7 +1085,7 @@ var g53 = runGet();
 ok(g53.indexOf('nsq-qrow') !== -1 && state.settingsSearches === 1, 'the page renders; one settings search per request');
 ok(!state.calls.some(function (c) { return c.indexOf('getParameter:') === 0; }), 'no script parameter is read');
 var sl53 = state.logs.filter(function (l) { return l.title === 'CreateOrderSL.Settings'; });
-ok(sl53.length === 1 && /found: ORDER_MODE, ORDER_SO_FORM, ORDER_RECORD_STATUS, NEEDINFO_SUBSTATUS, ORDER_PROJTYPE_MAP, ORDER_PROJTYPE_MIXED, PREPAY_TERMS, ORDER_EMAIL_TEMPLATES \| missing: ORDER_SUBSTATUS_OPTIONS, ORDER_OPP_STATUS, ORDER_PARENT_OPP_FIELD$/.test(sl53[0].details) && sl53[0].level === 'audit',
+ok(sl53.length === 1 && /found: ORDER_MODE, ORDER_SO_FORM, ORDER_RECORD_STATUS, NEEDINFO_SUBSTATUS, ORDER_PROJTYPE_MAP, ORDER_PROJTYPE_MIXED, PREPAY_TERMS, ORDER_EMAIL_TEMPLATES \| missing: ORDER_SUBSTATUS_OPTIONS, ORDER_OPP_STATUS, ORDER_PARENT_OPP_FIELD, ORDER_BUS_AMOUNTS, ORDER_DEPOSIT_PCT$/.test(sl53[0].details) && sl53[0].level === 'audit',
    'audit once: found and missing keys (' + (sl53[0] && sl53[0].details) + ')');
 ok(sl53.length === 1 && sl53[0].details.indexOf('150') === -1 && sl53[0].details.indexOf('{"5"') === -1, 'no value in the log');
 var srch53 = state.calls.filter(function (c) { return c.indexOf('search:customrecord_cdb_setting') === 0; })[0];
@@ -1116,7 +1131,7 @@ ok(!state.cache[uiCacheKey()], 'a failed search is not cached');
 console.log('C57. A blank value counts as missing');
 resetState(); setSetting('ORDER_PROJTYPE_MAP', '   ');
 var g57 = runGet();
-ok(/data-qid="901" data-tranid="EST901" data-total="12000" data-exvat="10000" data-deposit="1200" data-projtype=""/.test(g57), 'blank ORDER_PROJTYPE_MAP → no inference');
+ok(/data-qid="901" data-tranid="EST901" data-total="12000" data-exvat="10000" data-hp="0" data-projtype=""/.test(g57), 'blank ORDER_PROJTYPE_MAP → no inference');
 resetState(); setSetting('ORDER_MODE', '');
 ok(runGet().indexOf('switched off') !== -1, 'blank ORDER_MODE → OFF');
 resetState(); setSetting('ORDER_PROJTYPE_MAP', '{"5": "x"}');
@@ -1130,7 +1145,7 @@ ok(/<option value="42" selected>Design Required/.test(between(runGet(), 'id="nsq
 resetState(); setSetting('NEEDINFO_SUBSTATUS', '41, 42');
 ok(/<option value="41" selected>Awaiting Design Info/.test(between(runGet(), 'id="nsq-substatus"', '</select>')), '"41, 42" → 41');
 resetState(); setSetting('PREPAY_TERMS', '4, 9');
-ok(runGet().indexOf('Deposit £1,200.00') !== -1, 'PREPAY_TERMS as an idlist (the dashboard’s value)');
+ok(/data-upfront="1"/.test(runGet()), 'PREPAY_TERMS as an idlist (the dashboard’s value) → up front');
 
 console.log('C59. The UE: cache miss, hit and failure');
 resetState();
@@ -1380,6 +1395,143 @@ runPost(p66g);
 var w66g = state.writes.length; state.redirect = null;
 var r66g = runPost(p66g);
 ok(state.writes.length === w66g && !r66g.redirect && r66g.html.indexOf('A ticked quote is not an open quote on this opportunity') !== -1, 'nothing written; "not an open quote … Please reload" (not the dup banner)');
+
+// ═══ Amendment 7: BUS voucher in the totals (display only) and the eligibility write-back ═══
+
+function busSettings(amounts, pct) {
+    setSetting('ORDER_BUS_AMOUNTS', amounts === undefined ? '{"1":"7500","2":"9000"}' : amounts);
+    setSetting('ORDER_DEPOSIT_PCT', pct === undefined ? '20' : pct);
+}
+console.log('C67a. The BUS eligibility select (section 2)');
+resetState(); busSettings();
+var g67 = runGet();
+var sel67 = between(g67, '<select id="nsq-bus"', '</select>');
+ok(/<label class="nsq-label" for="nsq-bus">BUS eligibility <span class="nsq-opt">\(optional\)<\/span><\/label>/.test(g67) && sel67.indexOf('name="custpage_bus_elig"') !== -1, 'optional, posted as custpage_bus_elig');
+ok(/^<select id="nsq-bus" name="custpage_bus_elig" class="nsq-input"><option value="" data-voucher="0" data-short="">Not set<\/option>/.test(sel67), 'a blank "Not set" first');
+ok(/<option value="1" data-voucher="7500" data-short="Standard" selected>Standard BUS \(£7500\)<\/option>/.test(sel67), 'pre-selected from the opportunity (1); its voucher 7500; short label "Standard"');
+ok(sel67.indexOf('<option value="2" data-voucher="9000" data-short="Enhanced">Enhanced BUS (£9000)</option>') !== -1 &&
+    sel67.indexOf('<option value="3" data-voucher="0" data-short="Ineligible for">Ineligible for BUS</option>') !== -1, 'the field’s options, read at run time; 3 (not in the map) → no voucher');
+ok(between(g67, 'Order details', '</section>').indexOf('id="nsq-bus-voucher"') !== -1, 'the read-only voucher beside it, in section 2');
+resetState(); busSettings(); state.oppValues.custbody_bus_eligibility = '';
+ok(between(runGet(), '<select id="nsq-bus"', '</select>').indexOf(' selected') === -1, 'blank on the opportunity → nothing pre-selected ("Not set" shows)');
+resetState(); busSettings(); state.oppValues.custbody_bus_eligibility = '4'; state.oppTexts.custbody_bus_eligibility = 'Old scheme (inactive)';
+ok(/<option value="4" data-voucher="0" data-short="Old scheme" selected>Old scheme \(inactive\)<\/option>/.test(runGet()), 'a current value that isn’t an option is kept and pre-selected (never cleared by accident)');
+resetState(); delete state.fieldTypes.custbody_bus_eligibility;
+ok(runGet().indexOf('id="nsq-bus"') === -1, 'the field’s options unreadable → no select');
+
+console.log('C67b. The heat pump flag: one search of the quote types (custrecord_qt_requires_installer_certs)');
+resetState(); busSettings();
+var g67b = runGet();
+ok(state.qtSearches === 1, 'one customrecord16 search when the page loads');
+ok(/data-qid="901"[^>]*data-hp="0"/.test(g67b) && /data-qid="902"[^>]*data-hp="1"/.test(g67b) && /data-qid="903"[^>]*data-hp="0"/.test(g67b), 'the HP quote type (6) → data-hp 1; UFH and Parts → 0');
+resetState(); busSettings('');
+var g67b2 = runGet();
+ok(!state.qtSearches && !/data-hp="1"/.test(g67b2), 'empty ORDER_BUS_AMOUNTS → no search, no heat pump flag');
+resetState(); busSettings(); state.qtSearchThrows = 'Invalid column custrecord_qt_requires_installer_certs';
+var g67b3 = runGet();
+ok(!/data-hp="1"/.test(g67b3) && logged('CreateOrderSL.BUS', /could not be read for types 5,6,9 \(Invalid column custrecord_qt_requires_installer_certs\); no quote counts as a heat pump quote/),
+    'the search failing → no heat pump quote (no deduction), logged with the raw message');
+
+console.log('C67c. The totals (the page’s own script, on stub rows)');
+resetState(); busSettings();
+var gs67 = runGet();
+function fnSrc(name) { var m = gs67.match(new RegExp('  function ' + name + '\\([^)]*\\) \\{[\\s\\S]*?\\n  \\}\\n')); if (!m) m = gs67.match(new RegExp('  function ' + name + '\\([^)]*\\) \\{[^\\n]*\\}\\n')); return m ? m[0] : ''; }
+var src67 = ['money', 'pence', 'busOpt', 'busFigures', 'totals', 'bold', 'busVoucherText'].map(fnSrc);
+ok(src67.every(function (x) { return x; }), 'money, pence, busOpt, busFigures, totals, bold, busVoucherText found in the page script');
+function pageTotals(o) {
+    // o: { rows: [[total, exVat, hp]], voucher, short, upFront, pct }
+    var opt = { getAttribute: function (a) { return a === 'data-voucher' ? String(o.voucher || 0) : (a === 'data-short' ? (o.short || '') : null); } };
+    var sel = { options: [opt], selectedIndex: 0 };
+    var root = { getAttribute: function (a) { return a === 'data-upfront' ? (o.upFront ? '1' : '0') : (a === 'data-deposit-pct' ? (o.pct === undefined ? '20' : o.pct) : null); } };
+    var rowsStub = o.rows.map(function (r) { return { getAttribute: function (a) { return { 'data-total': String(r[0]), 'data-exvat': String(r[1]), 'data-hp': r[2] ? '1' : '0' }[a]; } }; });
+    var doc = { createTextNode: function (t) { return { text: t }; }, createElement: function () { return { set textContent(t) { this.text = '**' + t + '**'; } }; } };
+    var f = new Function('root', '$', 'tickedRows', 'document', src67.join('') + 'return { totals: totals, voucher: busVoucherText };')(root, function () { return o.noSelect ? null : sel; }, function () { return rowsStub; }, doc);
+    var t = f.totals();
+    return { line: t.line, bus: t.bus.map(function (n) { return n.text; }).join(''), ex: t.ex, note: t.note, voucher: f.voucher() };
+}
+var t67 = pageTotals({ rows: [[14293.93, 11911.61, false], [2250, 2142.86, true]], voucher: 7500, short: 'Standard', upFront: true });
+ok(t67.line === '2 orders · £16,543.93 inc VAT', 'line 1: "2 orders · £16,543.93 inc VAT"');
+ok(t67.bus === 'BUS voucher (Standard) −£7,500.00 · **Customer pays £9,043.93** · Deposit (20%) £1,808.79', 'the brief’s example: ' + t67.bus);
+ok(t67.ex === '£14,054.47 ex VAT', 'the ex VAT line is the FULL ex VAT, unaffected by the voucher');
+ok(t67.note === true && t67.voucher === 'Voucher £7,500', 'the display-only note shows; beside the select: "Voucher £7,500"');
+var t67b = pageTotals({ rows: [[2250, 2142.86, true], [3000, 2857.14, true]], voucher: 9000, short: 'Enhanced', upFront: true });
+ok(t67b.bus === 'BUS voucher (Enhanced) −£9,000.00 · **Customer pays £0.00** · Deposit (20%) £0.00', 'two heat pump quotes: ONE voucher; customer pays never below £0 (' + t67b.bus + ')');
+var t67c = pageTotals({ rows: [[12000, 10000, false]], voucher: 7500, short: 'Standard', upFront: true });
+ok(t67c.bus === 'BUS voucher: applies when a heat pump quote is ordered · Deposit (20%) £2,400.00', 'no heat pump quote ticked: no deduction, the "applies when…" line (' + t67c.bus + ')');
+var t67d = pageTotals({ rows: [[12000, 10000, false], [2250, 2142.86, true]], voucher: 7500, short: 'Standard', upFront: false });
+ok(t67d.bus === 'BUS voucher (Standard) −£7,500.00 · **Customer pays £6,750.00**', 'account customer: no deposit');
+var t67e = pageTotals({ rows: [[12000, 10000, false], [2250, 2142.86, true]], voucher: 0, upFront: true });
+ok(t67e.bus === 'Deposit (20%) £2,850.00' && t67e.note === false && t67e.voucher === 'No voucher', 'no voucher (Not set / Ineligible): no voucher line, the deposit of the full total; "No voucher"');
+var t67f = pageTotals({ rows: [[12000, 10000, false], [2250, 2142.86, true]], voucher: 7500, short: 'Standard', upFront: true, pct: '' });
+ok(t67f.bus === 'BUS voucher (Standard) −£7,500.00 · **Customer pays £6,750.00**', 'empty ORDER_DEPOSIT_PCT: no deposit line');
+var t67g = pageTotals({ rows: [[12000, 10000, false], [2250, 2142.86, true]], voucher: 0, upFront: true, pct: '', noSelect: true });
+ok(t67g.bus === '' && t67g.line === '2 orders · £14,250.00 inc VAT', 'nothing set (no select, no %): the totals as before, no extra line');
+ok(pageTotals({ rows: [[1000.03, 0, true]], voucher: 0, upFront: true, pct: '12.5' }).bus === 'Deposit (12.5%) £125.00', 'deposit rounded to 2 dp (12.5% of £1,000.03 = 125.00375 → £125.00)');
+ok(pageTotals({ rows: [], voucher: 7500, upFront: true }).bus === '', 'nothing ticked: no BUS line');
+ok(gs67.indexOf('id="nsq-sum-bus"') !== -1 && gs67.indexOf('fill($("nsq-sum-bus"), tt.bus);') !== -1 && gs67.indexOf('fill($("nsq-qtotal-bus"), tt.bus);') !== -1,
+    'the same line under the quotes and in the sticky footer, live');
+ok(gs67.indexOf('<div class="nsq-qtotal-note" id="nsq-qtotal-note" hidden>Display only. The orders keep their full value; the voucher is taken off at invoice.</div>') !== -1, 'the note, small and muted, beside the totals');
+ok(/data-upfront="1" data-deposit-pct="20"/.test(gs67), 'the deposit % on the page (ORDER_DEPOSIT_PCT)');
+resetState(); busSettings(undefined, 'twenty');
+ok(/data-deposit-pct=""/.test(runGet()) && logged('CreateOrderSL.Config', /ORDER_DEPOSIT_PCT = "twenty" is not a number from 0 to 100; no deposit is shown/), 'an invalid % → no deposit (logged)');
+resetState(); busSettings('{"1":"lots"}');
+ok(/data-voucher="0" data-short="Standard" selected/.test(runGet()) && logged('CreateOrderSL.Config', /ORDER_BUS_AMOUNTS could not be read/), 'an invalid map → no voucher anywhere (logged)');
+
+console.log('C67d. The write-back: in the final opportunity write, only when changed');
+function busWrite(over) { return writesOf('submitFields', 'opportunity').filter(function (w) { return 'custbody_value_proposition' in w.values || 'custbody_opportunity_sub_status' in w.values || 'custbody_bus_eligibility' in w.values; })[0]; }
+resetState(); busSettings();
+var r67d = runPost(post({ custpage_bus_elig: '2' }));
+ok(busWrite() && busWrite().values.custbody_bus_eligibility === '2' && /(^|,)bus_elig(,|$)/.test(r67d.redirect.parameters.nsqf), 'changed (1 → 2) → written in the second submitFields; nsqf has bus_elig');
+ok(state.calls.filter(function (c) { return /^save:|^submitFields:/.test(c); }).pop() === 'submitFields:opportunity', 'the opportunity write is still last');
+resetState(); busSettings();
+var r67d2 = runPost(post({ custpage_bus_elig: '1' }));
+ok(!(busWrite() && 'custbody_bus_eligibility' in busWrite().values) && !/bus_elig/.test(r67d2.redirect.parameters.nsqf || ''), 'unchanged → not written');
+resetState(); busSettings();
+runPost(post({ custpage_bus_elig: '' }));
+ok(busWrite() && busWrite().values.custbody_bus_eligibility === '', '"Not set" when it was 1 → cleared (a change)');
+resetState(); busSettings();
+runPost(post());
+ok(!(busWrite() && 'custbody_bus_eligibility' in busWrite().values), 'not posted → not written');
+resetState(); busSettings();
+var r67d3 = runPost(post({ custpage_bus_elig: '7' }));
+ok(!r67d3.redirect && r67d3.html.indexOf('Choose a BUS eligibility from the list.') !== -1 && state.writes.length === 0 && !tokenClaimed(), 'an unoffered value → refused before any write');
+ok(r67d3.html.indexOf('id="nsq-bus"') !== -1 && between(r67d3.html, '<select id="nsq-bus"', '</select>').indexOf('<option value="7"') === -1, 'the refused page re-renders without the unoffered value');
+resetState(); busSettings(); state.oppValues.custbody_bus_eligibility = '';
+var r67d4 = runPost(post({ custpage_bus_elig: '3', custpage_units_901: '0' }));
+ok(/<option value="3" data-voucher="0" data-short="Ineligible for" selected>/.test(r67d4.html), 'after a refusal the posted eligibility is restored');
+resetState(); delete state.fieldTypes.custbody_bus_eligibility;
+runPost(post({ custpage_bus_elig: '2' }));
+ok(writesOf('create', 'salesorder').length === 1 && !(busWrite() && 'custbody_bus_eligibility' in busWrite().values) && logged('CreateOrderSL.BUS', /options could not be read; posted "2" not written/),
+    'options unreadable on the POST → the orders go ahead, the eligibility isn’t written (logged)');
+var u67 = ordBanner({ nsqf: 'bus_elig' });
+ok(u67 && u67.message.indexOf('Opportunity updated: BUS eligibility → Enhanced BUS (£9000)') !== -1, 'UE 1.5.4 banner: "BUS eligibility → Enhanced BUS (£9000)" (' + (u67 && u67.message) + ')');
+
+console.log('C67e. The SO and the order log are never touched by BUS');
+function soSnapshot(over, settings) {
+    resetState(); settings();
+    runPost(post(Object.assign({ custpage_q_sel: '["901","902"]', custpage_units_902: '2', custpage_projtype: '2' }, over)));
+    return JSON.stringify({ so: writesOf('create', 'salesorder').map(function (w) { return w.values; }), log: writesOf('create', 'customrecord_order_log').map(function (w) { return w.values; }),
+                            saveOptions: state.lastSaveOptions });
+}
+var withV = soSnapshot({ custpage_bus_elig: '2' }, function () { busSettings(); });
+var without = soSnapshot({ custpage_bus_elig: '3' }, function () { busSettings('', ''); });
+ok(withV === without && withV.indexOf('"total":12000') !== -1 && withV.indexOf('"total":2250') !== -1, 'the saved SO values and order logs are IDENTICAL with a £9,000 voucher and without (full totals 12,000 and 2,250)');
+ok(!/bus|voucher|discount/i.test(JSON.stringify(writesOf('create', 'salesorder').map(function (w) { return Object.keys(w.values); }))), 'no BUS, voucher or discount field on the SO');
+ok(!state.calls.some(function (c) { return /^transform:|^save:/.test(c) && /bus/i.test(c); }) && state.calls.filter(function (c) { return c.indexOf('create:') === 0; }).every(function (c) { return c === 'create:customrecord_order_log'; }),
+    'no other record created (no discount line, no extra transaction)');
+
+console.log('C67f. CreateOrderSL.BUS: the audit line');
+resetState(); busSettings();
+runPost(post({ custpage_q_sel: '["901","902"]', custpage_units_902: '2', custpage_projtype: '2', custpage_bus_elig: '1' }));
+ok(logged('CreateOrderSL.BUS', /^Opportunity 123 — eligibility 1 \(was 1\); heat pump quote ticked: yes \(EST902\); total £14,250\.00 inc VAT; voucher £7,500\.00; customer pays £6,750\.00; deposit £1,350\.00 \(20%, up front\)\. Display only — the orders keep their full value$/),
+    'eligibility, heat pump ticked, voucher, customer pays, deposit and % — the same figures as the page');
+resetState(); busSettings(); state.customer.terms = [{ value: '4', text: '30 days' }];
+runPost(post({ custpage_bus_elig: '2' }));
+ok(logged('CreateOrderSL.BUS', /eligibility 2 \(was 1\); heat pump quote ticked: no; total £12,000\.00 inc VAT; voucher £0\.00 \(eligible, no heat pump quote\); customer pays £12,000\.00; deposit none \(20%, account customer\)/),
+    'no heat pump quote; an account customer → deposit none');
+resetState();
+runPost(post());
+ok(logged('CreateOrderSL.BUS', /eligibility not posted \(was 1\); ORDER_BUS_AMOUNTS and ORDER_DEPOSIT_PCT not set — nothing to show$/) && !state.qtSearches, 'neither setting → one line, no extra search');
 
 // ═══ Governance ══════════════════════════════════════════════════════════════════
 

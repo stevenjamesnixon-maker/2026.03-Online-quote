@@ -38,10 +38,10 @@
 | Update Opportunity SL | `nuheat_update_opp_sl.js` | 1.1.0 — ✅ in Production (1 Oct 2026) |
 | Send Quote CS | `nuheat_send_quote_cs.js` | v1.4.0 — detached, kept for reference (no upload needed) |
 | Analytics Suitelet | `nuheat_analytics_sl.js` | v1.0.1 |
-| Opportunity UE | `nuheat_opportunity_ue.js` | 1.5.3 — 🔶 in review (Create order button, `ORDER_MODE`). 1.4.0 in Production (1 Oct 2026) |
+| Opportunity UE | `nuheat_opportunity_ue.js` | 1.5.4 — 🔶 in review (Create order button, `ORDER_MODE`). 1.4.0 in Production (1 Oct 2026) |
 | Opportunity CS | `nuheat_opportunity_cs.js` | 1.3.0 — 🔶 in review. 1.2.0 in Production (29 Sep 2026) |
 | **Order Library** | `nuheat_order_lib.js` | 1.3.0 — 🔶 new, in review |
-| Create Order SL | `nuheat_create_order_sl.js` | 1.3.2 — 🔶 new, in review |
+| Create Order SL | `nuheat_create_order_sl.js` | 1.4.0 — 🔶 new, in review |
 
 > Read each version from the `SCRIPT_VERSION` / `MODULE_VERSION` constant in the file, not from the
 > JSDoc header — the two drift. `nuheat_quote_ue.js` is currently out by one patch version
@@ -131,9 +131,9 @@
 > |---|---|---|
 > | 1 | `nuheat_opp_update_lib.js` — already in place (unchanged by this release; the order library requires it) | as live |
 > | 2 | `nuheat_order_lib.js` — **before the Suitelet** | 1.3.0 |
-> | 3 | `nuheat_create_order_sl.js` | 1.3.2 |
+> | 3 | `nuheat_create_order_sl.js` | 1.4.0 |
 > | 4 | `nuheat_opportunity_cs.js` | 1.3.0 |
-> | 5 | `nuheat_opportunity_ue.js` — **last** (no `ORDER_MODE` row = no button) | 1.5.3 |
+> | 5 | `nuheat_opportunity_ue.js` — **last** (no `ORDER_MODE` row = no button) | 1.5.4 |
 >
 > Read back every version header after upload. Then create the script record and the settings rows (2f-3).
 > **No script parameters.**
@@ -283,6 +283,8 @@ Navigate to **Customization > Scripting > Scripts > New** for each:
 | `PREPAY_TERMS` | **existing dashboard row** (idlist; `9`) — the same value the dashboard uses | no deposit shown |
 | `ORDER_PARENT_OPP_FIELD` | field ID of the opportunity field holding a parent opportunity, if there is one | the order log's parent is this opportunity |
 | `ORDER_EMAIL_TEMPLATES` | idlist: the email template internal IDs offered in the email section's one "Confirmation email template" select, in display order (Steve: `3198,4186,3182,4185,3185`). **FreeMarker templates only** — a legacy CRMSDK template can't be merged | the email switch is shown disabled: "No confirmation templates are set up (ORDER_EMAIL_TEMPLATES)." |
+| `ORDER_BUS_AMOUNTS` *(1.4.0)* | JSON `{"<BUS eligibility id>":"<£ amount>"}` — Production `{"1":"7500","2":"9000"}` (1 Standard, 2 Enhanced; 3 Ineligible left out). Display only | no voucher is ever deducted on the page |
+| `ORDER_DEPOSIT_PCT` *(1.4.0)* | a number 0–100 — Production `20` (the deposit = this % of what the customer pays). Display only | no deposit is shown |
 
 - **After changing `ORDER_MODE`**, the button can take **up to 5 minutes** to appear or disappear (the UE caches the
   value); the page itself reads the record on every request.

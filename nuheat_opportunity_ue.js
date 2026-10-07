@@ -6,7 +6,7 @@
  * @name        Nu-Heat Opportunity User Event
  * @description Adds the "Send Quote", "Update opportunity" and "Create order" buttons to the
  *              Opportunity form (VIEW only) and, after any of those pages saves, shows its result banner.
- * @version     1.5.3
+ * @version     1.5.4
  * @author      Nu-Heat Development
  *
  * Script ID:      customscript_nuheat_opportunity_ue
@@ -18,6 +18,9 @@
  *    record (customrecord_cdb_setting) — the same switch as the Create order page. No script parameter.
  *    The value is cached for 300 seconds, so the button can take UP TO 5 MINUTES to appear or
  *    disappear after ORDER_MODE changes. Missing, duplicate, unreadable or unknown = OFF = no button.
+ *
+ * CHANGELOG v1.5.4 (Create order SL 1.4.0 — BUS eligibility write-back, 7 Oct 2026):
+ *   - ADDED: field key bus_elig → "BUS eligibility" (custbody_bus_eligibility), for nsqf / nsqff. Nothing else changed.
  *
  * CHANGELOG v1.5.3 (Create order SL 1.3.0 — one confirmation email per submission, 6 Oct 2026):
  *   - CHANGED (ord only): nsqe = sent → "Confirmation email sent"; fail → warning "The confirmation email was
@@ -109,7 +112,7 @@ function (log, runtime, message, search, format, cache) {
 
     'use strict';
 
-    var SCRIPT_VERSION = '1.5.3';
+    var SCRIPT_VERSION = '1.5.4';
 
     /**
      * v1.5.1: who gets the "Create order" button — the ORDER_MODE row of the customer dashboard's
@@ -136,7 +139,8 @@ function (log, runtime, message, search, format, cache) {
         build_stage:  { label: 'Build stage',        fieldId: 'custbody_build_stage',  kind: 'select' },
         close_date:   { label: 'Expected close',     fieldId: 'expectedclosedate',     kind: 'date' },  // v1.2.1
         sub_status:   { label: 'Sub-status',         fieldId: 'custbody_opportunity_sub_status', kind: 'select' },   // v1.5.0 (Create order)
-        value_prop:   { label: 'Value proposition',  fieldId: 'custbody_value_proposition',      kind: 'select' }    // v1.5.0
+        value_prop:   { label: 'Value proposition',  fieldId: 'custbody_value_proposition',      kind: 'select' },   // v1.5.0
+        bus_elig:     { label: 'BUS eligibility',    fieldId: 'custbody_bus_eligibility',        kind: 'select' }    // v1.5.4 (Create order 1.4.0)
     };
 
     /**

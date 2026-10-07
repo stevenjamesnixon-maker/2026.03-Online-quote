@@ -93,8 +93,9 @@ record; unknown values are dropped.
 | `nsqlf` / `nsqtm` | comma list of SO IDs | *(ord)* Order log not created / total after save differs from the quote (verified SOs only) |
 | `nsqe` *(ord, UE 1.5.3)* | `sent` \| `fail` | The one confirmation email: "Confirmation email sent" / warning "The confirmation email was not sent." (1.5.2's `nsqen` count and `nsqef` are dropped for ord) |
 | `nsqf` / `nsqff` keys `sub_status`, `value_prop` | — | *(UE 1.5.0)* Sub-status (`custbody_opportunity_sub_status`) and Value proposition (`custbody_value_proposition`), read from the record. |
+| `nsqf` / `nsqff` key `bus_elig` | — | *(UE 1.5.4)* BUS eligibility (`custbody_bus_eligibility`), read from the record |
 
-## Create order (Create Order SL 1.3.2 / order library 1.3.0) — 6 Oct 2026
+## Create order (Create Order SL 1.4.0 / order library 1.3.0) — 6 Oct 2026
 
 ### Estimate (read: two searches, no loads)
 
@@ -109,6 +110,12 @@ record; unknown values are dropped.
 | `custbody_qdt_number_of_units` | *(extras search)* Units prefill; the rep edits it; written to the order log, **not** back to the Estimate |
 | `custbody_deposit` | *(extras search)* Inc VAT; shown and emailed only for customers who pay up front, and only when > 0 |
 | `netamountnotax` | *(extras search)* Ex VAT (shown only). ⚠️ Sandbox check: the column name |
+
+### Quote Type (`customrecord16`, read only — amendment 7)
+
+| Field ID | Purpose |
+|---|---|
+| `custrecord_qt_requires_installer_certs` | Ticked = a heat pump type: a ticked quote of this type makes the BUS voucher apply (display only). One search per page load / POST for the listed types. ⚠️ S22: not referenced elsewhere in code |
 
 ### Sales Order (set by `prepareOrder`, saved by `saveOrder`)
 
@@ -139,6 +146,7 @@ record; unknown values are dropped.
 | `custbody_opp_del_date`, `custbody_next_contact`, `custbody_build_stage` | `lib.updateFields` (next contact required, D3) |
 | `custbody_opportunity_sub_status` | **Create order only** (CO1): the rep's choice (default: the first id of `NEEDINFO_SUBSTATUS`), one of the offered options; written only when changed |
 | `custbody_value_proposition` | Required; list `customlist_value_proposition` (UFH Design / UFH Design + / HP Design); options from the field; written only when changed |
+| `custbody_bus_eligibility` *(1.4.0)* | Optional; list `customlist_bus_eligibility` (1 Standard BUS (£7500) / 2 Enhanced BUS (£9000) / 3 Ineligible for BUS — read at run time); options from the field + "Not set"; written in the final write only when changed (banner key `bus_elig`). **Display only otherwise:** the voucher (`ORDER_BUS_AMOUNTS`) is never written to any transaction |
 | `entitystatus` | `ORDER_OPP_STATUS`, only when set (and an option); `enableSourcing` on |
 
 ### Confirmation email (1.3.0) — one NetSuite template email per submission, filed on the opportunity

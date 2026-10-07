@@ -361,6 +361,12 @@
 
 ## Create order (`nuheat_create_order_sl.js`, `nuheat_order_lib.js`) & Opportunity UE / CS
 
+### Create Order SL v1.4.0 / Opportunity UE v1.5.4 — 7 October 2026 🔶 In review (amendment 7)
+
+- BUS eligibility select + write-back (only when changed; UE key `bus_elig`). Totals: BUS voucher (heat pump quote
+  ticked, once), customer pays, deposit % of it for up-front customers — display only; SO and order log unchanged.
+  Settings `ORDER_BUS_AMOUNTS`, `ORDER_DEPOSIT_PCT`. The per-row deposit is gone.
+
 ### Create Order SL v1.3.2 / Order Library v1.3.0 — 7 October 2026 🔶 In review (amendment 6)
 
 - Several quotes in one submission: every quote prepared (lock, re-check, duplicate guard, transform, total check)

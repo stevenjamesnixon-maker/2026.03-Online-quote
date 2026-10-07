@@ -5,7 +5,7 @@
 
 ---
 
-## Create order, part 1 (Create Order SL 1.3.2 / order library 1.3.0 / Opportunity UE 1.5.3 / CS 1.3.0)
+## Create order, part 1 (Create Order SL 1.4.0 / order library 1.3.0 / Opportunity UE 1.5.4 / CS 1.3.0)
 
 > **Status: 🔶 not yet tested in Sandbox.** Upload `nuheat_order_lib.js`, then `nuheat_create_order_sl.js`,
 > then the CS, then the UE (DEPLOYMENT_CHECKLIST 2f-3). **No script parameters:** add the `ORDER_*` rows to
@@ -16,7 +16,7 @@
 ### Automated (before uploading)
 
 ```bash
-node test/create-order.js            # must end "466 passed, 0 failed" (C1–C66; C52 re-runs the three suites below)
+node test/create-order.js            # must end "513 passed, 0 failed" (C1–C67; C52 re-runs the three suites below)
 node test/update-opp.js              # 684 passed — unchanged
 node test/send-quote-opp-update.js   # 400 passed — assertions unchanged (amendment 1 adds only an N/cache stub)
 node test/opp-lib-customer.js        # 72 passed — unchanged
@@ -47,6 +47,8 @@ for f in nuheat_order_lib.js nuheat_create_order_sl.js nuheat_opportunity_ue.js 
 | S18 | `taxtotal` (and `total`) are readable on the transformed SO before save — including a 0% VAT heat pump quote (taxtotal 0, not blank) | A % commission on a heat pump quote saves, and `CreateOrderSL.Convert` logs "commission: 5% → £… (base £…)" with base = the quote's ex VAT |
 | S19 | With % entered, the SO saves with both % and £ set | `CreateOrderSL.Convert` logs "commission: 5% → £… (base £…)"; the SO shows Partner Comm (%) 5 and Partner Comm (£) the worked-out amount. (£ with 0 already saves — Steve's re-test, 6 Oct) |
 | S21 | *(amendment 6)* NetSuite saves a transformed SO whose source Estimate became **Processed** after the transform (phase 1 transforms every quote; saving the first SO closes the others) | Steve's two-quote test (O14). If the second save fails with an error about the Estimate's status, copy the exact message from `CreateOrderSL.Convert` ("Estimate … — SO save FAILED, not created: …"). **Don't re-open Estimates or work around it** — the next step is decided from the message |
+| S22 | *(amendment 7)* `customrecord16` (Quote Type) has the checkbox `custrecord_qt_requires_installer_certs`, ticked on the heat pump types only. The ID is not referenced anywhere else in the code | Open a heat pump quote's row: the BUS line deducts the voucher. A wrong ID logs `CreateOrderSL.BUS` "… could not be read for types … (<NetSuite message>); no quote counts as a heat pump quote" — and nothing is deducted |
+| S23 | *(amendment 7)* `custbody_bus_eligibility` is on the opportunity form the script loads (getSelectOptions returns 1 / 2 / 3) | The section 2 select lists Standard / Enhanced / Ineligible; no select = the options couldn't be read (`CreateOrderSL.Lists`) |
 | S20 | Merging against the **opportunity** fills the template's fields. Parts that refer to Sales Order-only fields show blank | Steve judges it from the email he receives. If unacceptable, the alternative (not built) is to merge against the first Sales Order created and still file on the opportunity |
 
 ### Scenarios
@@ -57,7 +59,7 @@ for f in nuheat_order_lib.js nuheat_create_order_sl.js nuheat_opportunity_ue.js 
 | O1b | Make the `ORDER_SO_FORM` row inactive | The page says "Create order can’t run: ORDER_SO_FORM is not set in Customer Dashboard Settings." |
 | O2 | ADMIN as Administrator / as a rep | Button and page for the Administrator only |
 | O3 | Opportunity with 3 open quotes (one past its expiry) and one already converted | 3 rows, newest first; the expired one tagged **Expired**; the converted one absent |
-| O4 | Up-front customer (terms 9) vs a trade customer | Deposit on the rows and in the totals ("2 orders · £… inc VAT · Deposit £…") for the first; none for the second |
+| O4 | Up-front customer (terms 9) vs a trade customer | *(amendment 7)* No deposit on the rows. The first: "Deposit (20%) £…" in the totals (of what the customer pays); the second: none |
 | O5 | Tick a UFH quote, then a heat pump quote | Project type: UFH Only, then UFH & Renewables; tick an unmapped quote → blank. Choose one yourself → ticking no longer changes it |
 | O6 | One quote, units 4, commission 5 %, email off | The row shows "→ £…" to the right of the commission input, the same size as the inputs, updating as you type (blank or 0 → "→ £0.00"; gone when you switch to £). One SO: form NH Sales Order (2026), Record Status Awaiting Design Info, the project type, 5% **and** Partner Comm (£) = 5% of the ex VAT total. One order log (SO, parent opp, 4 units, authority, rep). Opportunity: sub-status Awaiting Design Info, value proposition as chosen. Banner "Order created · Created SO…". No email |
 | O7 | Two quotes, £ commission on one, email on to yourself, one template chosen in the email section, one PDF attached | Two SOs, the same project type on both; **one** email, from the chosen template, with the PDF, under the **opportunity's** Communication › Messages; banner "Orders created … Confirmation email sent" |
@@ -70,6 +72,8 @@ for f in nuheat_order_lib.js nuheat_create_order_sl.js nuheat_opportunity_ue.js 
 | O12 | **As NH Account Manager (not Administrator)**: O6 again | The button shows, lists populated, SO and order log created. No button and "its settings can’t be read" = the role lacks **View** on Customer Dashboard Settings (`ORDER_SETTINGS_UNAVAILABLE` in the log). Any other Permission Violation → DEPLOYMENT_CHECKLIST › Roles and permissions |
 | O14 | *(amendment 6)* Two quotes ticked (Steve's 7 Oct case) | Both SOs created, both order logs; the log shows `prepared 2/2`, then each save. If the second save fails: SO 1 stands, amber "Not created: <quote 2>", NetSuite's message in `CreateOrderSL.Convert` (S21) |
 | O15 | *(amendment 6)* Two quotes, one of which already has an SO (or is open in a second tab being converted) | "Nothing was created: … already converted to SO…" / "… is being converted by another request"; **neither** SO created |
+| O16 | *(amendment 7)* Up-front customer, eligibility Standard, a UFH and a heat pump quote ticked | "BUS voucher (Standard) −£7,500.00 · **Customer pays** £… · Deposit (20%) £…" under the quotes and in the footer; untick the heat pump quote → "BUS voucher: applies when a heat pump quote is ordered". Create: **both SOs at their full totals** (no discount line); `CreateOrderSL.BUS` logs the figures |
+| O17 | *(amendment 7)* Change BUS eligibility Standard → Enhanced, create | Opportunity shows Enhanced; banner "Opportunity updated: … BUS eligibility → Enhanced BUS (£9000)". Unchanged → not in the banner. Account customer → no deposit anywhere |
 | O13 | Send Quote and Update opportunity after the release | Both buttons present and unchanged |
 
 ### Execution Log greps

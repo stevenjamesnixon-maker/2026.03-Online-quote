@@ -1,3 +1,19 @@
+## [Create Order SL v1.4.0 / Opportunity UE v1.5.4] — 7 October 2026 (Create order amendment 7: BUS voucher in the totals, eligibility write-back)
+**Status:** 🔶 In review — not deployed (PR #38). Order library (1.3.0) and Opportunity CS (1.3.0) unchanged.
+**Components:** `nuheat_create_order_sl.js`, `nuheat_opportunity_ue.js`, `test/create-order.js`
+
+- ADDED: "BUS eligibility" in section 2 (optional; the opportunity's `custbody_bus_eligibility` options, pre-selected;
+  "Voucher £7,500" / "No voucher" beside it). Written back in the final opportunity write only when changed
+  (banner "BUS eligibility → …", UE 1.5.4 key `bus_elig`). A value that isn't an option is refused.
+- ADDED: the totals show "BUS voucher (Standard) −£7,500.00 · Customer pays £… · Deposit (20%) £…" — **display only**.
+  The voucher applies when at least one ticked quote's type has `custrecord_qt_requires_installer_certs` ticked (one
+  search on `customrecord16`), once per submission. Customer pays = max(0, total − voucher); deposit = 20%
+  (`ORDER_DEPOSIT_PCT`) of it, for up-front customers. **The SO and order log are unchanged** — never reduced.
+- ADDED: settings rows `ORDER_BUS_AMOUNTS` (`{"1":"7500","2":"9000"}`) and `ORDER_DEPOSIT_PCT` (`20`); empty = no
+  voucher / no deposit.
+- REMOVED: the per-row "Deposit £…" (the Estimate's `custbody_deposit`).
+- ADDED: `CreateOrderSL.BUS` audit line.
+
 ## [Create Order SL v1.3.2 / Order Library v1.3.0] — 7 October 2026 (Create order amendment 6: several quotes when NetSuite closes the siblings)
 **Status:** 🔶 In review — not deployed (PR #38). Opportunity UE (1.5.3) and CS (1.3.0) unchanged.
 **Components:** `nuheat_order_lib.js`, `nuheat_create_order_sl.js`, `test/create-order.js`
