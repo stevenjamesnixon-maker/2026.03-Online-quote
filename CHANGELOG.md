@@ -1,3 +1,101 @@
+## [Create Order SL v1.3.2 / Order Library v1.3.0] — 7 October 2026 (Create order amendment 6: several quotes when NetSuite closes the siblings)
+**Status:** 🔶 In review — not deployed (PR #38). Opportunity UE (1.5.3) and CS (1.3.0) unchanged.
+**Components:** `nuheat_order_lib.js`, `nuheat_create_order_sl.js`, `test/create-order.js`
+
+- FIXED (Steve's Production tests, 7 Oct 08:50 and 11:27): with two quotes ticked only the first converted; the
+  second was refused "UFH306519 is not an open quote on this opportunity". Saving the first SO makes NetSuite mark
+  the opportunity's other open quotes Processed, and each quote's openness was re-checked after the earlier save.
+- CHANGED: two phases (`orderLib.convertQuotes`). Phase 1 — nothing saved — locks, re-checks (open, this
+  opportunity), runs the duplicate guard, transforms, sets the fields and checks the total for **every** quote while
+  all are still open; any refusal → nothing saved for any quote, every lock released, "Nothing was created: …".
+  Phase 2 saves each, then the total check after save and the order log; a failed save never stops the others
+  ("Not created: …", NetSuite's message in the log). No openness re-check in phase 2.
+- CHANGED: an existing SO from one ticked quote now refuses the whole submission (it was that quote only).
+- CHANGED: governance checked once, up front, for the worst case of the ticked count (100 + 62 per quote + 40 with
+  the email); short → refused before any write. Units per submission unchanged.
+- ADDED (lib 1.3.0): `convertQuotes`, `prepareOrder`, `saveOrder`, `releaseOrder`; `convertQuote` = prepare + save,
+  for a single quote. Logs `prepared n/n` and each save.
+
+## [Create Order SL v1.3.1] — 7 October 2026 (Create order amendment 5: the commission £ inline; the attachments note)
+**Status:** 🔶 In review — not deployed (PR #38). Order library (1.2.1), Opportunity UE (1.5.3) and CS (1.3.0) unchanged.
+**Components:** `nuheat_create_order_sl.js`, `test/create-order.js`
+
+- CHANGED: the worked-out commission is an inline read-only figure to the right of the commission input, in the
+  same row — `[%|£] [ 5 ] → £64.33` — the inputs' size (14px) in the muted colour, with a fixed width (108px) so
+  the columns line up. Shown only while % is selected; blank or 0 → `→ £0.00`; hidden (its space kept) for £.
+  Display only; the server's calculation is unchanged. Replaces 1.2.1's small "= £…" under the field.
+- CHANGED: layout to fit it — desktop commission column 198 → 340px, description minimum 120 → 100px (rows stay
+  ~56px and fit from 1001px); phones keep toggle, input and figure on one line (under ~375px the "Comm." label
+  goes above them), and at ≤ 480px the inputs use the row's full width.
+- CHANGED: the attachments note reads "Attached to the confirmation email."
+
+## [Create Order SL v1.3.0 / Opportunity UE v1.5.3] — 7 October 2026 (Create order amendment 4: one confirmation email per submission, on the opportunity)
+**Status:** 🔶 In review — not deployed (PR #38). Order library unchanged (1.2.1); Opportunity CS unchanged (1.3.0).
+**Components:** `nuheat_create_order_sl.js`, `nuheat_opportunity_ue.js`, `test/create-order.js`
+
+- CHANGED: one "Confirmation email template" select in the email section (required while the email is on);
+  the per-row template column is gone. One email per submission after the orders are created (at least one):
+  `render.mergeEmail` with `transactionId` = the opportunity, `email.send` filed on the opportunity, with the
+  attachments. Banner: "Confirmation email sent" / "The confirmation email was not sent." (`nsqef` dropped).
+- CHANGED: `MAX_QUOTES` back to 8 (one merge + one send per submission).
+- DOCS: amendment 3's root cause corrected — the % path left the mandatory £ empty; £ 0 saves. The
+  "make Partner Comm (£) non-mandatory" note is removed; S19 reworded.
+
+## [Create Order SL v1.2.1 / Order Library v1.2.1] — 6 October 2026 (Create order amendment 3: partner commission always written as £)
+**Status:** 🔶 In review — not deployed (PR #38). Opportunity UE (1.5.2) and CS (1.3.0) unchanged.
+**Components:** `nuheat_order_lib.js`, `nuheat_create_order_sl.js`, `test/create-order.js`
+
+- CHANGED: Partner Comm (£) (`custbody_partner_commission_amount`) is written on every new SO, as a number —
+  the £ entered, the £ worked out from a % (`round(% × (total − taxtotal) / 100, 2)`), or 0. The % field only
+  for a %. A % with no readable base is refused ("commission could not be calculated").
+- ADDED: the page shows "= £…" under the commission input for a % (display only).
+- ROOT CAUSE (6 Oct, 17:10), corrected by amendment 4 after Steve's re-test: the % path wrote only the % field
+  and left the mandatory £ empty; £ 0 saves fine. Always writing £ fixes it.
+
+## [Create Order SL v1.2.0 / Order Library v1.2.0 / Opportunity UE v1.5.2] — 6 October 2026 (Create order amendment 2: Steve's first Production test)
+**Status:** 🔶 In review — not deployed (PR #38). Opportunity CS unchanged (1.3.0).
+**Components:** `nuheat_create_order_sl.js`, `nuheat_order_lib.js`, `nuheat_opportunity_ue.js`, `test/create-order.js`
+
+- FIXED: the sales rep list was empty ("invalid search criteria: issalesrep"). The Employee search filter is
+  `salesrep`; the opportunity's rep is always offered and pre-selected; the server accepts only an offered rep.
+- CHANGED: compact quote rows (one line, ~56px on desktop; inputs on a second line on phones).
+- ADDED: live totals of the ticked quotes (section 1 and the footer): "n orders · £… inc VAT · Deposit £…"
+  (deposit for up-front customers only), ex VAT beneath. Display only.
+- CHANGED: the confirmation email is a NetSuite template per order (`ORDER_EMAIL_TEMPLATES`, chosen on each
+  row), one email per Sales Order via `render.mergeEmail` + `email.send`, filed against the SO; optional
+  attachments (≤ 5 files, ≤ 10 MB). The free-text message and the v2 email (`orderConfirmationEmail`) are gone.
+- CHANGED: `MAX_QUOTES` 8 → 6 (governance with emails). UE 1.5.2: `nsqen` = emails sent; new `nsqef`.
+
+## [Create Order SL v1.1.0 / Order Library v1.1.0 / Opportunity UE v1.5.1] — 6 October 2026 (Create order amendment 1: settings from the settings record)
+**Status:** 🔶 In review — not deployed (PR #38). Opportunity CS unchanged (1.3.0).
+**Components:** `nuheat_order_lib.js`, `nuheat_create_order_sl.js`, `nuheat_opportunity_ue.js`, `test/create-order.js`, `test/send-quote-opp-update.js` (an N/cache stub only)
+
+- CHANGED: no script parameters. Every Create order setting is a row of the customer dashboard's
+  `customrecord_cdb_setting`: `ORDER_MODE`, `ORDER_SO_FORM`, `ORDER_RECORD_STATUS`, `ORDER_SUBSTATUS_OPTIONS`,
+  `ORDER_OPP_STATUS`, `ORDER_PROJTYPE_MAP`, `ORDER_PROJTYPE_MIXED`, `ORDER_PARENT_OPP_FIELD`, and the
+  dashboard's `NEEDINFO_SUBSTATUS` (first id = default sub-status) and `PREPAY_TERMS`.
+- ADDED (lib 1.1.0): `loadOrderSettings(keys, logKey)` and the pure `parseSettingRows` — the dashboard's rules.
+- CHANGED (UE 1.5.1): the button follows `ORDER_MODE` (one search, cached 300 s with N/cache);
+  `custscript_nuheat_co_btn_mode` removed. Up to 5 minutes to follow a change.
+- Every Create order role needs View on Customer Dashboard Settings.
+
+## [Create Order SL v1.0.0 / Order Library v1.0.0 / Opportunity UE v1.5.0 / Opportunity CS v1.3.0] — 6 October 2026 (Create order, part 1)
+**Status:** 🔶 In review — not deployed. Upload order: `nuheat_opp_update_lib.js` (unchanged, already live) → `nuheat_order_lib.js` → `nuheat_create_order_sl.js` → `nuheat_opportunity_cs.js` → `nuheat_opportunity_ue.js`.
+**Components:** `nuheat_order_lib.js` (new), `nuheat_create_order_sl.js` (new), `nuheat_opportunity_ue.js`, `nuheat_opportunity_cs.js`, `test/create-order.js` (new)
+
+- ADDED: the **Create order** button on the Opportunity (VIEW only, after Update opportunity, its own
+  try/catch), behind `custscript_nuheat_co_btn_mode` on the UE deployment (empty = OFF = no button).
+- ADDED: the Create order page: 1 Quotes (open Estimates only, newest first; Expired tag; deposit for
+  up-front customers; units and partner commission % / £ per quote) → 2 Order details (project type,
+  inferred live; order authority; sales rep) → 3 Update the opportunity (delivery date, next contact,
+  build stage, **sub-status**, **value proposition**) → 4 Confirmation email (off by default).
+- ADDED: one Sales Order (form and Record Status from parameters) and one order log per ticked quote,
+  each in its own try/catch; duplicate guard on `createdfrom`; totals checked before (1p, else not saved)
+  and after save (warning only); the opportunity written last; redirect `nsqs=ord` with codes only.
+- DECISION: Create order is the **deliberate exception** to "never write the sub-status" (Steve, 6 Oct).
+- ADDED: `nuheat_order_lib.js` for reuse by the customer version (part 2).
+- UNCHANGED: `nuheat_update_opp_sl.js`, `nuheat_send_quote_sl.js`, `nuheat_opp_update_lib.js`, the quote page.
+
 ## [Update Opportunity SL v1.3.3] — 2 October 2026 (PR #37 amendment 3: the full box back; the band changes instead)
 **Status:** 🔶 In review — not deployed. Library unchanged (1.4.2).
 **Components:** `nuheat_update_opp_sl.js`, `test/update-opp.js`, `test/opp-lib-customer.js`, `docs/email-previews/`

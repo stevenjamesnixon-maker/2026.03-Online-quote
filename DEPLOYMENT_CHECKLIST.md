@@ -38,8 +38,10 @@
 | Update Opportunity SL | `nuheat_update_opp_sl.js` | 1.1.0 — ✅ in Production (1 Oct 2026) |
 | Send Quote CS | `nuheat_send_quote_cs.js` | v1.4.0 — detached, kept for reference (no upload needed) |
 | Analytics Suitelet | `nuheat_analytics_sl.js` | v1.0.1 |
-| Opportunity UE | `nuheat_opportunity_ue.js` | 1.4.0 — ✅ in Production (1 Oct 2026) |
-| Opportunity CS | `nuheat_opportunity_cs.js` | 1.2.0 — ✅ in Production (29 Sep 2026) |
+| Opportunity UE | `nuheat_opportunity_ue.js` | 1.5.3 — 🔶 in review (Create order button, `ORDER_MODE`). 1.4.0 in Production (1 Oct 2026) |
+| Opportunity CS | `nuheat_opportunity_cs.js` | 1.3.0 — 🔶 in review. 1.2.0 in Production (29 Sep 2026) |
+| **Order Library** | `nuheat_order_lib.js` | 1.3.0 — 🔶 new, in review |
+| Create Order SL | `nuheat_create_order_sl.js` | 1.3.2 — 🔶 new, in review |
 
 > Read each version from the `SCRIPT_VERSION` / `MODULE_VERSION` constant in the file, not from the
 > JSDoc header — the two drift. `nuheat_quote_ue.js` is currently out by one patch version
@@ -122,6 +124,19 @@
 >
 > Read back every version header after upload. `nuheat_opportunity_cs.js` stays 1.2.0 (29 Sep). No new
 > script parameters or records.
+
+> **Create order 1.0.0 (6 Oct 2026) — upload in this order:**
+>
+> | # | File | Version |
+> |---|---|---|
+> | 1 | `nuheat_opp_update_lib.js` — already in place (unchanged by this release; the order library requires it) | as live |
+> | 2 | `nuheat_order_lib.js` — **before the Suitelet** | 1.3.0 |
+> | 3 | `nuheat_create_order_sl.js` | 1.3.2 |
+> | 4 | `nuheat_opportunity_cs.js` | 1.3.0 |
+> | 5 | `nuheat_opportunity_ue.js` — **last** (no `ORDER_MODE` row = no button) | 1.5.3 |
+>
+> Read back every version header after upload. Then create the script record and the settings rows (2f-3).
+> **No script parameters.**
 
 2. Upload the scripts (all files live at the **repository root** — there is no `src/` directory):
    - **`nuheat_bus_grant.js`** ← **upload FIRST** (shared module, no script record needed)
@@ -242,6 +257,36 @@ Navigate to **Customization > Scripting > Scripts > New** for each:
 - **1.3.3 (library 1.4.2, unchanged):** the box reads `tranid`, `title` and `custbody_opp_site_adress` again
   (for its title) as well as the stage and the date — the same one lookup.
 
+#### 2f-3. Create order Suitelet (new in Create order 1.0.0)
+- **Name:** Nu-Heat Create Order
+- **Script File:** `SuiteScripts/NuHeat/2026 Quote/nuheat_create_order_sl.js`
+- **Script ID:** `customscript_nuheat_create_order_sl` · **Deployment ID:** `customdeploy_nuheat_create_order_sl`
+- **Deployment:** Released, Audience = the sales roles, **Log Level Audit**. Released is safe before go-live:
+  the `ORDER_MODE` setting keeps it switched off.
+- **No script parameters are created for Create order** — not on this Suitelet and not on the Opportunity UE
+  (amendment 1). Every setting is a row of the customer dashboard's settings record, **Customer Dashboard
+  Settings** (`customrecord_cdb_setting`): Name = the key, `custrecord_cdb_setting_value` = the value. One switch,
+  `ORDER_MODE`, drives both the button and the page. Add the `ORDER_*` rows (the two dashboard rows already exist);
+  look up each ID in the target environment and never copy Sandbox IDs to Production. Exactly **one active row
+  per key** — two active rows make that key missing.
+
+| Key (row Name) | Value | Empty, missing, duplicate or invalid means |
+|---|---|---|
+| `ORDER_MODE` | `OFF` / `ADMIN` / `ALL` (case-insensitive). **ADMIN** for Sandbox testing, **ALL** at go-live | OFF: no button, and the page refuses |
+| `ORDER_SO_FORM` | id: **NH Sales Order (2026)** (Customization › Forms › Transaction Forms) | the page refuses: "ORDER_SO_FORM is not set in Customer Dashboard Settings." |
+| `ORDER_RECORD_STATUS` | id: **Awaiting Design Info** in the Record Status (`custbody_finance_status`) list | the page refuses, naming the key |
+| `NEEDINFO_SUBSTATUS` | **existing dashboard row** (idlist) — its **first** id is the default sub-status (expected: Awaiting Design Info) | the opportunity's current sub-status is pre-selected |
+| `ORDER_SUBSTATUS_OPTIONS` | idlist: the sub-statuses reps may choose, in display order (Steve to choose) | every option of the field |
+| `ORDER_OPP_STATUS` | id: the Won status, **if** Steve decides the page sets it | the status isn't written |
+| `ORDER_PROJTYPE_MAP` | JSON `{"<quote type id>":"<project type id>"}`, one entry per `custbody_quote_type` value | no inference; the rep chooses |
+| `ORDER_PROJTYPE_MIXED` | id: **UFH & Renewables** in `customlist_bund_proj_type` | no "mixed" inference |
+| `PREPAY_TERMS` | **existing dashboard row** (idlist; `9`) — the same value the dashboard uses | no deposit shown |
+| `ORDER_PARENT_OPP_FIELD` | field ID of the opportunity field holding a parent opportunity, if there is one | the order log's parent is this opportunity |
+| `ORDER_EMAIL_TEMPLATES` | idlist: the email template internal IDs offered in the email section's one "Confirmation email template" select, in display order (Steve: `3198,4186,3182,4185,3185`). **FreeMarker templates only** — a legacy CRMSDK template can't be merged | the email switch is shown disabled: "No confirmation templates are set up (ORDER_EMAIL_TEMPLATES)." |
+
+- **After changing `ORDER_MODE`**, the button can take **up to 5 minutes** to appear or disappear (the UE caches the
+  value); the page itself reads the record on every request.
+
 #### 2g. Opportunity User Event
 - **Name:** Nu-Heat Opportunity UE
 - **Script File:** `SuiteScripts/NuHeat/2026 Quote/nuheat_opportunity_ue.js`
@@ -285,6 +330,19 @@ dropdown or list, not an error on screen — check the Execution Log for **Permi
 - **Edit on Opportunity** and **Edit on Estimate** — Estimate for the forecast flags.
 
 Verify with TESTING_GUIDE **U24** (as a non-admin sales role).
+
+**Create order (1.2.0) also needs, for every role that uses it (start with NH Account Manager):**
+- **View on the Customer Dashboard Settings record** (`customrecord_cdb_setting`). **Without it the button never
+  shows and the page refuses** ("Create order can’t run: its settings can’t be read."); the log shows
+  `ORDER_SETTINGS_UNAVAILABLE`. (A button already cached by another user can show for up to 5 minutes; the page
+  still refuses.)
+- **Sales Order: Create** (Transactions), and **Estimate: View** — the transform reads the Estimate.
+- **Create on the Order Log custom record** (`customrecord_order_log`) — check its permission list.
+- **Opportunity: Edit** (already needed for Update Opportunity).
+- **Lists › Custom Lists: View** (project type, order authority) and **Lists › Employees: View** (the rep select).
+- *(1.2.0, the confirmation email)* **Email templates: View** (Lists › Email Template / Setup › Company › Templates — the `emailtemplate` search and `render.mergeEmail`) and permission to send email. Without them the email switch is disabled ("The confirmation templates could not be read.") or the emails fail, logged under `CreateOrderSL.Email`.
+- **Test as NH Account Manager, not Administrator** (TESTING_GUIDE O12): Administrator hides every one of these,
+  the settings record's permission included.
 
 ### Step 3: Verify Folder Permissions
 

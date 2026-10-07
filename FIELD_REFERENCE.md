@@ -87,6 +87,100 @@ record; unknown values are dropped.
 | `nsqof` | comma list of Objection Type IDs | *(upd)* Objections that failed to save — named from the Objection Type records; IDs that are not Objection Types are dropped |
 | `nsqe` | `sent` \| `fail` | *(upd, UE 1.4.0)* The bespoke email: "Email sent to N recipient(s)" / warning "The email was not sent." Anything else ignored. If the email was the only action, the title is "Email sent" / "Email not sent" |
 | `nsqen` | count | *(upd, UE 1.4.0)* To + CC addresses, excluding CC me (only with `nsqe=sent`) |
+| `nsqs` = `ord` | — | *(UE 1.5.0, Create order SL 1.0.0)* "Order created" / "Orders created" / "Orders created — but not everything saved"; `nsq=dup` → "Already created" |
+| `nsqso` | comma list of SO IDs | *(ord)* Orders created: "Created SO239950, SO239951", **only** SOs whose `opportunity` is this one (one search). None verified → no banner |
+| `nsqqf` | comma list of Estimate IDs | *(ord)* Quotes not converted: "Not created: EST…" (this Opportunity's Estimates only; reasons are in the log, never the URL) |
+| `nsqlf` / `nsqtm` | comma list of SO IDs | *(ord)* Order log not created / total after save differs from the quote (verified SOs only) |
+| `nsqe` *(ord, UE 1.5.3)* | `sent` \| `fail` | The one confirmation email: "Confirmation email sent" / warning "The confirmation email was not sent." (1.5.2's `nsqen` count and `nsqef` are dropped for ord) |
+| `nsqf` / `nsqff` keys `sub_status`, `value_prop` | — | *(UE 1.5.0)* Sub-status (`custbody_opportunity_sub_status`) and Value proposition (`custbody_value_proposition`), read from the record. |
+
+## Create order (Create Order SL 1.3.2 / order library 1.3.0) — 6 Oct 2026
+
+### Estimate (read: two searches, no loads)
+
+| Field ID | Purpose |
+|---|---|
+| `status` (filter `Estimate:A`) | Only **open** quotes are listed and orderable. Converted quotes are no longer open — and saving one SO makes NetSuite mark the opportunity's **other** open quotes Processed too (7 Oct), so every quote is re-checked before the first save (amendment 6) |
+| `opportunity` | Must be this opportunity (listing, POST validation, and `prepareOrder`'s own re-check — phase 1, before any save) |
+| `tranid`, `title`, `custbody_quote_description`, `datecreated` | The row's number (links to the quote), description and date created |
+| `custbody_quote_type` | The row's quote type; the project-type inference key; copied to the SO if the transform leaves it blank |
+| `total` | Total inc VAT (NetSuite's figure); the SO's total must match it within 1p |
+| `duedate` | Before today → the **Expired** tag (still orderable) |
+| `custbody_qdt_number_of_units` | *(extras search)* Units prefill; the rep edits it; written to the order log, **not** back to the Estimate |
+| `custbody_deposit` | *(extras search)* Inc VAT; shown and emailed only for customers who pay up front, and only when > 0 |
+| `netamountnotax` | *(extras search)* Ex VAT (shown only). ⚠️ Sandbox check: the column name |
+
+### Sales Order (set by `prepareOrder`, saved by `saveOrder`)
+
+| Field ID | Value |
+|---|---|
+| `customform` | `ORDER_SO_FORM` ("NH Sales Order (2026)"), set first through the transform's `defaultValues` |
+| `custbody_finance_status` (Record Status) | `ORDER_RECORD_STATUS` (Awaiting Design Info) |
+| `custbody_bund_proj_type` | The project type (list `customlist_bund_proj_type`). The same value on every SO of one submission |
+| `custbody_partner_commission_amount` (£, **mandatory on the form**) | *(1.2.1)* **Always**, a number: the £ entered; for a %, `round(% × (total − taxtotal) / 100, 2)` from the transformed SO; blank → `0`. A % with no readable base → not saved |
+| `custbody_partner_commission` (%) | *(1.2.1)* Only when the rep chose %: the % entered (0–100, 2 dp) |
+| `opportunity`, `custbody_quote_type` | Only when the transform left them blank (copied from the Estimate) |
+
+### Order log (`customrecord_order_log`, form "NH Order Log Administration")
+
+| Field ID | Value |
+|---|---|
+| `custrecord_order_so` | The SO |
+| `custrecord_parent_opp` (mandatory) | The value of the opportunity field named by `ORDER_PARENT_OPP_FIELD`, when set and filled; else this opportunity |
+| `custrecord_order_units` (mandatory) | The units entered (whole number ≥ 1) |
+| `custrecord_order_auth` (mandatory) | List `customlist_order_auth` (Email confirmation, System order form, Deposit, Purchase Order, Online acceptance, Verbal), read at run time |
+| `custrecord_order_rep` | The sales rep taking the order (an active sales-rep employee; default the opportunity's `salesrep`) |
+| everything else (customer, revenue, margin, quote type, department…) | **Sourced by NetSuite. Never set** |
+
+### Opportunity (written last)
+
+| Field ID | Rule |
+|---|---|
+| `custbody_opp_del_date`, `custbody_next_contact`, `custbody_build_stage` | `lib.updateFields` (next contact required, D3) |
+| `custbody_opportunity_sub_status` | **Create order only** (CO1): the rep's choice (default: the first id of `NEEDINFO_SUBSTATUS`), one of the offered options; written only when changed |
+| `custbody_value_proposition` | Required; list `customlist_value_proposition` (UFH Design / UFH Design + / HP Design); options from the field; written only when changed |
+| `entitystatus` | `ORDER_OPP_STATUS`, only when set (and an option); `enableSourcing` on |
+
+### Confirmation email (1.3.0) — one NetSuite template email per submission, filed on the opportunity
+
+| Item | Rule |
+|---|---|
+| Email templates | `emailtemplate` search: `internalid` anyof `ORDER_EMAIL_TEMPLATES`, columns `name`, `isinactive`. Offered in the setting's order; inactive / missing ones left out and logged |
+| `custpage_email_tpl` | *(1.3.0)* The one template chosen in the email section (required while the email is on; must be an offered one). 1.2.0's per-row `custpage_tpl_<id>` is gone |
+| `custpage_att_1` … `custpage_att_5` | The attachments (`request.files`), at most 5 files and 10 MB in total, each non-empty. Passed to `email.send` as they are — not saved |
+| `render.mergeEmail` | `templateId`, `entity` and `recipient` = `{ type: 'customer', id }`, `transactionId` = **the opportunity** → `{ subject, body }`. Once per submission, only when at least one order was created |
+| `email.send` | `author` = the chosen sender, `recipients` / `cc` = the recipients component, the merged subject and body, `attachments`, `relatedRecords: { transactionId: <opportunity>, entityId: <customer> }` (the opportunity's Communication tab) |
+
+### Customer / Employee
+
+| Record · field | Purpose |
+|---|---|
+| Customer `terms` | Pays up front = in `PREPAY_TERMS` (or blank: the dashboard's rule) |
+| Customer `email` | The default To |
+| Employee search `salesrep` (T), `isinactive` (F) | The rep select (1.2.0: `salesrep` is the search filter; `issalesrep` is invalid there). The opportunity's `salesrep` is always offered. The POST rebuilds the list |
+
+### Settings (amendment 1: rows of `customrecord_cdb_setting` — no script parameters)
+
+Customer Dashboard Settings (`customrecord_cdb_setting`): Name = the key (trimmed before matching),
+`custrecord_cdb_setting_value` = the value. Read by one search per request (the Suitelet) and, for `ORDER_MODE`
+only, by the Opportunity UE (cached 300 s). Blank = missing; two active rows for a key = missing (logged);
+a failed search = every key missing (the page refuses, no button).
+
+| Key (row Name) | Value | Empty, missing, duplicate or invalid means |
+|---|---|---|
+| `ORDER_MODE` | `OFF` / `ADMIN` / `ALL` (case-insensitive). **ADMIN** for Sandbox testing, **ALL** at go-live | OFF: no button, and the page refuses |
+| `ORDER_SO_FORM` | id: **NH Sales Order (2026)** (Customization › Forms › Transaction Forms) | the page refuses: "ORDER_SO_FORM is not set in Customer Dashboard Settings." |
+| `ORDER_RECORD_STATUS` | id: **Awaiting Design Info** in the Record Status (`custbody_finance_status`) list | the page refuses, naming the key |
+| `NEEDINFO_SUBSTATUS` | **existing dashboard row** (idlist) — its **first** id is the default sub-status (expected: Awaiting Design Info) | the opportunity's current sub-status is pre-selected |
+| `ORDER_SUBSTATUS_OPTIONS` | idlist: the sub-statuses reps may choose, in display order (Steve to choose) | every option of the field |
+| `ORDER_OPP_STATUS` | id: the Won status, **if** Steve decides the page sets it | the status isn't written |
+| `ORDER_PROJTYPE_MAP` | JSON `{"<quote type id>":"<project type id>"}`, one entry per `custbody_quote_type` value | no inference; the rep chooses |
+| `ORDER_PROJTYPE_MIXED` | id: **UFH & Renewables** in `customlist_bund_proj_type` | no "mixed" inference |
+| `PREPAY_TERMS` | **existing dashboard row** (idlist; `9`) — the same value the dashboard uses | no deposit shown |
+| `ORDER_PARENT_OPP_FIELD` | field ID of the opportunity field holding a parent opportunity, if there is one | the order log's parent is this opportunity |
+| `ORDER_EMAIL_TEMPLATES` | idlist: the email template internal IDs offered for the confirmation, in display order (Steve: `3198,4186,3182,4185,3185`). **FreeMarker templates only** — a legacy CRMSDK template can't be merged | the email switch is shown disabled: "No confirmation templates are set up (ORDER_EMAIL_TEMPLATES)." |
+
+A malformed value (not an ID, bad JSON, not a field ID) is logged under `CreateOrderSL.Config` and treated as empty.
 
 ## Send Quote SL 2.2.0 — proposal email: account manager card
 

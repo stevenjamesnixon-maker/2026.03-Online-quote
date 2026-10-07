@@ -1,7 +1,88 @@
 # Testing Guide
 
-**Last Updated:** 2 October 2026
+**Last Updated:** 6 October 2026
 **Environment:** Sandbox (472052_SB1)
+
+---
+
+## Create order, part 1 (Create Order SL 1.3.2 / order library 1.3.0 / Opportunity UE 1.5.3 / CS 1.3.0)
+
+> **Status: 🔶 not yet tested in Sandbox.** Upload `nuheat_order_lib.js`, then `nuheat_create_order_sl.js`,
+> then the CS, then the UE (DEPLOYMENT_CHECKLIST 2f-3). **No script parameters:** add the `ORDER_*` rows to
+> Customer Dashboard Settings (`customrecord_cdb_setting`). Set `ORDER_MODE` to **ADMIN** first, then **ALL** for
+> the NH Account Manager run (O12). The button follows `ORDER_MODE` within 5 minutes (cached); the page at once.
+> Use a test opportunity whose customer and contacts are our own addresses.
+
+### Automated (before uploading)
+
+```bash
+node test/create-order.js            # must end "466 passed, 0 failed" (C1–C66; C52 re-runs the three suites below)
+node test/update-opp.js              # 684 passed — unchanged
+node test/send-quote-opp-update.js   # 400 passed — assertions unchanged (amendment 1 adds only an N/cache stub)
+node test/opp-lib-customer.js        # 72 passed — unchanged
+for f in nuheat_order_lib.js nuheat_create_order_sl.js nuheat_opportunity_ue.js nuheat_opportunity_cs.js; do node --check "$f"; done
+```
+
+### Sandbox checks (assumptions the code could not verify — confirm each first)
+
+| # | Check | How |
+|---|---|---|
+| S1 | **What the transform carries.** `opportunity`, `custbody_quote_type`, `salesrep`, `department`, `terms`, units, deposit | One order, then read `CreateOrderSL.Convert` "carried: … \| blank: …". Blank opportunity / quote type are copied (logged "(copied)") |
+| S2 | **The transformed SO's `total` is readable before save** in standard mode | If every order fails with "total differs from the quote (unreadable vs £…)", it isn't: report it, don't work around it |
+| S3 | **Does NH Sales Order (2026) have mandatory fields** the transform doesn't fill? | The save fails with NetSuite's "Please enter value(s) for: …"; the page says "Nothing was created: <quote number>: …" |
+| S4 | **Does creating the SO change the opportunity's status by itself?** (a workflow or NetSuite's own Won-on-order) | Note the status before and after with `ORDER_OPP_STATUS` **empty** |
+| S5 | `netamountnotax` and `duedate` are valid Estimate search columns | ex VAT shows on each row; an expired quote shows "Expired". If the extras search fails, `CreateOrderSL.List` logs it (rows still listed) |
+| S6 | `custbody_partner_commission` takes 5 for 5% | Enter 5 %, open the SO: it reads 5.0% (not 500% or 0.05%) |
+| S7 | `lookupFields` returns the saved SO's `total` | No "using a search" debug line under `CreateOrderSL.Convert`; if it appears, the fallback search handled it (10 units) |
+| S8 | The order log saves with its three mandatory fields and sources the rest | Open the order log: customer, revenue, margin, quote type, department filled by NetSuite |
+| S9 | `getSelectOptions` returns the sub-status and value proposition options on the Opportunity | Both selects are populated |
+| S10 | `record.transform` accepts `customform` in `defaultValues` (the form is set first) | The SO opens on NH Sales Order (2026). If the transform throws on `customform`, report it |
+| S11 | `NEEDINFO_SUBSTATUS`'s **first** id is Awaiting Design Info (the dashboard's row is shared) | The sub-status select opens on Awaiting Design Info. If it opens on another, reorder the row's ids — the dashboard reads the list as a set |
+| S12 | `render.mergeEmail` works with each `ORDER_EMAIL_TEMPLATES` template. Legacy CRMSDK templates can't be merged, only FreeMarker ones | One submission per template. A failure logs "template … could not be merged (… must be FreeMarker)" under `CreateOrderSL.Email`; the email isn't sent and the banner says "The confirmation email was not sent." |
+| S13 | The merged fields (customer name, opportunity number) come from the opportunity and the customer | Read the received email (see S20 for Sales Order fields) |
+| S14 | Multipart posting doesn't break the save guard token, the dates or the ticked-quote list | Submit with and without an attachment: next contact / delivery date saved as chosen, the right quotes converted, Back + resubmit → nothing created: "A ticked quote is not an open quote on this opportunity … Please reload the page." (the quote is Processed, so validation refuses before the save guard; "Already created" only while the quote still reads open). (A local Chromium run posted every field and the two files as multipart, 6 Oct) |
+| S15 | The settings search: `name` `contains` filters on `customrecord_cdb_setting` (was S12 in amendment 1) | `CreateOrderSL.Settings` lists every key you added as found |
+| S16 | `request.files` carries the hidden `custpage_att_<n>` inputs, and the uploaded files attach without being saved | Two attachments → both on the email; nothing new in the File Cabinet |
+| S17 | Governance: `render.mergeEmail` and `email.send` cost (counted 20 + 20) | `CreateOrderSL.Summary`'s "usage left" after 3 orders with emails |
+| S18 | `taxtotal` (and `total`) are readable on the transformed SO before save — including a 0% VAT heat pump quote (taxtotal 0, not blank) | A % commission on a heat pump quote saves, and `CreateOrderSL.Convert` logs "commission: 5% → £… (base £…)" with base = the quote's ex VAT |
+| S19 | With % entered, the SO saves with both % and £ set | `CreateOrderSL.Convert` logs "commission: 5% → £… (base £…)"; the SO shows Partner Comm (%) 5 and Partner Comm (£) the worked-out amount. (£ with 0 already saves — Steve's re-test, 6 Oct) |
+| S21 | *(amendment 6)* NetSuite saves a transformed SO whose source Estimate became **Processed** after the transform (phase 1 transforms every quote; saving the first SO closes the others) | Steve's two-quote test (O14). If the second save fails with an error about the Estimate's status, copy the exact message from `CreateOrderSL.Convert` ("Estimate … — SO save FAILED, not created: …"). **Don't re-open Estimates or work around it** — the next step is decided from the message |
+| S20 | Merging against the **opportunity** fills the template's fields. Parts that refer to Sales Order-only fields show blank | Steve judges it from the email he receives. If unacceptable, the alternative (not built) is to merge against the first Sales Order created and still file on the opportunity |
+
+### Scenarios
+
+| # | Test | Expected |
+|---|---|---|
+| O1 | `ORDER_MODE` row absent, then `OFF` | No Create order button (allow 5 minutes after a change); the Suitelet URL says "Create order is switched off." |
+| O1b | Make the `ORDER_SO_FORM` row inactive | The page says "Create order can’t run: ORDER_SO_FORM is not set in Customer Dashboard Settings." |
+| O2 | ADMIN as Administrator / as a rep | Button and page for the Administrator only |
+| O3 | Opportunity with 3 open quotes (one past its expiry) and one already converted | 3 rows, newest first; the expired one tagged **Expired**; the converted one absent |
+| O4 | Up-front customer (terms 9) vs a trade customer | Deposit on the rows and in the totals ("2 orders · £… inc VAT · Deposit £…") for the first; none for the second |
+| O5 | Tick a UFH quote, then a heat pump quote | Project type: UFH Only, then UFH & Renewables; tick an unmapped quote → blank. Choose one yourself → ticking no longer changes it |
+| O6 | One quote, units 4, commission 5 %, email off | The row shows "→ £…" to the right of the commission input, the same size as the inputs, updating as you type (blank or 0 → "→ £0.00"; gone when you switch to £). One SO: form NH Sales Order (2026), Record Status Awaiting Design Info, the project type, 5% **and** Partner Comm (£) = 5% of the ex VAT total. One order log (SO, parent opp, 4 units, authority, rep). Opportunity: sub-status Awaiting Design Info, value proposition as chosen. Banner "Order created · Created SO…". No email |
+| O7 | Two quotes, £ commission on one, email on to yourself, one template chosen in the email section, one PDF attached | Two SOs, the same project type on both; **one** email, from the chosen template, with the PDF, under the **opportunity's** Communication › Messages; banner "Orders created … Confirmation email sent" |
+| O7b | Many quotes on one opportunity | Each row one line (~56px) on desktop, the commission figures lined up row to row; the totals line and the footer follow the ticks; on a phone the inputs sit below, the commission figure on the same line as its input, nothing overlapping or cut off |
+| O7c | An opportunity whose sales rep isn't ticked Sales Rep | That rep is offered first and pre-selected; the order log gets them |
+| O8 | Browser Back and submit again | No second SO. Expect "A ticked quote is not an open quote … Please reload the page." (the converted quote is Processed, so validation refuses first — test C66g); "Already created" only if it still reads open |
+| O9 | Units 0 / commission 150 % / no value proposition | The button stays disabled with the reason; forced through, the page re-renders "Not created." with everything kept |
+| O10 | Convert a quote, then open Create order in a second tab opened earlier and submit that quote | Refused: not open / "already converted to SO…"; nothing created → no email, no opportunity change |
+| O11 | Make one quote's SO fail (e.g. a mandatory field blank on the form) with two ticked | The other SO and its log are created; amber banner "Not created: <quote number>"; the one confirmation email is still sent |
+| O12 | **As NH Account Manager (not Administrator)**: O6 again | The button shows, lists populated, SO and order log created. No button and "its settings can’t be read" = the role lacks **View** on Customer Dashboard Settings (`ORDER_SETTINGS_UNAVAILABLE` in the log). Any other Permission Violation → DEPLOYMENT_CHECKLIST › Roles and permissions |
+| O14 | *(amendment 6)* Two quotes ticked (Steve's 7 Oct case) | Both SOs created, both order logs; the log shows `prepared 2/2`, then each save. If the second save fails: SO 1 stands, amber "Not created: <quote 2>", NetSuite's message in `CreateOrderSL.Convert` (S21) |
+| O15 | *(amendment 6)* Two quotes, one of which already has an SO (or is open in a second tab being converted) | "Nothing was created: … already converted to SO…" / "… is being converted by another request"; **neither** SO created |
+| O13 | Send Quote and Update opportunity after the release | Both buttons present and unchanged |
+
+### Execution Log greps
+
+| Key | Expect |
+|---|---|
+| `CreateOrderSL.Summary` | One line per submission: `created SO… from <quote> (log …)`, failures with reasons, warnings, fields, email, usage left |
+| `CreateOrderSL.Convert` | The carried / blank report per quote; `TOTAL MISMATCH` lines (both figures); order log created or failed |
+| `CreateOrderSL.Validation` | Why a submission was rejected before any write |
+| `CreateOrderSL.Settings` | Once per request: which settings keys were found and which are missing (never the values) |
+| `ORDER_SETTINGS_UNAVAILABLE` / `ORDER_SETTING_DUPLICATE` | The settings search failed / two active rows for one key (row IDs named) |
+| `CreateOrderSL.Config` | A malformed setting value (treated as empty) |
+| `CreateOrderSL.Redirect` | e.g. `{"nsq":"ok","nsqt":"…","nsqf":"sub_status","nsqs":"ord","nsqso":"…"}` |
 
 ---
 
