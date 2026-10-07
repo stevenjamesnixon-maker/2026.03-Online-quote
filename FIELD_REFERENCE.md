@@ -94,14 +94,14 @@ record; unknown values are dropped.
 | `nsqe` *(ord, UE 1.5.3)* | `sent` \| `fail` | The one confirmation email: "Confirmation email sent" / warning "The confirmation email was not sent." (1.5.2's `nsqen` count and `nsqef` are dropped for ord) |
 | `nsqf` / `nsqff` keys `sub_status`, `value_prop` | — | *(UE 1.5.0)* Sub-status (`custbody_opportunity_sub_status`) and Value proposition (`custbody_value_proposition`), read from the record. |
 
-## Create order (Create Order SL 1.3.1 / order library 1.2.1) — 6 Oct 2026
+## Create order (Create Order SL 1.3.2 / order library 1.3.0) — 6 Oct 2026
 
 ### Estimate (read: two searches, no loads)
 
 | Field ID | Purpose |
 |---|---|
-| `status` (filter `Estimate:A`) | Only **open** quotes are listed and orderable. Converted quotes are no longer open |
-| `opportunity` | Must be this opportunity (listing, POST validation, and `convertQuote`'s own re-check) |
+| `status` (filter `Estimate:A`) | Only **open** quotes are listed and orderable. Converted quotes are no longer open — and saving one SO makes NetSuite mark the opportunity's **other** open quotes Processed too (7 Oct), so every quote is re-checked before the first save (amendment 6) |
+| `opportunity` | Must be this opportunity (listing, POST validation, and `prepareOrder`'s own re-check — phase 1, before any save) |
 | `tranid`, `title`, `custbody_quote_description`, `datecreated` | The row's number (links to the quote), description and date created |
 | `custbody_quote_type` | The row's quote type; the project-type inference key; copied to the SO if the transform leaves it blank |
 | `total` | Total inc VAT (NetSuite's figure); the SO's total must match it within 1p |
@@ -110,7 +110,7 @@ record; unknown values are dropped.
 | `custbody_deposit` | *(extras search)* Inc VAT; shown and emailed only for customers who pay up front, and only when > 0 |
 | `netamountnotax` | *(extras search)* Ex VAT (shown only). ⚠️ Sandbox check: the column name |
 
-### Sales Order (set by `convertQuote`)
+### Sales Order (set by `prepareOrder`, saved by `saveOrder`)
 
 | Field ID | Value |
 |---|---|

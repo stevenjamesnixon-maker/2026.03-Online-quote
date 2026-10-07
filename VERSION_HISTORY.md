@@ -361,6 +361,12 @@
 
 ## Create order (`nuheat_create_order_sl.js`, `nuheat_order_lib.js`) & Opportunity UE / CS
 
+### Create Order SL v1.3.2 / Order Library v1.3.0 — 7 October 2026 🔶 In review (amendment 6)
+
+- Several quotes in one submission: every quote prepared (lock, re-check, duplicate guard, transform, total check)
+  before any save, because saving one SO closes the opportunity's other quotes. Phase 1 all-or-nothing; phase 2
+  saves each. lib: `convertQuotes`, `prepareOrder`, `saveOrder`, `releaseOrder`. Usage checked once, up front.
+
 ### Create Order SL v1.3.1 — 7 October 2026 🔶 In review (amendment 5)
 
 - The worked-out commission inline to the right of the commission input ("→ £64.33", 14px, muted, fixed 108px),

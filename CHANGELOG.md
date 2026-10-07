@@ -1,3 +1,21 @@
+## [Create Order SL v1.3.2 / Order Library v1.3.0] — 7 October 2026 (Create order amendment 6: several quotes when NetSuite closes the siblings)
+**Status:** 🔶 In review — not deployed (PR #38). Opportunity UE (1.5.3) and CS (1.3.0) unchanged.
+**Components:** `nuheat_order_lib.js`, `nuheat_create_order_sl.js`, `test/create-order.js`
+
+- FIXED (Steve's Production tests, 7 Oct 08:50 and 11:27): with two quotes ticked only the first converted; the
+  second was refused "UFH306519 is not an open quote on this opportunity". Saving the first SO makes NetSuite mark
+  the opportunity's other open quotes Processed, and each quote's openness was re-checked after the earlier save.
+- CHANGED: two phases (`orderLib.convertQuotes`). Phase 1 — nothing saved — locks, re-checks (open, this
+  opportunity), runs the duplicate guard, transforms, sets the fields and checks the total for **every** quote while
+  all are still open; any refusal → nothing saved for any quote, every lock released, "Nothing was created: …".
+  Phase 2 saves each, then the total check after save and the order log; a failed save never stops the others
+  ("Not created: …", NetSuite's message in the log). No openness re-check in phase 2.
+- CHANGED: an existing SO from one ticked quote now refuses the whole submission (it was that quote only).
+- CHANGED: governance checked once, up front, for the worst case of the ticked count (100 + 62 per quote + 40 with
+  the email); short → refused before any write. Units per submission unchanged.
+- ADDED (lib 1.3.0): `convertQuotes`, `prepareOrder`, `saveOrder`, `releaseOrder`; `convertQuote` = prepare + save,
+  for a single quote. Logs `prepared n/n` and each save.
+
 ## [Create Order SL v1.3.1] — 7 October 2026 (Create order amendment 5: the commission £ inline; the attachments note)
 **Status:** 🔶 In review — not deployed (PR #38). Order library (1.2.1), Opportunity UE (1.5.3) and CS (1.3.0) unchanged.
 **Components:** `nuheat_create_order_sl.js`, `test/create-order.js`

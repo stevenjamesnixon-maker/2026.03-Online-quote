@@ -21,6 +21,7 @@
  *   C62–C64  amendment 3: partner commission always written as £ (C22 updated: % now writes both fields)
  *   amendment 4: C41–C43b rewritten — one template select, one email per submission filed on the opportunity
  *   C65      amendment 5: the commission £ inline ("→ £64.33", % only); C41: the attachments note
+ *   C66      amendment 6: two phases (orderLib.convertQuotes) — the stub closes the siblings on save, as Production
  *
  *   node test/create-order.js
  */
@@ -146,7 +147,8 @@ function resetState() {
         // amendment 2: email templates (the emailtemplate search), merges, uploads
         templates: { '3198': { name: 'Order confirmation – UFH', inactive: false }, '4186': { name: 'Order confirmation – Heat pump', inactive: false },
                      '3182': { name: 'Old confirmation', inactive: true }, '4185': { name: 'Order confirmation – Parts', inactive: false } },
-        templateSearchThrows: null, repSearchThrows: null, mergeThrows: {}, merges: [], files: {}
+        templateSearchThrows: null, repSearchThrows: null, mergeThrows: {}, merges: [], files: {},
+        closeOnSave: true        // amendment 6: as Production (7 Oct) — saving an SO marks its quote AND the opportunity's other open quotes Processed
     };
 }
 
@@ -220,6 +222,7 @@ function makeSoRecord(est) {
                        total: state.postSaveTotal.hasOwnProperty(est.id) ? state.postSaveTotal[est.id] : v.total, values: v };
             state.salesOrders.push(so);
             state.writes.push({ kind: 'create', type: 'salesorder', id: id, values: v, from: est.id });
+            if (state.closeOnSave) state.estimates.forEach(function (e) { if (e.opp === est.opp && e.status === 'A') e.status = 'P'; });
             return id;
         }
     };
@@ -767,7 +770,7 @@ state.salesOrders.push({ id: '6999', tranid: 'SO200001', createdfrom: '901', opp
 var r32 = runPost(post());
 ok(writesOf('create', 'salesorder').length === 0 && r32.html.indexOf('EST901 already converted to SO200001') !== -1, '"already converted to SO200001"; nothing created');
 console.log('C33. The dup token gives a dup banner');
-resetState();
+resetState(); state.closeOnSave = false;   // amendment 6: with the quote Processed, validation refuses first (C66g); this isolates the token
 var p33 = post();
 runPost(p33);
 var firstWrites = state.writes.length;
@@ -1211,12 +1214,14 @@ ok(orderLib.commissionValues({ kind: 'pct', n: 5 }, 1286.61).amount === 64.33 &&
 ok(orderLib.commissionValues({ kind: 'pct', n: 0 }, 1000).amount === 0 && orderLib.commissionValues({ kind: 'pct', n: 0 }, 1000).pct === 0, '0% → £0 and % 0');
 var e64 = null; try { orderLib.commissionValues({ kind: 'pct', n: 5 }, null); } catch (e) { e64 = e; }
 ok(e64 && e64.name === 'ORDERLIB_COMMISSION', 'no base → ORDERLIB_COMMISSION');
+resetState();
 var g64 = runGet();
 ok(g64.indexOf('<span class="nsq-comm-calc" aria-live="polite"></span>') !== -1, 'each % row has the "→ £…" slot (amendment 5: inline)');
 
 // ═══ Amendment 5: the commission £ inline ════════════════════════════════════════
 
 console.log('C65. Amendment 5: the worked-out commission £ inline ("→ £64.33"), % only');
+resetState();
 var g65 = runGet();
 // The page's own money() and commCalc(), run against a stub row (the page script is static text)
 var m65 = g65.match(/  function money\(n\) \{[^\n]*\}\n/), c65 = g65.match(/  function commCalc\(r\) \{[\s\S]*?\n  \}\n/);
@@ -1273,6 +1278,108 @@ ok(/\.nsq-comm-calc\{flex:0 0 108px;width:108px;font-size:14px;line-height:32px;
 ok(g65.indexOf('.nsq-comm-calc[hidden]{display:inline-block;visibility:hidden;}') !== -1, 'hidden keeps its space (the row never moves)');
 ok(g65.indexOf('grid-template-columns:24px minmax(100px,1fr) 150px 100px 340px 112px;') !== -1, 'desktop: the commission column 340px (232 + 108), fixed so the rows line up');
 ok(g65.indexOf('font-size:10px') === -1 && g65.indexOf('position:absolute;right:0;top:100%') === -1, 'the small "= £…" under the field is gone');
+
+// ═══ Amendment 6: several quotes when NetSuite closes the siblings ═══════════════
+
+console.log('C66a. The stub as Production (7 Oct): saving an SO closes the opportunity’s other open quotes');
+resetState();
+var e66a = thrown(function () { convert({ estimateId: '901' }); convert({ estimateId: '902' }); });
+ok(e66a && e66a.name === 'ORDERLIB_NOT_ORDERABLE' && writesOf('create', 'salesorder').length === 1,
+    'one quote at a time (the 1.3.1 way): the second is refused "not an open quote" — the defect, reproduced');
+resetState();
+var c66a = orderLib.convertQuotes([{ estimateId: '901', units: '4' }, { estimateId: '902', units: '2' }],
+    { oppId: '123', projectType: '2', auth: '2', repId: '30', cfg: CFG });
+ok(c66a.ok && c66a.prepared === 2 && c66a.created.length === 2 && c66a.failed.length === 0 && c66a.problems.length === 0, 'convertQuotes: both converted');
+ok(['convertQuotes', 'prepareOrder', 'saveOrder', 'releaseOrder', 'convertQuote', 'findExistingOrders'].every(function (f) { return typeof orderLib[f] === 'function'; }) &&
+    orderLib.LIB_VERSION === '1.3.0', 'lib 1.3.0 exports convertQuotes, prepareOrder, saveOrder, releaseOrder (convertQuote kept)');
+
+console.log('C66b. Two quotes, the second closed by the first save → both SOs');
+resetState();
+var r66b = runPost(post({ custpage_q_sel: '["901","902"]', custpage_units_902: '2' }));
+ok(writesOf('create', 'salesorder').map(function (w) { return w.from; }).join() === '901,902' && writesOf('create', 'customrecord_order_log').length === 2, 'both SOs and both order logs');
+ok(r66b.redirect && r66b.redirect.parameters.nsqso === '7000,7001' && !r66b.redirect.parameters.nsqqf && r66b.redirect.parameters.nsq !== 'warn', 'green banner: nsqso=7000,7001, no nsqqf');
+var seq66 = state.calls.filter(function (c) { return /^transform:|^save:salesorder|^search:estimate:tranid,opportunity/.test(c); });
+ok(seq66.join() === 'search:estimate:tranid,opportunity,custbody_quote_type,total,transform:901,search:estimate:tranid,opportunity,custbody_quote_type,total,transform:902,save:salesorder:901,save:salesorder:902',
+    'phase 1 (re-check + transform, both) before phase 2 (save, both)');
+var li66 = state.logs.filter(function (l) { return l.title === 'CreateOrderSL.Convert'; }).map(function (l) { return l.details; });
+var firstSave66 = li66.findIndex(function (d) { return / → SO \d+ saved/.test(d); });
+ok(li66.filter(function (d, k) { return k < firstSave66 && /carried: .*\| blank: /.test(d); }).length === 2, 'the carried / blank line, one per quote, both in phase 1');
+ok(logged('CreateOrderSL.Convert', /prepared 2\/2$/) && logged('CreateOrderSL.Convert', /saved 1\/2: EST901$/) && logged('CreateOrderSL.Convert', /saved 2\/2: EST902$/),
+    'logs "prepared 2/2", then each save');
+
+console.log('C66c. A phase 1 failure on quote 2 of 3 → nothing saved, every lock released');
+function three(over) {
+    var o = { custpage_q_sel: '["901","902","903"]', custpage_units_902: '2', custpage_units_903: '1', custpage_projtype: '2' };
+    Object.keys(over || {}).forEach(function (k) { o[k] = over[k]; });
+    return post(o);
+}
+function locksHeld() { return Object.keys(state.cache).filter(function (k) { return k.indexOf('nh_order_estimate_lock|') === 0; }); }
+resetState(); state.transformThrows['902'] = 'Record has been changed';
+var r66c = runPost(three({ custpage_email_on: 'T', custpage_rcpt_customer: 'T' }));
+ok(state.writes.length === 0 && !state.calls.some(function (c) { return c.indexOf('save:') === 0; }), 'no SO, no order log, no opportunity write');
+ok(state.calls.indexOf('transform:903') !== -1, 'quote 3 is still prepared, so the list of problems is complete');
+ok(locksHeld().length === 0 && state.calls.filter(function (c) { return c === 'cache.remove:nh_order_estimate_lock'; }).length === 3, 'all three locks released (901 and 903 prepared, 902 refused)');
+ok(!r66c.redirect && r66c.html.indexOf('Nothing was created:') !== -1 && r66c.html.indexOf('EST902: Record has been changed') !== -1, '"Nothing was created: EST902: Record has been changed"');
+ok(state.emails.length === 0 && Object.keys(state.cache).filter(function (k) { return k.indexOf('nh_create_order_save_guard') === 0; }).length === 0, 'no email; the save token released');
+ok(logged('CreateOrderSL.Convert', /prepared 2\/3; NOTHING SAVED \(1 refused\); every lock released/), 'logs "prepared 2/3; NOTHING SAVED"');
+ok(/class="nsq-qsel" data-qid="902" checked/.test(r66c.html), 'entries restored');
+resetState(); state.soTotalDelta['902'] = 5; state.soTotalDelta['903'] = 5;
+var r66c2 = runPost(three());
+ok(state.writes.length === 0 && locksHeld().length === 0 && r66c2.html.indexOf('EST902 total differs from the quote (£2,255.00 vs £2,250.00) · EST903 total differs from the quote (£505.00 vs £500.00)') !== -1,
+    'two refusals (total check) → both listed, nothing saved, no lock left');
+
+console.log('C66d. A phase 2 save failure on quote 2 of 3 → SO 1 stands, quote 2 reported, quote 3 still attempted');
+var NS66 = 'You cannot create a sales order from an estimate whose status is Processed.';
+resetState(); state.soSaveThrows['902'] = NS66;
+var r66d = runPost(three());
+ok(writesOf('create', 'salesorder').map(function (w) { return w.from; }).join() === '901,903', 'SOs from quotes 1 and 3; none from quote 2');
+ok(state.calls.filter(function (c) { return c.indexOf('save:salesorder:') === 0; }).join() === 'save:salesorder:901,save:salesorder:902,save:salesorder:903', 'quote 3 saved after quote 2 failed');
+var p66d = r66d.redirect && r66d.redirect.parameters;
+ok(p66d && p66d.nsq === 'warn' && p66d.nsqso === '7000,7001' && p66d.nsqqf === '902', 'amber: "Not created: EST902" (nsqqf=902), nsqso both');
+ok(logged('CreateOrderSL.Convert', new RegExp('Estimate 902 \\(EST902\\) — SO save FAILED, not created: ' + NS66.replace(/\./g, '\\.') + ' \\[Error\\]$')) &&
+    logged('CreateOrderSL.Summary', new RegExp('failed EST902: ' + NS66.replace(/\./g, '\\.'))), 'NetSuite’s exact message in the log (Convert and Summary)');
+ok(locksHeld().map(function (k) { return k.split('|').pop(); }).sort().join() === 'est_901,est_903', 'the failed quote’s lock released; the saved ones left to expire');
+ok(!state.calls.some(function (c, k) { return c.indexOf('search:estimate:tranid,opportunity') === 0 && k > state.calls.indexOf('save:salesorder:901'); }), 'no openness re-check in phase 2');
+
+console.log('C66e. The duplicate guard and the lock still refuse — now the whole submission');
+resetState(); state.salesOrders.push({ id: '6999', tranid: 'SO200001', createdfrom: '902', opportunity: '123', total: 2250 });
+var r66e = runPost(post({ custpage_q_sel: '["901","902"]', custpage_units_902: '2' }));
+ok(writesOf('create', 'salesorder').length === 0 && r66e.html.indexOf('Nothing was created:') !== -1 && r66e.html.indexOf('EST902 already converted to SO200001') !== -1,
+    '"EST902 already converted to SO200001" → nothing created (901 not saved either)');
+ok(locksHeld().length === 0 && state.calls.indexOf('transform:902') === -1, 'refused before its transform; every lock released');
+resetState(); state.cache['nh_order_estimate_lock|PUBLIC|est_902'] = '1';
+var r66e2 = runPost(post({ custpage_q_sel: '["901","902"]', custpage_units_902: '2' }));
+ok(writesOf('create', 'salesorder').length === 0 && r66e2.html.indexOf('EST902 is being converted by another request') !== -1, 'locked by another request → nothing created');
+ok(locksHeld().join() === 'nh_order_estimate_lock|PUBLIC|est_902', '901’s lock released; the other request’s lock on 902 untouched');
+resetState(); state.dupSearchThrows = 'Unexpected error';
+var r66e3 = runPost(post({ custpage_q_sel: '["901","902"]', custpage_units_902: '2' }));
+ok(state.writes.length === 0 && locksHeld().length === 0 && r66e3.html.indexOf('existing orders could not be checked (Unexpected error). Please try again.') !== -1,
+    'the duplicate search failing → nothing created, no lock taken');
+
+console.log('C66f. Governance: the worst case for the ticked count is checked up front');
+// probe: the units validation uses before the check (refused at 999 used; the log says how many were left)
+resetState(); state.units = 999; runPost(three());
+var left66 = +((state.logs.filter(function (l) { return l.title === 'CreateOrderSL.Validation' && /usage: /.test(l.details); })[0] || { details: '' }).details.match(/(-?\d+) left/) || [])[1];
+var val66 = 1000 - 999 - left66;   // negative remaining is fine: getRemainingUsage = 1000 − used
+resetState(); state.units = 1000 - val66 - 286 + 1;   // one unit short of 100 + 3 × 62
+var r66f = runPost(three());
+ok(!r66f.redirect && r66f.html.indexOf('These 3 orders can’t all be created in one go (NetSuite’s usage limit). Create fewer at a time.') !== -1, 'refused with the reason');
+ok(state.writes.length === 0 && !tokenClaimed() && !state.calls.some(function (c) { return /^transform:|^cache\.put:nh_order_estimate_lock|^search:salesorder:createdfrom/.test(c); }),
+    'before the token, the duplicate search, any lock or transform');
+ok(logged('CreateOrderSL.Validation', /usage: 3 quotes need up to 286 units; \d+ left/), 'the figures logged');
+ok(logged('CreateOrderSL.Validation', /usage: 3 quotes need up to 286 units; 285 left$/), 'exactly one unit short: 285 left');
+resetState(); state.units = 1000 - val66 - 286;
+ok(runPost(three()).redirect && writesOf('create', 'salesorder').length === 3, 'with exactly 286 left: all three created');
+resetState(); state.units = 1000 - val66 - 286 + 1;
+ok(runPost(post()).redirect, 'the same usage left is enough for one quote');
+
+console.log('C66g. Production’s Back + resubmit: the quote is no longer open, so validation refuses first');
+resetState();
+var p66g = post();
+runPost(p66g);
+var w66g = state.writes.length; state.redirect = null;
+var r66g = runPost(p66g);
+ok(state.writes.length === w66g && !r66g.redirect && r66g.html.indexOf('A ticked quote is not an open quote on this opportunity') !== -1, 'nothing written; "not an open quote … Please reload" (not the dup banner)');
 
 // ═══ Governance ══════════════════════════════════════════════════════════════════
 

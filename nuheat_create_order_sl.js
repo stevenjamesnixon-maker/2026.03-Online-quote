@@ -8,10 +8,10 @@
  *              quotes to order, with units and partner commission) → 2 Order details (project type,
  *              order authority, the rep taking the order) → 3 Update the opportunity (delivery date, next
  *              contact, build stage, sub-status, value proposition) → 4 Confirmation email (switch, off).
- *              Creates one Sales Order and one order log per ticked quote (nuheat_order_lib.convertQuote),
+ *              Creates one Sales Order and one order log per ticked quote (nuheat_order_lib.convertQuotes, 1.3.2),
  *              sends the confirmation only when switched on, writes the Opportunity LAST, and returns to
  *              the Opportunity with the result banner (nuheat_opportunity_ue.js, nsqs=ord).
- * @version     1.3.1
+ * @version     1.3.2
  * @author      Nu-Heat Development
  *
  * Script ID:      customscript_nuheat_create_order_sl
@@ -36,6 +36,17 @@
  *   ORDER_EMAIL_TEMPLATES    idlist (1.2.0)      → the email switch is disabled ("No confirmation templates are set up")
  *   The settings search failing (no View permission on the record, no record type) → the page refuses:
  *   "Create order can’t run: its settings can’t be read. Ask an administrator."
+ *
+ * CHANGELOG v1.3.2 (amendment 6 — several quotes when NetSuite closes the siblings, Steve's Production tests 7 Oct):
+ *   - FIXED: with two quotes ticked only the first converted; the second was refused "is not an open quote on this
+ *     opportunity" — saving the first SO makes NetSuite mark the opportunity's other open quotes Processed.
+ *   - The conversion is orderLib.convertQuotes (lib 1.3.0): phase 1 checks and transforms EVERY quote (lock,
+ *     re-check, duplicate guard, transform, fields, total check) before any save; any refusal → nothing saved,
+ *     every lock released, the page "Nothing was created: …" with each reason (all-or-nothing, as validation).
+ *     Phase 2 saves each; a failed save never stops the others ("Not created: …"; NetSuite's message in the log).
+ *   - The duplicate guard now refuses the whole submission (it was per quote) — it is part of phase 1.
+ *   - Governance: checked ONCE before the token, for the worst case of the ticked count (usageNeeded =
+ *     MIN_USAGE_TO_CONVERT 100 + 62 per quote + 40 with the email); short → refused before any write.
  *
  * CHANGELOG v1.3.1 (amendment 5 — the commission £ inline; the attachment note, Steve 7 Oct):
  *   - The worked-out commission is an inline read-only figure to the right of the commission input, in the same
@@ -100,8 +111,9 @@
  *   - The server rebuilds from IDs: ticked quotes must be OPEN Estimates on THIS opportunity (the header
  *     search), every list value must be an option read at run time, the rep must be an active sales rep.
  *     No posted price, total or ID is trusted.
- *   - Order: validate → token → duplicate guard (SO createdfrom) → one Sales Order + order log per quote
- *     (each in its own try/catch) → the email (only if switched on; one per submission, filed on the opportunity) → the
+ *   - Order (1.3.2): validate → usage check → token → orderLib.convertQuotes: phase 1 (duplicate guard, then per
+ *     quote lock → re-check → transform → fields → total check; any refusal = nothing saved) → phase 2 (each SO
+ *     saved → total check → order log; each in its own try/catch) → the email (only if switched on; one per submission, filed on the opportunity) → the
  *     Opportunity LAST. Nothing created → no email, no Opportunity write, the token is released.
  *   - THE EXCEPTION TO THE SUB-STATUS RULE (Steve, 6 Oct): this page writes custbody_opportunity_sub_status,
  *     as the rep chooses it (default Awaiting Design Info). Send Quote and Update Opportunity still never do.
@@ -129,7 +141,7 @@ define([
 
     'use strict';
 
-    var SCRIPT_VERSION = '1.3.1';
+    var SCRIPT_VERSION = '1.3.2';
 
     /** Page rules for the shared update fields: Next contact must end up set (D3, as Update Opportunity). */
     var RULES = { required: ['next_contact'], logKey: 'CreateOrderSL.OppUpdate' };
@@ -173,9 +185,15 @@ define([
      * Governance. A quote costs about 50 units to convert (60 with the fallback total search). 1.3.0: the email
      * is ONE render.mergeEmail + ONE email.send per submission, counted as 20 + 20 (the conservative figures;
      * Sandbox check). 8 quotes with the email on come to ~520 units, so MAX_QUOTES is 8 again (1.2.0: 6).
+     * 1.3.2: every quote is prepared before any save (orderLib.convertQuotes), so the check is made ONCE, up
+     * front, for the worst case of the ticked count (usageNeeded); a submission that wouldn't fit is refused
+     * before any write. The total per quote is unchanged.
      */
     var MAX_QUOTES = 8;               // per submission (1.2.0: 6; 1.3.0: back to 8 — one email per submission)
-    var MIN_USAGE_TO_CONVERT = 100;   // a conversion (60) + the opportunity writes (20) + slack (20)
+    var QUOTE_UNITS = 62;             // 1.3.2: worst case per quote — lock 2 + release 1 + re-check 10 + transform 10 + save 20
+                                      //        + lookupFields 1 + fallback total search 10 + parent lookup 1 + order log 6 = 61, +1
+    var MIN_USAGE_TO_CONVERT = 100;   // 1.3.2: once per submission — the duplicate search (10) + the opportunity writes (20) +
+                                      //        slack (70); was per quote: a conversion (60) + the opportunity writes (20) + slack (20)
     var EMAIL_UNITS = 40;             // 1.3.0: the ONE mergeEmail + email.send, reserved once while the email is on
     var UNITS_MAX = 999999;
 
@@ -1054,6 +1072,11 @@ define([
     }
 
     /** A failure reason with the quote's number: "EST901 is not an open quote…" / "EST901: total differs…". */
+    /** 1.3.2: the worst case for n quotes (see QUOTE_UNITS): checked once, before any write. */
+    function usageNeeded(n, emailOn) {
+        return MIN_USAGE_TO_CONVERT + n * QUOTE_UNITS + (emailOn ? EMAIL_UNITS : 0);
+    }
+
     function reasonFor(q, e) {
         var msg = (e && e.message) || String(e);
         var name = q.tranId || ('Quote ' + q.id);
@@ -1224,6 +1247,15 @@ define([
             }
         }
 
+        // ── Governance (1.3.2): the worst case for the ticked count must fit, or nothing is attempted ──
+        var script = runtime.getCurrentScript();
+        var needed = usageNeeded(quotes.length, emailOn), left = script.getRemainingUsage();
+        if (left < needed) {
+            log.audit('CreateOrderSL.Validation', 'Opportunity ' + opportunityId + ' — usage: ' + quotes.length + ' quote' + (quotes.length === 1 ? '' : 's') +
+                (emailOn ? ' + the email' : '') + ' need up to ' + needed + ' units; ' + left + ' left');
+            return invalid('These ' + quotes.length + ' orders can’t all be created in one go (NetSuite’s usage limit). Create fewer at a time.');
+        }
+
         // ── Save guard — before the first write ─────────────────────────────────
         var guard = claimToken(restore.token, opportunityId);
         if (guard.dup) {
@@ -1233,46 +1265,40 @@ define([
             return;
         }
 
-        // ── Duplicate guard: an SO created from a ticked quote refuses that quote ─
-        var existing;
-        try {
-            existing = orderLib.findExistingOrders(quotes.map(function (x) { return x.q.id; }));
-        } catch (e) {
-            log.error('CreateOrderSL.Guard', 'Opportunity ' + opportunityId + ' — existing-order check failed: ' + e.message);
+        // ── 1.3.2: the orders, in two phases (orderLib.convertQuotes) ──────────────
+        // Phase 1 (nothing saved): the duplicate guard, then every quote locked, re-checked (open, this
+        // opportunity), transformed and total-checked while all of them are still open. Any refusal → nothing
+        // saved, every lock released, the page comes back "Nothing was created: …" (all-or-nothing, as validation).
+        // Phase 2: each SO saved → total check after save → order log. A failed save never stops the others;
+        // the SOs already saved stand ("Not created: …", NetSuite's message in the log).
+        var conv = orderLib.convertQuotes(quotes.map(function (x) {
+            return { estimateId: x.q.id, commission: x.commission, units: x.units };
+        }), {
+            oppId:       opportunityId,
+            projectType: projectType,
+            auth:        auth,
+            repId:       repId,
+            cfg:         { soForm: cfg.soForm, recordStatus: cfg.recordStatus, parentOppField: cfg.parentOppField, logKey: 'CreateOrderSL.Convert' }
+        });
+        var byId = {};
+        quotes.forEach(function (x) { byId[x.q.id] = x.q; });
+        function why(item) {
+            if (!item.estimateId) return (item.error && item.error.message) || String(item.error);   // the duplicate search failed
+            return reasonFor(byId[item.estimateId] || { id: item.estimateId }, item.error);
+        }
+        if (!conv.ok) {
             releaseToken(guard.key, opportunityId);
-            fail('Nothing was created:', 'existing orders could not be checked (' + e.message + '). Please try again.');
+            var problems = conv.problems.map(why);
+            log.audit('CreateOrderSL.Summary', 'Opportunity ' + opportunityId + ' — nothing created (phase 1, prepared ' + conv.prepared + '/' + quotes.length +
+                '): ' + problems.join(' | '));
+            fail('Nothing was created:', problems.join(' · '));
             return;
         }
-
-        // ── One Sales Order + order log per quote, each in its own try/catch ─────
-        var created = [], failed = [];
-        var script = runtime.getCurrentScript();
-        quotes.forEach(function (x) {
-            if (existing[x.q.id]) {
-                failed.push({ q: x.q, reason: (x.q.tranId || 'Quote ' + x.q.id) + ' already converted to ' + existing[x.q.id].join(', ') });
-                return;
-            }
-            if (script.getRemainingUsage() < MIN_USAGE_TO_CONVERT + (emailOn ? EMAIL_UNITS : 0)) {   // 1.3.0: room for the one email
-                failed.push({ q: x.q, reason: (x.q.tranId || 'Quote ' + x.q.id) + ' not attempted (script usage limit) — please create it separately' });
-                return;
-            }
-            try {
-                var res = orderLib.convertQuote({
-                    estimateId:  x.q.id,
-                    oppId:       opportunityId,
-                    projectType: projectType,
-                    commission:  x.commission,
-                    units:       x.units,
-                    auth:        auth,
-                    repId:       repId,
-                    cfg:         { soForm: cfg.soForm, recordStatus: cfg.recordStatus, parentOppField: cfg.parentOppField, logKey: 'CreateOrderSL.Convert' }
-                });
-                created.push({ q: x.q, res: res });
-            } catch (e) {
-                var why = reasonFor(x.q, e);
-                log.error('CreateOrderSL.Convert', 'Opportunity ' + opportunityId + ' — ' + why);
-                failed.push({ q: x.q, reason: why });
-            }
+        var created = conv.created.map(function (c) { return { q: byId[c.estimateId], res: c.res }; });
+        var failed = conv.failed.map(function (f) {
+            var reason = why(f);
+            log.error('CreateOrderSL.Convert', 'Opportunity ' + opportunityId + ' — ' + reason);
+            return { q: byId[f.estimateId], reason: reason };
         });
 
         // ── Nothing created: no email, no opportunity write, the token is released ─

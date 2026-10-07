@@ -4,11 +4,11 @@
  *
  * @name        Nu-Heat Order Library
  * @description Turning open quotes (Estimates) into Sales Orders: the orderable-quote listing, the
- *              conversion (lock → re-check → transform → set fields → total check → save → total check →
- *              order log), project-type inference and the settings record. Used by the
+ *              conversion in two phases (1.3.0: every quote locked, re-checked, guarded against duplicates,
+ *              transformed and total-checked BEFORE any save; then each saved → total check → order log), project-type inference and the settings record. Used by the
  *              reps' "Create order" page (nuheat_create_order_sl.js); written for reuse by the
  *              customer version (part 2), which will run as Administrator.
- * @version     1.2.1
+ * @version     1.3.0
  * @author      Nu-Heat Development
  *
  * ⚠️ DEPLOYMENT: a shared AMD module — no script record, no deployment. Upload it to
@@ -16,15 +16,31 @@
  *    './nuheat_opp_update_lib') and BEFORE nuheat_create_order_sl.js, or the Suitelet fails at load time.
  *
  * ⚠️ EXTERNAL CONSUMER (planned): the customer version of Create order (part 2) will require this
- *    library. Don't rename, move or change the signatures of listOrderableQuotes, convertQuote,
- *    inferProjectType, paysUpFront, loadListOptions, loadOrderSettings,
- *    parseSettingRows or LIB_VERSION without a matching change there.
+ *    library. Don't rename, move or change the signatures of listOrderableQuotes, convertQuotes,
+ *    prepareOrder, saveOrder, releaseOrder, convertQuote, findExistingOrders, inferProjectType,
+ *    paysUpFront, loadListOptions, loadOrderSettings, parseSettingRows or LIB_VERSION without a matching
+ *    change there. 1.3.0: part 2 converts through convertQuotes (or prepareOrder for every quote, then
+ *    saveOrder for each) — NOT convertQuote in a loop, which fails from the second quote (see 1.3.0).
  *
  * ⚠️ RECORD DEPENDENCY (1.1.0): the settings live on the customer dashboard's settings record,
  *    customrecord_cdb_setting (Name = the key, custrecord_cdb_setting_value = the value). This is a
  *    record dependency, not a code dependency: nothing of the dashboard is required. The rules mirror
  *    the dashboard's cdb_lib_config.js 3.x (trimmed Name, blank = missing, two active rows = that key
  *    missing, a failed search = every key missing).
+ *
+ * CHANGELOG v1.3.0 (Create order amendment 6 — several quotes, when NetSuite closes the siblings; Steve 7 Oct):
+ *   - FIXED: with two quotes ticked, the second was always refused ("is not an open quote on this opportunity"):
+ *     saving the first SO makes NetSuite mark the opportunity's other open quotes as no longer open (Processed),
+ *     and convertQuote re-checked openness per quote AFTER the earlier save.
+ *   - ADDED: convertQuotes(orders, common) — phase 1 prepares every quote (lock → re-check → duplicate guard →
+ *     transform → fields → total check; nothing saved) while all are still open; any refusal releases every lock
+ *     and saves nothing. Phase 2 saves each (no re-check) → total check after save → order log; a failed save
+ *     never stops the others. Logs "prepared n/n" and each save.
+ *   - ADDED: prepareOrder(o), saveOrder(prepared), releaseOrder(prepared) — the two phases for one quote.
+ *     convertQuote(o) = saveOrder(prepareOrder(o)), for a single quote. A failed save now logs NetSuite's
+ *     message (and error name) at error and releases the lock.
+ *   - The duplicate guard moves inside phase 1 (ORDERLIB_DUPLICATE "already converted to SO…"): one
+ *     findExistingOrders search for the submission, checked per quote after its lock and re-check.
  *
  * CHANGELOG v1.2.1 (Create order amendment 3 — partner commission always as £, Steve 6 Oct 2026):
  *   - custbody_partner_commission_amount (£) is written on EVERY new SO, as a number: the £ entered; or,
@@ -71,7 +87,7 @@ function (record, search, log, cache, format, lib) {
 
     'use strict';
 
-    var LIB_VERSION = '1.2.1';
+    var LIB_VERSION = '1.3.0';
 
     // ─── Account objects (script IDs only) ────────────────────────────────────────
 
@@ -578,48 +594,12 @@ function (record, search, log, cache, format, lib) {
     }
 
     /**
-     * Converts ONE open Estimate into a Sales Order and logs it. TRUSTS NO INPUT (the customer version
-     * will run as Administrator): it re-checks ownership and openness itself, and checks every value's
-     * shape. Option membership (project type, authority, rep) is the caller's validation.
-     *
-     *   1. N/cache lock est_<id> (best effort; held by another request → refused).
-     *   2. Re-check: the Estimate must be OPEN and on oppId (one search; see recheckEstimate).
-     *   3. record.transform Estimate → Sales Order, standard mode, customform = cfg.soForm (set first,
-     *      through defaultValues).
-     *   4. Set: Record Status = cfg.recordStatus; project type; the commission (1.2.1: the £ field always, the %
-     *      field for a %); opportunity and
-     *      quote type ONLY when they came across blank (copied from the Estimate). Every CARRY_REPORT
-     *      field is reported (carried / blank) in the audit log.
-     *   5. Total check before save: the SO's total against the Estimate's; more than 1p apart (or either
-     *      unreadable) → NOT saved: "total differs from the quote (£x vs £y)".
-     *   6. Save (ignoreMandatoryFields: false — the form's mandatory fields are respected).
-     *   7. Total check after save (lookupFields): a mismatch is a WARNING — never deleted.
-     *   8. The order log (custrecord_order_so, _parent_opp, _units, _auth, _rep). A failure is a warning:
-     *      "SOxxxx created; order log NOT created: …" — the SO stands.
-     *
-     * Governance: lock 2 (+1 release on failure) · search 10 · [parent lookup 1] · transform 10 · save 20
-     * · lookupFields 1 [+ search 10] · log create 2 + save 4 → about 49.
-     *
-     * @param {Object} o
-     * @param {string} o.estimateId
-     * @param {string} o.oppId
-     * @param {string} o.projectType - a customlist_bund_proj_type id
-     * @param {{kind: 'pct'|'amt', value: *}} [o.commission] - blank value = none
-     * @param {*} o.units - a whole number ≥ 1
-     * @param {string} o.auth - a customlist_order_auth id
-     * @param {string} o.repId - the employee taking the order
-     * @param {{soForm: string, recordStatus: string, parentOppField: string, logKey: string}} o.cfg
-     * @returns {{ soId, tranId, total, logId, warnings: string[], totalMismatch: boolean, logFailed: boolean }}
-     *          totalMismatch / logFailed: the warnings' kinds, for the banner codes
-     * @throws when nothing was saved (e.name ORDERLIB_*, or NetSuite's own error from transform / save)
+     * 1.3.0: the shape of one quote's inputs — before anything else. Throws ORDERLIB_BAD_INPUT / ORDERLIB_CONFIG.
+     * @returns {{ estimateId, oppId, units (number), comm, cfg, logKey }}
      */
-    function convertQuote(o) {
-        o = o || {};
+    function checkOrderInput(o) {
         var cfg = o.cfg || {};
-        var logKey = cfg.logKey || 'OrderLib.Convert';
         var estimateId = str(o.estimateId), oppId = str(o.oppId);
-
-        // ── Shape of every input — before anything else ──
         if (!ID_RE.test(estimateId)) throw orderLibError('ORDERLIB_BAD_INPUT', 'No quote.');
         if (!ID_RE.test(oppId)) throw orderLibError('ORDERLIB_BAD_INPUT', 'No opportunity.');
         if (!ID_RE.test(str(cfg.soForm))) throw orderLibError('ORDERLIB_CONFIG', 'The Sales Order form is not set.');
@@ -629,19 +609,55 @@ function (record, search, log, cache, format, lib) {
         if (!ID_RE.test(str(o.repId))) throw orderLibError('ORDERLIB_BAD_INPUT', 'No sales rep.');
         var units = str(o.units).trim();
         if (!/^\d{1,6}$/.test(units) || parseInt(units, 10) < 1) throw orderLibError('ORDERLIB_BAD_INPUT', 'Units must be a whole number of 1 or more.');
-        units = parseInt(units, 10);
-        var comm = commissionInput(o.commission);   // 1.2.1: shape now; the £ after the transform (it needs the base)
+        return {
+            estimateId: estimateId, oppId: oppId, units: parseInt(units, 10),
+            comm:       commissionInput(o.commission),   // 1.2.1: shape now; the £ after the transform (it needs the base)
+            cfg:        cfg, logKey: cfg.logKey || 'OrderLib.Convert'
+        };
+    }
+
+    /**
+     * 1.3.0 PHASE 1 for ONE quote — NOTHING IS SAVED. TRUSTS NO INPUT (the customer version will run as
+     * Administrator): it re-checks ownership and openness itself, and checks every value's shape. Option
+     * membership (project type, authority, rep) is the caller's validation.
+     *
+     *   1. N/cache lock est_<id> (best effort; held by another request → refused).
+     *   2. Re-check: the Estimate must be OPEN and on oppId (one search; see recheckEstimate).
+     *   3. The duplicate guard: o.existingOrders (the SO numbers findExistingOrders found for this quote)
+     *      non-empty → refused "already converted to SO…".
+     *   4. record.transform Estimate → Sales Order, standard mode, customform = cfg.soForm (set first,
+     *      through defaultValues). Every CARRY_REPORT field is reported (carried / blank) in the audit log.
+     *   5. Set: Record Status = cfg.recordStatus; project type; the commission (the £ field always, the % field
+     *      for a %); opportunity and quote type ONLY when they came across blank (copied from the Estimate).
+     *   6. Total check before save: the SO's total against the Estimate's; more than 1p apart (or either
+     *      unreadable) → refused: "total differs from the quote (£x vs £y)".
+     * Any refusal releases this quote's lock and throws. On success the lock stays HELD until saveOrder or
+     * releaseOrder: the caller must call one of them for every prepared order.
+     *
+     * Governance: lock 2 (+1 release on failure) · search 10 · transform 10 → about 22.
+     *
+     * @param {Object} o - as convertQuote, plus [o.existingOrders] (string[], from findExistingOrders)
+     * @returns {Object} the prepared order — opaque; pass it to saveOrder or releaseOrder
+     * @throws when refused (e.name ORDERLIB_*, or NetSuite's own error from the transform)
+     */
+    function prepareOrder(o) {
+        o = o || {};
+        var i = checkOrderInput(o);
+        var logKey = i.logKey, estimateId = i.estimateId, oppId = i.oppId, cfg = i.cfg, comm = i.comm;
 
         // ── 1. Lock ──
         var lock = takeLock(estimateId, logKey);
         if (lock.held) throw orderLibError('ORDERLIB_LOCKED', 'is being converted by another request — try again in a few minutes');
 
-        var soId = '';
         try {
             // ── 2. Re-check ──
             var est = recheckEstimate(estimateId, oppId);
 
-            // ── 3. Transform (standard mode; the form first) ──
+            // ── 3. Duplicate guard ──
+            var dup = (o.existingOrders || []).map(str).filter(function (s) { return s; });
+            if (dup.length) throw orderLibError('ORDERLIB_DUPLICATE', 'already converted to ' + dup.join(', '));
+
+            // ── 4. Transform (standard mode; the form first) ──
             var so = record.transform({
                 fromType:      record.Type.ESTIMATE,
                 fromId:        estimateId,
@@ -661,7 +677,7 @@ function (record, search, log, cache, format, lib) {
             log.audit(logKey, 'Estimate ' + estimateId + ' (' + est.tranId + ') → SO, before setting fields — carried: ' +
                 (carried.join(', ') || 'none') + ' | blank: ' + (blank.join(', ') || 'none'));
 
-            // ── 4. Fields ──
+            // ── 5. Fields ──
             var set = [];
             so.setValue({ fieldId: SO.recordStatus, value: str(cfg.recordStatus) }); set.push(SO.recordStatus);
             so.setValue({ fieldId: SO.projectType, value: str(o.projectType) }); set.push(SO.projectType);
@@ -686,34 +702,78 @@ function (record, search, log, cache, format, lib) {
                 so.setValue({ fieldId: SO.quoteType, value: est.quoteTypeId }); set.push(SO.quoteType + ' (copied)');
             }
 
-            // ── 5. Total check before save ──
+            // ── 6. Total check before save ──
             if (soTotal === null || est.total === null || Math.abs(soTotal - est.total) > TOTAL_TOLERANCE + 1e-9) {
                 log.audit(logKey, 'Estimate ' + estimateId + ' — TOTAL MISMATCH before save; not saved. SO ' + str(soTotal) + ' vs quote ' + str(est.total));
                 throw orderLibError('ORDERLIB_TOTAL', 'total differs from the quote (' + (soTotal === null ? 'unreadable' : money(soTotal)) +
                     ' vs ' + (est.total === null ? 'unreadable' : money(est.total)) + ')');
             }
 
-            // ── 6. Save ──
-            soId = str(so.save({ ignoreMandatoryFields: false }));
-            log.audit(logKey, 'Estimate ' + estimateId + ' (' + est.tranId + ') → SO ' + soId + ' saved | set: ' + set.join(', '));
-            log.audit(logKey, 'SO ' + soId + ' — ' + cv.log);   // 1.2.1: "commission: 5% → £64.33 (base £1,286.61)" / "commission: £250.00"
+            return {
+                estimateId: estimateId, oppId: oppId, tranId: est.tranId, estTotal: est.total, so: so, lockKey: lock.key,
+                set: set, commLog: cv.log, units: i.units, auth: str(o.auth), repId: str(o.repId), cfg: cfg, logKey: logKey,
+                state: 'prepared'
+            };
         } catch (e) {
             releaseLock(lock.key, logKey);   // nothing was saved — the rep may retry
             throw e;
         }
+    }
 
-        // ── From here on NOTHING throws: the SO stands. The lock is left to expire (LOCK_TTL): the quote
-        //    is no longer open, and leaving it saves a unit per order. ──
+    /** 1.3.0: gives up a prepared order that will not be saved — releases its lock. Safe to call twice. */
+    function releaseOrder(p) {
+        if (!p || p.state !== 'prepared') return;
+        p.state = 'released';
+        p.so = null;
+        releaseLock(p.lockKey, p.logKey);
+    }
+
+    /**
+     * 1.3.0 PHASE 2 for ONE prepared order. No openness re-check: phase 1 proved it, the lock is held and the
+     * duplicate guard ran (a source Estimate NetSuite marks Processed after the transform is EXPECTED here —
+     * Sandbox check S21 — and is not worked around).
+     *
+     *   1. Save (ignoreMandatoryFields: false — the form's mandatory fields are respected). A failure logs
+     *      NetSuite's message, releases the lock and throws (nothing was saved for this quote).
+     *   2. Total check after save (lookupFields): a mismatch is a WARNING — never deleted.
+     *   3. The order log (custrecord_order_so, _parent_opp, _units, _auth, _rep). A failure is a warning:
+     *      "SOxxxx created; order log NOT created: …" — the SO stands.
+     * After a save NOTHING throws. The lock is left to expire (LOCK_TTL): the quote is no longer open.
+     *
+     * Governance: save 20 · lookupFields 1 [+ search 10] · [parent lookup 1] · log create 2 + save 4 → about 27–38.
+     *
+     * @returns {{ soId, tranId, total, logId, warnings: string[], totalMismatch: boolean, logFailed: boolean }}
+     * @throws NetSuite's own error from the save (nothing saved), or ORDERLIB_BAD_INPUT for an order not prepared
+     */
+    function saveOrder(p) {
+        if (!p || p.state !== 'prepared') throw orderLibError('ORDERLIB_BAD_INPUT', 'No prepared order.');
+        var logKey = p.logKey, estimateId = p.estimateId, soId = '';
+        p.state = 'saving';
+        try {
+            soId = str(p.so.save({ ignoreMandatoryFields: false }));
+        } catch (e) {
+            p.state = 'failed';
+            p.so = null;
+            log.error(logKey, 'Estimate ' + estimateId + ' (' + p.tranId + ') — SO save FAILED, not created: ' + ((e && e.message) || String(e)) +
+                (e && e.name ? ' [' + e.name + ']' : ''));
+            releaseLock(p.lockKey, logKey);   // nothing was saved for this quote — the rep may retry
+            throw e;
+        }
+        p.state = 'saved';
+        p.so = null;
+        log.audit(logKey, 'Estimate ' + estimateId + ' (' + p.tranId + ') → SO ' + soId + ' saved | set: ' + p.set.join(', '));
+        log.audit(logKey, 'SO ' + soId + ' — ' + p.commLog);   // 1.2.1: "commission: 5% → £64.33 (base £1,286.61)" / "commission: £250.00"
+
         var out = { soId: soId, tranId: '', total: null, logId: '', warnings: [], totalMismatch: false, logFailed: false };
 
-        // ── 7. Total check after save ──
+        // ── 2. Total check after save ──
         try {
             var saved = readSavedOrder(soId, logKey);
             out.tranId = saved.tranId;
             out.total = saved.total;
-            if (saved.total === null || est.total === null || Math.abs(saved.total - est.total) > TOTAL_TOLERANCE + 1e-9) {
+            if (saved.total === null || p.estTotal === null || Math.abs(saved.total - p.estTotal) > TOTAL_TOLERANCE + 1e-9) {
                 var w = (out.tranId || 'SO ' + soId) + ': total after save differs from the quote (' +
-                    (saved.total === null ? 'unreadable' : money(saved.total)) + ' vs ' + money(est.total) + ')';
+                    (saved.total === null ? 'unreadable' : money(saved.total)) + ' vs ' + money(p.estTotal) + ')';
                 out.warnings.push(w);
                 out.totalMismatch = true;
                 log.audit(logKey, 'Estimate ' + estimateId + ' — TOTAL MISMATCH after save (SO kept): ' + w);
@@ -725,17 +785,17 @@ function (record, search, log, cache, format, lib) {
         }
         var soLabel = out.tranId || ('SO ' + soId);
 
-        // ── 8. The order log ──
+        // ── 3. The order log ──
         try {
-            var parent = parentOpportunity(oppId, cfg.parentOppField, logKey);
+            var parent = parentOpportunity(p.oppId, p.cfg.parentOppField, logKey);
             var ol = record.create({ type: LOG.record });
             ol.setValue({ fieldId: LOG.so, value: soId });
             ol.setValue({ fieldId: LOG.parentOpp, value: parent });
-            ol.setValue({ fieldId: LOG.units, value: units });
-            ol.setValue({ fieldId: LOG.auth, value: str(o.auth) });
-            ol.setValue({ fieldId: LOG.rep, value: str(o.repId) });
+            ol.setValue({ fieldId: LOG.units, value: p.units });
+            ol.setValue({ fieldId: LOG.auth, value: p.auth });
+            ol.setValue({ fieldId: LOG.rep, value: p.repId });
             out.logId = str(ol.save({ ignoreMandatoryFields: false }));
-            log.audit(logKey, soLabel + ' — order log ' + out.logId + ' created (parent opportunity ' + parent + ', units ' + units + ')');
+            log.audit(logKey, soLabel + ' — order log ' + out.logId + ' created (parent opportunity ' + parent + ', units ' + p.units + ')');
         } catch (e) {
             var lw = soLabel + ' created; order log NOT created: ' + ((e && e.message) || String(e));
             out.warnings.push(lw);
@@ -743,6 +803,101 @@ function (record, search, log, cache, format, lib) {
             log.error(logKey, lw);
         }
         return out;
+    }
+
+    /**
+     * 1.3.0: converts SEVERAL quotes of one opportunity as ONE decision, in two phases — because saving the
+     * first Sales Order makes NetSuite mark the opportunity's other open quotes as no longer open (Production,
+     * 7 Oct), so a per-quote re-check after an earlier save refuses every later quote.
+     *
+     *   Phase 1 (nothing saved): ONE duplicate search (findExistingOrders) for every quote, then prepareOrder
+     *   for each, in order — every quote is checked while all of them are still open. ANY refusal → every
+     *   prepared order is released (locks freed), nothing is saved: { ok: false, problems }. Every quote is
+     *   still prepared so that the problems list is complete.
+     *   Phase 2: saveOrder for each prepared order, in order. A failed save never stops the others; the SOs
+     *   already saved stand: { ok: true, created, failed }.
+     *
+     * Governance: duplicate search 10, then about 22 per quote (phase 1) + 27–38 per quote (phase 2) — the
+     * same total as one convertQuote per quote. The caller checks the worst case BEFORE calling (it holds up
+     * to MAX_QUOTES transformed records in memory).
+     *
+     * @param {Object[]} orders - [{ estimateId, commission, units }]
+     * @param {Object} common - { oppId, projectType, auth, repId, cfg } (as convertQuote)
+     * @returns {{ ok: boolean, prepared: number, problems: {estimateId, error}[], created: {estimateId, res}[], failed: {estimateId, error}[] }}
+     *          error = the Error thrown (ORDERLIB_* or NetSuite's); a failed duplicate search is one problem with estimateId ''
+     */
+    function convertQuotes(orders, common) {
+        orders = orders || [];
+        common = common || {};
+        var logKey = (common.cfg && common.cfg.logKey) || 'OrderLib.Convert';
+        var out = { ok: false, prepared: 0, problems: [], created: [], failed: [] };
+        var n = orders.length;
+
+        var existing;
+        try {
+            existing = findExistingOrders(orders.map(function (x) { return x.estimateId; }));
+        } catch (e) {
+            log.error(logKey, 'Opportunity ' + str(common.oppId) + ' — existing-order check failed; nothing saved: ' + e.message);
+            out.problems.push({ estimateId: '', error: orderLibError('ORDERLIB_GUARD', 'existing orders could not be checked (' + e.message + '). Please try again.') });
+            return out;
+        }
+
+        // ── Phase 1: prepare every quote ──
+        var prepared = [];
+        orders.forEach(function (x) {
+            try {
+                prepared.push(prepareOrder({
+                    estimateId: x.estimateId, oppId: common.oppId, projectType: common.projectType, commission: x.commission,
+                    units: x.units, auth: common.auth, repId: common.repId, cfg: common.cfg,
+                    existingOrders: existing[str(x.estimateId)] || []
+                }));
+            } catch (e) {
+                out.problems.push({ estimateId: str(x.estimateId), error: e });
+                log.error(logKey, 'Estimate ' + str(x.estimateId) + ' — refused in phase 1: ' + ((e && e.message) || String(e)));
+            }
+        });
+        out.prepared = prepared.length;
+        if (out.problems.length) {
+            prepared.forEach(releaseOrder);
+            log.audit(logKey, 'Opportunity ' + str(common.oppId) + ' — prepared ' + prepared.length + '/' + n + '; NOTHING SAVED (' +
+                out.problems.length + ' refused); every lock released');
+            return out;
+        }
+        log.audit(logKey, 'Opportunity ' + str(common.oppId) + ' — prepared ' + n + '/' + n);
+
+        // ── Phase 2: save each ──
+        out.ok = true;
+        prepared.forEach(function (p, k) {
+            try {
+                out.created.push({ estimateId: p.estimateId, res: saveOrder(p) });
+                log.audit(logKey, 'Opportunity ' + str(common.oppId) + ' — saved ' + (k + 1) + '/' + n + ': ' + p.tranId);
+            } catch (e) {
+                out.failed.push({ estimateId: p.estimateId, error: e });
+                log.audit(logKey, 'Opportunity ' + str(common.oppId) + ' — save ' + (k + 1) + '/' + n + ' FAILED: ' + p.tranId);
+            }
+        });
+        return out;
+    }
+
+    /**
+     * Converts ONE open Estimate: prepareOrder then saveOrder (1.3.0: kept for a single quote; for several
+     * quotes of one opportunity use convertQuotes — saving one SO closes the opportunity's other quotes).
+     * No duplicate guard here (the caller's, as before). Governance about 49.
+     *
+     * @param {Object} o
+     * @param {string} o.estimateId
+     * @param {string} o.oppId
+     * @param {string} o.projectType - a customlist_bund_proj_type id
+     * @param {{kind: 'pct'|'amt', value: *}} [o.commission] - blank value = none
+     * @param {*} o.units - a whole number ≥ 1
+     * @param {string} o.auth - a customlist_order_auth id
+     * @param {string} o.repId - the employee taking the order
+     * @param {{soForm: string, recordStatus: string, parentOppField: string, logKey: string}} o.cfg
+     * @returns as saveOrder
+     * @throws when nothing was saved (e.name ORDERLIB_*, or NetSuite's own error from transform / save)
+     */
+    function convertQuote(o) {
+        return saveOrder(prepareOrder(o));
     }
 
     return {
@@ -760,6 +915,10 @@ function (record, search, log, cache, format, lib) {
         listOrderableQuotes:    listOrderableQuotes,
         inferProjectType:       inferProjectType,
         findExistingOrders:     findExistingOrders,
+        convertQuotes:          convertQuotes,   // 1.3.0
+        prepareOrder:           prepareOrder,    // 1.3.0
+        saveOrder:              saveOrder,       // 1.3.0
+        releaseOrder:           releaseOrder,    // 1.3.0
         convertQuote:           convertQuote
     };
 
