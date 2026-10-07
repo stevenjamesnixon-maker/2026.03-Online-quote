@@ -5,7 +5,7 @@
 
 ---
 
-## Create order, part 1 (Create Order SL 1.3.0 / order library 1.2.1 / Opportunity UE 1.5.3 / CS 1.3.0)
+## Create order, part 1 (Create Order SL 1.3.1 / order library 1.2.1 / Opportunity UE 1.5.3 / CS 1.3.0)
 
 > **Status: 🔶 not yet tested in Sandbox.** Upload `nuheat_order_lib.js`, then `nuheat_create_order_sl.js`,
 > then the CS, then the UE (DEPLOYMENT_CHECKLIST 2f-3). **No script parameters:** add the `ORDER_*` rows to
@@ -16,7 +16,7 @@
 ### Automated (before uploading)
 
 ```bash
-node test/create-order.js            # must end "413 passed, 0 failed" (C1–C64; C52 re-runs the three suites below)
+node test/create-order.js            # must end "432 passed, 0 failed" (C1–C65; C52 re-runs the three suites below)
 node test/update-opp.js              # 684 passed — unchanged
 node test/send-quote-opp-update.js   # 400 passed — assertions unchanged (amendment 1 adds only an N/cache stub)
 node test/opp-lib-customer.js        # 72 passed — unchanged
@@ -58,9 +58,9 @@ for f in nuheat_order_lib.js nuheat_create_order_sl.js nuheat_opportunity_ue.js 
 | O3 | Opportunity with 3 open quotes (one past its expiry) and one already converted | 3 rows, newest first; the expired one tagged **Expired**; the converted one absent |
 | O4 | Up-front customer (terms 9) vs a trade customer | Deposit on the rows and in the totals ("2 orders · £… inc VAT · Deposit £…") for the first; none for the second |
 | O5 | Tick a UFH quote, then a heat pump quote | Project type: UFH Only, then UFH & Renewables; tick an unmapped quote → blank. Choose one yourself → ticking no longer changes it |
-| O6 | One quote, units 4, commission 5 %, email off | The row shows "= £…" under the commission. One SO: form NH Sales Order (2026), Record Status Awaiting Design Info, the project type, 5% **and** Partner Comm (£) = 5% of the ex VAT total. One order log (SO, parent opp, 4 units, authority, rep). Opportunity: sub-status Awaiting Design Info, value proposition as chosen. Banner "Order created · Created SO…". No email |
+| O6 | One quote, units 4, commission 5 %, email off | The row shows "→ £…" to the right of the commission input, the same size as the inputs, updating as you type (blank or 0 → "→ £0.00"; gone when you switch to £). One SO: form NH Sales Order (2026), Record Status Awaiting Design Info, the project type, 5% **and** Partner Comm (£) = 5% of the ex VAT total. One order log (SO, parent opp, 4 units, authority, rep). Opportunity: sub-status Awaiting Design Info, value proposition as chosen. Banner "Order created · Created SO…". No email |
 | O7 | Two quotes, £ commission on one, email on to yourself, one template chosen in the email section, one PDF attached | Two SOs, the same project type on both; **one** email, from the chosen template, with the PDF, under the **opportunity's** Communication › Messages; banner "Orders created … Confirmation email sent" |
-| O7b | Many quotes on one opportunity | Each row one line (~56px) on desktop; the totals line and the footer follow the ticks; on a phone the inputs sit on a second line |
+| O7b | Many quotes on one opportunity | Each row one line (~56px) on desktop, the commission figures lined up row to row; the totals line and the footer follow the ticks; on a phone the inputs sit below, the commission figure on the same line as its input, nothing overlapping or cut off |
 | O7c | An opportunity whose sales rep isn't ticked Sales Rep | That rep is offered first and pre-selected; the order log gets them |
 | O8 | Browser Back and submit again | "Already created"; no second SO |
 | O9 | Units 0 / commission 150 % / no value proposition | The button stays disabled with the reason; forced through, the page re-renders "Not created." with everything kept |

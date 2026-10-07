@@ -20,6 +20,7 @@
  *   C53–C61  amendment 1: settings from customrecord_cdb_setting (page, POST, UE cache, the pure parser)
  *   C62–C64  amendment 3: partner commission always written as £ (C22 updated: % now writes both fields)
  *   amendment 4: C41–C43b rewritten — one template select, one email per submission filed on the opportunity
+ *   C65      amendment 5: the commission £ inline ("→ £64.33", % only); C41: the attachments note
  *
  *   node test/create-order.js
  */
@@ -844,7 +845,8 @@ ok(/<input type="checkbox" id="nsq-email-on"> Send the customer an order confirm
 ok(/<option value="rep" selected>Sales rep \(Rita Rep\)/.test(g41), 'From defaults to the sales rep');
 ok(/data-customer="1" data-email="cust@example.com" checked/.test(g41), 'To defaults to the Customer');
 ok(g41.indexOf('nsq-email-message') === -1 && g41.indexOf('custpage_email_message') === -1, 'no free-text message box');
-ok(/<input type="file" id="nsq-att" class="nsq-att" multiple>/.test(g41) && g41.indexOf('Up to 5 files, 10 MB in total. They are attached to every confirmation email sent now.') !== -1, 'the attachments input, multiple, with its limits');
+ok(/<input type="file" id="nsq-att" class="nsq-att" multiple>/.test(g41) && g41.indexOf('<p class="nsq-help" id="nsq-att-note">Attached to the confirmation email.</p>') !== -1, 'the attachments input, multiple; the note reads "Attached to the confirmation email." (amendment 5)');
+ok(g41.indexOf('MAX_FILES = 5, MAX_BYTES = ' + (10 * 1024 * 1024) + ';') !== -1, 'the limits are still checked on the page (5 files, 10 MB)');
 ok((g41.match(/<input type="file" name="custpage_att_\d" class="nsq-att-slot" hidden>/g) || []).length === 5, 'five hidden slots custpage_att_1…5');
 ok(g41.indexOf('f.enctype = "multipart/form-data"') !== -1, 'the page sets the form to multipart/form-data');
 resetState();
@@ -1210,8 +1212,67 @@ ok(orderLib.commissionValues({ kind: 'pct', n: 0 }, 1000).amount === 0 && orderL
 var e64 = null; try { orderLib.commissionValues({ kind: 'pct', n: 5 }, null); } catch (e) { e64 = e; }
 ok(e64 && e64.name === 'ORDERLIB_COMMISSION', 'no base → ORDERLIB_COMMISSION');
 var g64 = runGet();
-ok(g64.indexOf('<span class="nsq-comm-calc" aria-live="polite"></span>') !== -1, 'each row has the "= £…" slot');
-ok(g64.indexOf('out.textContent = ok ? "= " + money(Math.round(parseFloat(c) * parseFloat(ex)) / 100) : "";') !== -1, 'the page works it out from the row’s ex VAT (display only)');
+ok(g64.indexOf('<span class="nsq-comm-calc" aria-live="polite"></span>') !== -1, 'each % row has the "→ £…" slot (amendment 5: inline)');
+
+// ═══ Amendment 5: the commission £ inline ════════════════════════════════════════
+
+console.log('C65. Amendment 5: the worked-out commission £ inline ("→ £64.33"), % only');
+var g65 = runGet();
+// The page's own money() and commCalc(), run against a stub row (the page script is static text)
+var m65 = g65.match(/  function money\(n\) \{[^\n]*\}\n/), c65 = g65.match(/  function commCalc\(r\) \{[\s\S]*?\n  \}\n/);
+ok(!!(m65 && c65), 'money() and commCalc() found in the page script');
+var commCalc = new Function(m65[0] + c65[0] + 'return commCalc;')();
+function calcRow(kind, value, exVat) {
+    var out = { hidden: false, textContent: '' }, inp = { value: value };
+    return { out: out, inp: inp, kind: kind,
+        querySelector: function (sel) {
+            if (sel === '.nsq-comm-calc') return out;
+            if (sel === '.nsq-comm') return inp;
+            if (sel === '.nsq-comm-kind:checked') return { value: this.kind };
+            return null;
+        },
+        getAttribute: function (a) { return a === 'data-exvat' ? exVat : null; } };
+}
+function shown(r) { commCalc(r); return r.out.hidden ? '(hidden)' : r.out.textContent; }
+ok(shown(calcRow('pct', '5', '1286.61')) === '→ £64.33', '% 5 of £1,286.61 ex VAT → "→ £64.33" (the brief’s example)');
+ok(shown(calcRow('amt', '5', '1286.61')) === '(hidden)', '£ selected → hidden');
+var r65 = calcRow('pct', '', '10000'), seen65 = [];
+['', '1', '12', '12.', '12.5', '0', '100'].forEach(function (v) { r65.inp.value = v; seen65.push(shown(r65)); });
+ok(seen65.join(' | ') === '→ £0.00 | → £100.00 | → £1,200.00 |  | → £1,250.00 | → £0.00 | → £10,000.00',
+    'updates as the rep types: blank → £0.00, 1 → £100.00, 12 → £1,200.00, "12." → nothing (invalid), 12.5 → £1,250.00, 0 → £0.00, 100 → £10,000.00 (' + seen65.join(' | ') + ')');
+ok(shown(calcRow('pct', '', '')) === '→ £0.00' && shown(calcRow('pct', '0', '')) === '→ £0.00' && shown(calcRow('pct', '0.00', '2142.86')) === '→ £0.00',
+    'blank or 0 → "→ £0.00" (also when the row has no ex VAT)');
+ok(shown(calcRow('pct', '5', '')) === '', 'a % with no ex VAT on the row → nothing (the server refuses it, C63)');
+ok(shown(calcRow('pct', '101', '1000')) === '' && shown(calcRow('pct', 'abc', '1000')) === '' && shown(calcRow('pct', '1.234', '1000')) === '', 'over 100, not a number or 3 dp → nothing (the footer gives the reason)');
+r65 = calcRow('pct', '5', '1000'); shown(r65); r65.kind = 'amt';
+ok(shown(r65) === '(hidden)' && r65.out.textContent === '', '% → £: hidden and emptied');
+r65.kind = 'pct';
+ok(shown(r65) === '→ £50.00', '£ → % again: shown');
+ok(g65.indexOf('each(rows(), commCalc);') !== -1 && g65.indexOf('el.addEventListener("input", update);') !== -1,
+    'refreshed on every keystroke (the inputs’ "input" → update() → summary() → commCalc on every row)');
+// The page and the server agree (display only: the server still calculates it itself, order lib unchanged)
+var agree65 = [[5, 1286.61], [37, 416.67], [2.5, 10000], [12.34, 2142.86], [100, 999999.99], [0.01, 0.5]].every(function (c) {
+    return shown(calcRow('pct', String(c[0]), String(c[1]))) === '→ ' + orderLib.money(orderLib.commissionValues({ kind: 'pct', n: c[0] }, c[1]).amount);
+});
+ok(agree65, 'the page’s figure = orderLib.commissionValues for 5% / 37% / 2.5% / 12.34% / 100% / 0.01%');
+resetState(); state.estimates[0].exvat = 1286.61; state.estimates[0].total = 1543.93;
+runPost(post({ custpage_comm_kind_901: 'pct', custpage_comm_901: '5' }));
+ok(soOf('901').values.custbody_partner_commission === 5 && soOf('901').values.custbody_partner_commission_amount === 64.33, 'the server is unchanged: 5% on a £1,286.61 base → % 5 and £64.33 on the SO');
+resetState();
+runPost(post({ custpage_comm_kind_901: 'pct', custpage_comm_901: '' }));
+ok(soOf('901').values.custbody_partner_commission_amount === 0 && soOf('901').values.custbody_partner_commission === undefined, 'blank → £0 written, no % (unchanged)');
+// The markup: the slot follows the input in the same group, hidden from the start for a £ row
+ok(/class="nsq-input nsq-comm" id="nsq-comm-901"[^>]*><span class="nsq-comm-calc" aria-live="polite"><\/span><\/span><\/div>/.test(g65), 'the figure sits right after the input, in the commission group');
+resetState();
+var r65b = runPost(post({ custpage_q_sel: '["901","902"]', custpage_units_902: '0', custpage_comm_kind_901: 'amt', custpage_comm_901: '25', custpage_comm_kind_902: 'pct', custpage_comm_902: '3' }));
+ok(!r65b.redirect && /name="custpage_comm_901"[^>]*><span class="nsq-comm-calc" aria-live="polite" hidden><\/span>/.test(r65b.html) &&
+    /name="custpage_comm_902"[^>]*><span class="nsq-comm-calc" aria-live="polite"><\/span>/.test(r65b.html), 'a page restored after a refusal: £ row hidden, % row shown');
+ok(/\.nsq-comm-calc\{flex:0 0 108px;width:108px;font-size:14px;line-height:32px;color:#5f5b66;/.test(g65) &&
+    g65.indexOf('.nsq-qrow .nsq-input{min-height:32px;height:32px;padding:4px 8px;font-size:14px;') !== -1,
+    'the figure: a fixed 108px, 14px like the units and commission inputs, the muted colour');
+ok(g65.indexOf('.nsq-comm-calc[hidden]{display:inline-block;visibility:hidden;}') !== -1, 'hidden keeps its space (the row never moves)');
+ok(g65.indexOf('grid-template-columns:24px minmax(100px,1fr) 150px 100px 340px 112px;') !== -1, 'desktop: the commission column 340px (232 + 108), fixed so the rows line up');
+ok(g65.indexOf('font-size:10px') === -1 && g65.indexOf('position:absolute;right:0;top:100%') === -1, 'the small "= £…" under the field is gone');
 
 // ═══ Governance ══════════════════════════════════════════════════════════════════
 

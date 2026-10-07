@@ -298,7 +298,7 @@ that something has regressed at source. See §6.
 | Opportunity Update Library | 1.3.0 | `nuheat_opp_update_lib.js` | 🔶 1.3.0 in review (dashboard link decode, contact company — additive). 1.2.0 merged, not deployed (customer-safe functions for the customer dashboard). 1.1.0 in Production (1 Oct 2026; upload first) |
 | Opportunity UE | 1.5.3 | `nuheat_opportunity_ue.js` | 🔶 1.5.3 in review (the "Create order" button behind the `ORDER_MODE` setting, default OFF; the `nsqs=ord` banner). 1.4.0 in Production (1 Oct 2026) |
 | Opportunity CS | 1.3.0 | `nuheat_opportunity_cs.js` | 🔶 1.3.0 in review (`openCreateOrderSuitelet`). 1.2.0 in Production (29 Sep 2026) |
-| Create Order SL | 1.3.0 | `nuheat_create_order_sl.js` | 🔶 New, in review — not deployed. Create order part 1 (the reps' page) |
+| Create Order SL | 1.3.1 | `nuheat_create_order_sl.js` | 🔶 New, in review — not deployed. Create order part 1 (the reps' page) |
 | Order Library | 1.2.1 | `nuheat_order_lib.js` | 🔶 New, in review — not deployed. Shared module (listing, `convertQuote`, inference, the confirmation email) |
 | Analytics Suitelet | v1.0.1 | `nuheat_analytics_sl.js` | ✅ Live in Production |
 | **BUS Grant Module** | **v1.0.0** | **`nuheat_bus_grant.js`** | ✅ Live in Production |
@@ -652,7 +652,7 @@ on the dashboard repo: no dashboard file is required and the API Secret is never
 - Governance: the four customer columns ride on the existing customer lookup; +1 unit (contact lookup)
   only when a dashboard contact is set and the button is offered. The default page load stays 53 units.
 
-### Create order flow (Create Order SL 1.3.0, order library 1.2.1, Opportunity UE 1.5.3, CS 1.3.0)
+### Create order flow (Create Order SL 1.3.1, order library 1.2.1, Opportunity UE 1.5.3, CS 1.3.0)
 
 Part 1 of Create order: the reps' **Create order** button on the Opportunity (VIEW only, after Update
 opportunity, its own try/catch) opens `nuheat_create_order_sl.js` in the same tab. The page has four numbered

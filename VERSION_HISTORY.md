@@ -361,6 +361,11 @@
 
 ## Create order (`nuheat_create_order_sl.js`, `nuheat_order_lib.js`) & Opportunity UE / CS
 
+### Create Order SL v1.3.1 — 7 October 2026 🔶 In review (amendment 5)
+
+- The worked-out commission inline to the right of the commission input ("→ £64.33", 14px, muted, fixed 108px),
+  % only, blank / 0 → £0.00; the attachments note "Attached to the confirmation email." Display only.
+
 ### Create Order SL v1.3.0 / Opportunity UE v1.5.3 — 7 October 2026 🔶 In review (amendment 4)
 
 - One template select in the email section; one email per submission, merged against and filed on the opportunity;

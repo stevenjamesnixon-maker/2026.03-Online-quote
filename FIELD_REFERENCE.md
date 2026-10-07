@@ -94,7 +94,7 @@ record; unknown values are dropped.
 | `nsqe` *(ord, UE 1.5.3)* | `sent` \| `fail` | The one confirmation email: "Confirmation email sent" / warning "The confirmation email was not sent." (1.5.2's `nsqen` count and `nsqef` are dropped for ord) |
 | `nsqf` / `nsqff` keys `sub_status`, `value_prop` | — | *(UE 1.5.0)* Sub-status (`custbody_opportunity_sub_status`) and Value proposition (`custbody_value_proposition`), read from the record. |
 
-## Create order (Create Order SL 1.3.0 / order library 1.2.1) — 6 Oct 2026
+## Create order (Create Order SL 1.3.1 / order library 1.2.1) — 6 Oct 2026
 
 ### Estimate (read: two searches, no loads)
 

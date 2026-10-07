@@ -11,7 +11,7 @@
  *              Creates one Sales Order and one order log per ticked quote (nuheat_order_lib.convertQuote),
  *              sends the confirmation only when switched on, writes the Opportunity LAST, and returns to
  *              the Opportunity with the result banner (nuheat_opportunity_ue.js, nsqs=ord).
- * @version     1.3.0
+ * @version     1.3.1
  * @author      Nu-Heat Development
  *
  * Script ID:      customscript_nuheat_create_order_sl
@@ -36,6 +36,17 @@
  *   ORDER_EMAIL_TEMPLATES    idlist (1.2.0)      → the email switch is disabled ("No confirmation templates are set up")
  *   The settings search failing (no View permission on the record, no record type) → the page refuses:
  *   "Create order can’t run: its settings can’t be read. Ask an administrator."
+ *
+ * CHANGELOG v1.3.1 (amendment 5 — the commission £ inline; the attachment note, Steve 7 Oct):
+ *   - The worked-out commission is an inline read-only figure to the right of the commission input, in the same
+ *     row ("→ £64.33"): the inputs' size (14px), the muted colour, a fixed width (CALC_W) so the columns line up.
+ *     Shown only while % is selected (hidden for £, keeping its space); blank or 0 → "→ £0.00"; an invalid entry
+ *     shows nothing (the footer says why). Display only, as before: the server (order lib 1.2.1) is unchanged.
+ *   - Desktop: the commission column is 232 + CALC_W px (198 was already too narrow for label, toggle and input);
+ *     the description's minimum 120 → 100px so the row still fits at 1001px. Rows stay ~56px.
+ *   - Phones: the toggle, input and figure stay together on one line (.nsq-comm-box); at ≤ 480px the inputs use
+ *     the row's full width; under ~375px the "Comm." label goes above them.
+ *   - The attachments note reads "Attached to the confirmation email."
  *
  * CHANGELOG v1.3.0 (amendment 4 — one confirmation email per submission, on the opportunity, Steve 6 Oct):
  *   - The per-row template select (custpage_tpl_<id>) and its column are gone: the rows are back to compact.
@@ -118,7 +129,7 @@ define([
 
     'use strict';
 
-    var SCRIPT_VERSION = '1.3.0';
+    var SCRIPT_VERSION = '1.3.1';
 
     /** Page rules for the shared update fields: Next contact must end up set (D3, as Update Opportunity). */
     var RULES = { required: ['next_contact'], logKey: 'CreateOrderSL.OppUpdate' };
@@ -194,7 +205,7 @@ define([
         noSettings:   'Create order can’t run: its settings can’t be read. Ask an administrator.',
         noTemplates:  'No confirmation templates are set up (ORDER_EMAIL_TEMPLATES).',
         badTemplates: 'The confirmation templates could not be read.',
-        attachNote:   'Optional. Up to 5 files, 10 MB in total. They are attached to every confirmation email sent now.',
+        attachNote:   'Attached to the confirmation email.',
         tplLabel:     'Confirmation email template'
     };
 
@@ -641,11 +652,11 @@ define([
             '<input type="text" inputmode="numeric" class="nsq-input nsq-units" id="' + uid + '" name="custpage_units_' + id +
             '" maxlength="6" autocomplete="off" value="' + escapeHtml(units) + '"></label>');
         h.push('<div class="nsq-qf nsq-qf-comm"><label class="nsq-ql" for="' + cid + '"><span class="nsq-ql-long">Commission</span><span class="nsq-ql-short">Comm.</span></label>' +
-            '<span class="nsq-seg-row" role="radiogroup" aria-label="Commission as">' +
+            '<span class="nsq-comm-box"><span class="nsq-seg-row" role="radiogroup" aria-label="Commission as">' +
             '<label class="nsq-seg"><input type="radio" class="nsq-comm-kind" name="custpage_comm_kind_' + id + '" value="pct"' + (kind === 'pct' ? ' checked' : '') + '><span>%</span></label>' +
             '<label class="nsq-seg"><input type="radio" class="nsq-comm-kind" name="custpage_comm_kind_' + id + '" value="amt"' + (kind === 'amt' ? ' checked' : '') + '><span>£</span></label>' +
             '</span><input type="text" inputmode="decimal" class="nsq-input nsq-comm" id="' + cid + '" name="custpage_comm_' + id +
-            '" maxlength="12" autocomplete="off" value="' + escapeHtml(comm) + '"><span class="nsq-comm-calc" aria-live="polite"></span></div>');
+            '" maxlength="12" autocomplete="off" value="' + escapeHtml(comm) + '"><span class="nsq-comm-calc" aria-live="polite"' + (kind === 'pct' ? '' : ' hidden') + '></span></span></div>');
         h.push('</div>');
         h.push('<div class="nsq-qprice"><strong>' + escapeHtml(q.total === null ? '—' : orderLib.money(q.total)) + '</strong>' +
             (q.exVat === null ? '' : '<span class="nsq-qsub">' + escapeHtml(orderLib.money(q.exVat)) + ' ex VAT</span>') +
@@ -752,6 +763,8 @@ define([
         return h.join('');
     }
 
+    var CALC_W = 108;   // 1.3.1: the worked-out commission £ — room for "→ £999,999.99" at 14px (see .nsq-comm-calc)
+
     var PAGE_CSS = '<style>' +
         '.nsq-req{color:#a4262c;}' +
         '.nsq-bad{color:#a4262c;}' +
@@ -766,7 +779,7 @@ define([
         '.nsq-email-note{margin-top:12px;}' +
         // 1.2.0: compact rows — one line per quote at desktop (~56px), the inputs on a second line at phone width
         // fixed widths (except the description) so the columns line up from row to row
-        '.nsq-qrow{display:grid;grid-template-columns:24px minmax(120px,1fr) 150px 100px 198px 112px;grid-template-areas:"tick main meta units comm price";' +
+        '.nsq-qrow{display:grid;grid-template-columns:24px minmax(100px,1fr) 150px 100px ' + (232 + CALC_W) + 'px 112px;grid-template-areas:"tick main meta units comm price";' +
             'align-items:center;column-gap:14px;row-gap:6px;min-height:56px;padding:6px 12px;border:1px solid ' + lib.PAGE_COLORS.border + ';border-radius:8px;margin-bottom:6px;background:#fff;}' +
         '.nsq-qrow-on{border-color:' + lib.PAGE_COLORS.accent + ';box-shadow:inset 0 0 0 1px ' + lib.PAGE_COLORS.accent + ';}' +
         '.nsq-qtick{grid-area:tick;display:flex;align-items:center;}' +
@@ -778,9 +791,15 @@ define([
         '.nsq-ql-short{display:none;}' +
         '.nsq-qin{display:contents;}' +
         '.nsq-qf{display:inline-flex;align-items:center;gap:6px;margin:0;}' +
-        '.nsq-qf-units{grid-area:units;}.nsq-qf-comm{grid-area:comm;position:relative;}' +
-        // 1.2.1: "= £154.39" under the commission input — absolutely placed, so the row keeps its height
-        '.nsq-comm-calc{position:absolute;right:0;top:100%;font-size:10px;line-height:12px;color:' + lib.PAGE_COLORS.accent + ';white-space:nowrap;}' +
+        '.nsq-qf-units{grid-area:units;}.nsq-qf-comm{grid-area:comm;}' +
+        // 1.3.1: "→ £64.33" inline to the right of the commission input, the inputs' size in the muted colour. A
+        // fixed width so the columns line up whatever the figure; visibility, not display, hides it for £ so the row
+        // never moves. The commission column = label (~75) + toggle (~70) + input 72 + two 6px gaps + 6 + CALC_W
+        // (232 + CALC_W; was 198, which the label, toggle and input already overflowed). The description gives way
+        // (min 100px, was 120) so the row still fits at 1001px.
+        '.nsq-comm-box{display:inline-flex;align-items:center;gap:6px;flex:0 0 auto;}' +
+        '.nsq-comm-calc{flex:0 0 ' + CALC_W + 'px;width:' + CALC_W + 'px;font-size:14px;line-height:32px;color:' + lib.PAGE_COLORS.muted + ';white-space:nowrap;font-variant-numeric:tabular-nums;}' +
+        '.nsq-comm-calc[hidden]{display:inline-block;visibility:hidden;}' +
         '.nsq-qf[hidden]{display:none;}' +
         '.nsq-ql{font-size:12px;color:' + lib.PAGE_COLORS.muted + ';white-space:nowrap;}' +
         '.nsq-qrow .nsq-input{min-height:32px;height:32px;padding:4px 8px;font-size:14px;text-align:right;}' +
@@ -806,7 +825,15 @@ define([
             '.nsq-qin{grid-area:in;display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px;}' +
             '.nsq-ql-long{display:none;}.nsq-ql-short{display:inline;}' +
             '.nsq-qrow .nsq-units{width:44px;}.nsq-qrow .nsq-comm{width:56px;}.nsq-qrow .nsq-seg span{padding:0 7px;}' +
+            // 1.3.1: the toggle, input and figure never part (the figure stays on the input's line); only the
+            // "Comm." label may go above them when the line is too narrow (under ~375px). The figure keeps its
+            // fixed width (also when hidden for £), so every row wraps the same way.
+            '.nsq-qf-comm{flex-wrap:wrap;max-width:100%;}' +
             '}' +
+        // 1.3.1: on a phone the inputs use the row's full width (under the tick too)
+        '@media (max-width:480px){.nsq-qrow{grid-template-areas:"tick main price" "tick meta price" "in in in";}.nsq-comm-box{gap:4px;}' +
+            '.nsq-qrow .nsq-seg span{padding:0 6px;}}' +
+        '@media (max-width:360px){.nsq-qrow .nsq-comm{width:52px;}}' +
         '</style>';
 
     /**
@@ -926,11 +953,13 @@ define([
         '    var exLine = !t.length ? "" : (exMissing ? "ex VAT not available for every quote" : money(ex) + " ex VAT");',
         '    return { line: line, ex: exLine };',
         '  }',
-        '  function commCalc(r) {',   // 1.2.1: % × the row's ex VAT, display only (the server recalculates from the SO)
-        '    var out = r.querySelector(".nsq-comm-calc"); if (!out) return;',
+        '  function commCalc(r) {',   // % × the row's ex VAT, display only (the server recalculates from the SO). 1.3.1: "→ £…" inline,
+        '    var out = r.querySelector(".nsq-comm-calc"); if (!out) return;',   // % only; blank or 0 → £0.00; nothing for an invalid entry
         '    var k = r.querySelector(".nsq-comm-kind:checked"), c = r.querySelector(".nsq-comm").value.trim(), ex = r.getAttribute("data-exvat");',
-        '    var ok = k && k.value === "pct" && /^\\d+(\\.\\d{1,2})?$/.test(c) && parseFloat(c) <= 100 && ex !== "";',
-        '    out.textContent = ok ? "= " + money(Math.round(parseFloat(c) * parseFloat(ex)) / 100) : "";',
+        '    var pct = !k || k.value === "pct";',
+        '    out.hidden = !pct;',
+        '    var n = c === "" ? 0 : (/^\\d+(\\.\\d{1,2})?$/.test(c) && parseFloat(c) <= 100 ? parseFloat(c) : null);',
+        '    out.textContent = !pct || n === null || (n > 0 && ex === "") ? "" : "→ " + money(n > 0 ? Math.round(n * parseFloat(ex)) / 100 : 0);',
         '  }',
         '  function summary() {',   // also refreshes the section 1 total, the footer's ex VAT line and the commission £ (display only)
         '    each(rows(), commCalc);',

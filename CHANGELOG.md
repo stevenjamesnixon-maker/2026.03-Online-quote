@@ -1,3 +1,16 @@
+## [Create Order SL v1.3.1] — 7 October 2026 (Create order amendment 5: the commission £ inline; the attachments note)
+**Status:** 🔶 In review — not deployed (PR #38). Order library (1.2.1), Opportunity UE (1.5.3) and CS (1.3.0) unchanged.
+**Components:** `nuheat_create_order_sl.js`, `test/create-order.js`
+
+- CHANGED: the worked-out commission is an inline read-only figure to the right of the commission input, in the
+  same row — `[%|£] [ 5 ] → £64.33` — the inputs' size (14px) in the muted colour, with a fixed width (108px) so
+  the columns line up. Shown only while % is selected; blank or 0 → `→ £0.00`; hidden (its space kept) for £.
+  Display only; the server's calculation is unchanged. Replaces 1.2.1's small "= £…" under the field.
+- CHANGED: layout to fit it — desktop commission column 198 → 340px, description minimum 120 → 100px (rows stay
+  ~56px and fit from 1001px); phones keep toggle, input and figure on one line (under ~375px the "Comm." label
+  goes above them), and at ≤ 480px the inputs use the row's full width.
+- CHANGED: the attachments note reads "Attached to the confirmation email."
+
 ## [Create Order SL v1.3.0 / Opportunity UE v1.5.3] — 7 October 2026 (Create order amendment 4: one confirmation email per submission, on the opportunity)
 **Status:** 🔶 In review — not deployed (PR #38). Order library unchanged (1.2.1); Opportunity CS unchanged (1.3.0).
 **Components:** `nuheat_create_order_sl.js`, `nuheat_opportunity_ue.js`, `test/create-order.js`
