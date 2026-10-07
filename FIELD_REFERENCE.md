@@ -91,11 +91,10 @@ record; unknown values are dropped.
 | `nsqso` | comma list of SO IDs | *(ord)* Orders created: "Created SO239950, SO239951", **only** SOs whose `opportunity` is this one (one search). None verified → no banner |
 | `nsqqf` | comma list of Estimate IDs | *(ord)* Quotes not converted: "Not created: EST…" (this Opportunity's Estimates only; reasons are in the log, never the URL) |
 | `nsqlf` / `nsqtm` | comma list of SO IDs | *(ord)* Order log not created / total after save differs from the quote (verified SOs only) |
-| `nsqen` *(ord, UE 1.5.2)* | count | The number of confirmation **emails** sent (one per order): "Confirmation email sent for N order(s)" |
-| `nsqef` | comma list of SO IDs | *(ord, UE 1.5.2)* Orders whose confirmation email was not sent (merge or send failed) — verified against this opportunity like `nsqso`: "Confirmation email not sent for SO…" |
-| `nsqf` / `nsqff` keys `sub_status`, `value_prop` | — | *(UE 1.5.0)* Sub-status (`custbody_opportunity_sub_status`) and Value proposition (`custbody_value_proposition`), read from the record. `nsqe` / `nsqen` with `ord` → "Confirmation email sent to N recipient(s)" / "The confirmation email was not sent." |
+| `nsqe` *(ord, UE 1.5.3)* | `sent` \| `fail` | The one confirmation email: "Confirmation email sent" / warning "The confirmation email was not sent." (1.5.2's `nsqen` count and `nsqef` are dropped for ord) |
+| `nsqf` / `nsqff` keys `sub_status`, `value_prop` | — | *(UE 1.5.0)* Sub-status (`custbody_opportunity_sub_status`) and Value proposition (`custbody_value_proposition`), read from the record. |
 
-## Create order (Create Order SL 1.2.1 / order library 1.2.1) — 6 Oct 2026
+## Create order (Create Order SL 1.3.0 / order library 1.2.1) — 6 Oct 2026
 
 ### Estimate (read: two searches, no loads)
 
@@ -142,15 +141,15 @@ record; unknown values are dropped.
 | `custbody_value_proposition` | Required; list `customlist_value_proposition` (UFH Design / UFH Design + / HP Design); options from the field; written only when changed |
 | `entitystatus` | `ORDER_OPP_STATUS`, only when set (and an option); `enableSourcing` on |
 
-### Confirmation email (1.2.0) — a NetSuite template per order
+### Confirmation email (1.3.0) — one NetSuite template email per submission, filed on the opportunity
 
 | Item | Rule |
 |---|---|
 | Email templates | `emailtemplate` search: `internalid` anyof `ORDER_EMAIL_TEMPLATES`, columns `name`, `isinactive`. Offered in the setting's order; inactive / missing ones left out and logged |
-| `custpage_tpl_<estimate id>` | The template chosen on each ticked row (required while the email is on; must be an offered one) |
+| `custpage_email_tpl` | *(1.3.0)* The one template chosen in the email section (required while the email is on; must be an offered one). 1.2.0's per-row `custpage_tpl_<id>` is gone |
 | `custpage_att_1` … `custpage_att_5` | The attachments (`request.files`), at most 5 files and 10 MB in total, each non-empty. Passed to `email.send` as they are — not saved |
-| `render.mergeEmail` | `templateId`, `entity` and `recipient` = `{ type: 'customer', id }`, `transactionId` = the new SO → `{ subject, body }` |
-| `email.send` | `author` = the chosen sender, `recipients` / `cc` = the recipients component, the merged subject and body, `attachments`, `relatedRecords: { transactionId: <SO>, entityId: <customer> }` |
+| `render.mergeEmail` | `templateId`, `entity` and `recipient` = `{ type: 'customer', id }`, `transactionId` = **the opportunity** → `{ subject, body }`. Once per submission, only when at least one order was created |
+| `email.send` | `author` = the chosen sender, `recipients` / `cc` = the recipients component, the merged subject and body, `attachments`, `relatedRecords: { transactionId: <opportunity>, entityId: <customer> }` (the opportunity's Communication tab) |
 
 ### Customer / Employee
 

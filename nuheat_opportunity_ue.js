@@ -6,7 +6,7 @@
  * @name        Nu-Heat Opportunity User Event
  * @description Adds the "Send Quote", "Update opportunity" and "Create order" buttons to the
  *              Opportunity form (VIEW only) and, after any of those pages saves, shows its result banner.
- * @version     1.5.2
+ * @version     1.5.3
  * @author      Nu-Heat Development
  *
  * Script ID:      customscript_nuheat_opportunity_ue
@@ -18,6 +18,11 @@
  *    record (customrecord_cdb_setting) — the same switch as the Create order page. No script parameter.
  *    The value is cached for 300 seconds, so the button can take UP TO 5 MINUTES to appear or
  *    disappear after ORDER_MODE changes. Missing, duplicate, unreadable or unknown = OFF = no button.
+ *
+ * CHANGELOG v1.5.3 (Create order SL 1.3.0 — one confirmation email per submission, 6 Oct 2026):
+ *   - CHANGED (ord only): nsqe = sent → "Confirmation email sent"; fail → warning "The confirmation email was
+ *     not sent." nsqef and the "for N orders" wording (1.5.2) are dropped; nsqen is ignored for ord.
+ *   - 'send' and 'upd' banners unchanged.
  *
  * CHANGELOG v1.5.2 (Create order SL 1.2.0 — one template email per order, 6 Oct 2026):
  *   - CHANGED (ord only): nsqen is now the number of confirmation EMAILS sent (one per order):
@@ -104,7 +109,7 @@ function (log, runtime, message, search, format, cache) {
 
     'use strict';
 
-    var SCRIPT_VERSION = '1.5.2';
+    var SCRIPT_VERSION = '1.5.3';
 
     /**
      * v1.5.1: who gets the "Create order" button — the ORDER_MODE row of the customer dashboard's
@@ -541,7 +546,7 @@ function (log, runtime, message, search, format, cache) {
             var ordCount = 0;
             if (source === 'ord') {
                 var soIds = idList(p.nsqso);
-                var flagged = idList(p.nsqlf).concat(idList(p.nsqtm)).concat(idList(p.nsqef)).filter(function (id) { return soIds.indexOf(id) === -1; });
+                var flagged = idList(p.nsqlf).concat(idList(p.nsqtm)).filter(function (id) { return soIds.indexOf(id) === -1; });
                 var orders = lookupCreatedOrders(rec.id, soIds.concat(flagged).slice(0, 50));
                 var createdNames = soIds.filter(function (id) { return orders[id]; }).map(function (id) { return orders[id]; });
                 if (!createdNames.length) {
@@ -561,15 +566,9 @@ function (log, runtime, message, search, format, cache) {
             // v1.3.0: Update Opportunity — the call and the objections, words from the records
             var updLines = [];
             var onlyEmail = '';   // v1.4.0: 'sent' | 'fail' when the email was the only action
-            if (source === 'ord') {   // v1.5.0: the email; v1.5.2: one per order — nsqen counts emails, nsqef names failures
-                var ordEmail = (p.nsqe === 'sent' || p.nsqe === 'fail') ? p.nsqe : '';
-                var emailFailedNames = idList(p.nsqef).filter(function (id) { return orders[id]; }).map(function (id) { return orders[id]; });
-                if (ordEmail === 'sent') {
-                    var ordSent = parseCount(p.nsqen);
-                    ordLines.push(ordSent ? 'Confirmation email sent for ' + ordSent + ' order' + (ordSent === 1 ? '' : 's') : 'Confirmation email sent');
-                }
-                if (emailFailedNames.length) warnings.push('Confirmation email not sent for ' + emailFailedNames.join(', ') + '.');
-                else if (ordEmail === 'fail') warnings.push('The confirmation email was not sent.');
+            if (source === 'ord') {   // v1.5.0: the email; v1.5.3: one per submission — fixed words only
+                if (p.nsqe === 'sent') ordLines.push('Confirmation email sent');
+                else if (p.nsqe === 'fail') warnings.push('The confirmation email was not sent.');
             }
             if (source === 'upd') {
                 var callTitle = lookupCallTitle(rec.id, p.nsqc);

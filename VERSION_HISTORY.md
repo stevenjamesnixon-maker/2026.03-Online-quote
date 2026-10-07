@@ -361,6 +361,11 @@
 
 ## Create order (`nuheat_create_order_sl.js`, `nuheat_order_lib.js`) & Opportunity UE / CS
 
+### Create Order SL v1.3.0 / Opportunity UE v1.5.3 — 7 October 2026 🔶 In review (amendment 4)
+
+- One template select in the email section; one email per submission, merged against and filed on the opportunity;
+  `MAX_QUOTES` 8. UE: "Confirmation email sent" / "The confirmation email was not sent."; `nsqef` dropped.
+
 ### Create Order SL v1.2.1 / Order Library v1.2.1 — 6 October 2026 🔶 In review (amendment 3)
 
 - Partner Comm (£) always written (a number; from a % via total − taxtotal; 0 for none); % field only for a %;

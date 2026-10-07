@@ -1,3 +1,15 @@
+## [Create Order SL v1.3.0 / Opportunity UE v1.5.3] — 7 October 2026 (Create order amendment 4: one confirmation email per submission, on the opportunity)
+**Status:** 🔶 In review — not deployed (PR #38). Order library unchanged (1.2.1); Opportunity CS unchanged (1.3.0).
+**Components:** `nuheat_create_order_sl.js`, `nuheat_opportunity_ue.js`, `test/create-order.js`
+
+- CHANGED: one "Confirmation email template" select in the email section (required while the email is on);
+  the per-row template column is gone. One email per submission after the orders are created (at least one):
+  `render.mergeEmail` with `transactionId` = the opportunity, `email.send` filed on the opportunity, with the
+  attachments. Banner: "Confirmation email sent" / "The confirmation email was not sent." (`nsqef` dropped).
+- CHANGED: `MAX_QUOTES` back to 8 (one merge + one send per submission).
+- DOCS: amendment 3's root cause corrected — the % path left the mandatory £ empty; £ 0 saves. The
+  "make Partner Comm (£) non-mandatory" note is removed; S19 reworded.
+
 ## [Create Order SL v1.2.1 / Order Library v1.2.1] — 6 October 2026 (Create order amendment 3: partner commission always written as £)
 **Status:** 🔶 In review — not deployed (PR #38). Opportunity UE (1.5.2) and CS (1.3.0) unchanged.
 **Components:** `nuheat_order_lib.js`, `nuheat_create_order_sl.js`, `test/create-order.js`
@@ -6,8 +18,8 @@
   the £ entered, the £ worked out from a % (`round(% × (total − taxtotal) / 100, 2)`), or 0. The % field only
   for a %. A % with no readable base is refused ("commission could not be calculated").
 - ADDED: the page shows "= £…" under the commission input for a % (display only).
-- ROOT CAUSE (6 Oct, 17:10): the code already set the number 0; NetSuite rejected 0 in the mandatory field.
-  Open for Steve: make the field non-mandatory on NH Sales Order (2026).
+- ROOT CAUSE (6 Oct, 17:10), corrected by amendment 4 after Steve's re-test: the % path wrote only the % field
+  and left the mandatory £ empty; £ 0 saves fine. Always writing £ fixes it.
 
 ## [Create Order SL v1.2.0 / Order Library v1.2.0 / Opportunity UE v1.5.2] — 6 October 2026 (Create order amendment 2: Steve's first Production test)
 **Status:** 🔶 In review — not deployed (PR #38). Opportunity CS unchanged (1.3.0).

@@ -11,7 +11,7 @@
  *              Creates one Sales Order and one order log per ticked quote (nuheat_order_lib.convertQuote),
  *              sends the confirmation only when switched on, writes the Opportunity LAST, and returns to
  *              the Opportunity with the result banner (nuheat_opportunity_ue.js, nsqs=ord).
- * @version     1.2.1
+ * @version     1.3.0
  * @author      Nu-Heat Development
  *
  * Script ID:      customscript_nuheat_create_order_sl
@@ -36,6 +36,16 @@
  *   ORDER_EMAIL_TEMPLATES    idlist (1.2.0)      → the email switch is disabled ("No confirmation templates are set up")
  *   The settings search failing (no View permission on the record, no record type) → the page refuses:
  *   "Create order can’t run: its settings can’t be read. Ask an administrator."
+ *
+ * CHANGELOG v1.3.0 (amendment 4 — one confirmation email per submission, on the opportunity, Steve 6 Oct):
+ *   - The per-row template select (custpage_tpl_<id>) and its column are gone: the rows are back to compact.
+ *   - Section 4 has ONE "Confirmation email template" select (custpage_email_tpl), required while the email is
+ *     on, options ORDER_EMAIL_TEMPLATES in order. The server accepts only an offered template, before any write.
+ *   - After the orders are created (at least one), ONE email: render.mergeEmail(templateId, entity and recipient
+ *     = the customer, transactionId = the OPPORTUNITY) + email.send filed on the opportunity
+ *     (relatedRecords.transactionId = the opportunity, entityId = the customer), with the attachments.
+ *     Sent even when only some quotes converted. Redirect: nsqe = sent | fail (nsqef and nsqen dropped).
+ *   - Governance: one merge + one send per submission (no per-order reserve); MAX_QUOTES back to 8.
  *
  * CHANGELOG v1.2.1 (amendment 3 — partner commission always written as £, 6 Oct 2026):
  *   - The page shows the worked-out £ under the commission input as soon as a % is entered ("= £154.39",
@@ -80,7 +90,7 @@
  *     search), every list value must be an option read at run time, the rep must be an active sales rep.
  *     No posted price, total or ID is trusted.
  *   - Order: validate → token → duplicate guard (SO createdfrom) → one Sales Order + order log per quote
- *     (each in its own try/catch) → the emails (only if switched on; one per order created, from its template) → the
+ *     (each in its own try/catch) → the email (only if switched on; one per submission, filed on the opportunity) → the
  *     Opportunity LAST. Nothing created → no email, no Opportunity write, the token is released.
  *   - THE EXCEPTION TO THE SUB-STATUS RULE (Steve, 6 Oct): this page writes custbody_opportunity_sub_status,
  *     as the rep chooses it (default Awaiting Design Info). Send Quote and Update Opportunity still never do.
@@ -108,7 +118,7 @@ define([
 
     'use strict';
 
-    var SCRIPT_VERSION = '1.2.1';
+    var SCRIPT_VERSION = '1.3.0';
 
     /** Page rules for the shared update fields: Next contact must end up set (D3, as Update Opportunity). */
     var RULES = { required: ['next_contact'], logKey: 'CreateOrderSL.OppUpdate' };
@@ -149,13 +159,13 @@ define([
     var ADMIN_ROLE_ID = 'administrator';   // the standard Administrator role's script ID (roleId)
 
     /**
-     * Governance (1.2.0). A quote costs about 50 units to convert (60 with the fallback total search) and,
-     * with the email on, one render.mergeEmail + one email.send — counted as 20 + 20 (the conservative
-     * figures; Sandbox check). 8 quotes with emails came to ~830 units, so MAX_QUOTES is 6 (~660).
+     * Governance. A quote costs about 50 units to convert (60 with the fallback total search). 1.3.0: the email
+     * is ONE render.mergeEmail + ONE email.send per submission, counted as 20 + 20 (the conservative figures;
+     * Sandbox check). 8 quotes with the email on come to ~520 units, so MAX_QUOTES is 8 again (1.2.0: 6).
      */
-    var MAX_QUOTES = 6;               // per submission (1.2.0: was 8)
+    var MAX_QUOTES = 8;               // per submission (1.2.0: 6; 1.3.0: back to 8 — one email per submission)
     var MIN_USAGE_TO_CONVERT = 100;   // a conversion (60) + the opportunity writes (20) + slack (20)
-    var EMAIL_UNITS = 40;             // mergeEmail + email.send, reserved per order while the email is on
+    var EMAIL_UNITS = 40;             // 1.3.0: the ONE mergeEmail + email.send, reserved once while the email is on
     var UNITS_MAX = 999999;
 
     /** 1.2.0: the attachments — the page splits the picker into these hidden file inputs. */
@@ -185,7 +195,7 @@ define([
         noTemplates:  'No confirmation templates are set up (ORDER_EMAIL_TEMPLATES).',
         badTemplates: 'The confirmation templates could not be read.',
         attachNote:   'Optional. Up to 5 files, 10 MB in total. They are attached to every confirmation email sent now.',
-        tplLabel:     'Confirmation email'
+        tplLabel:     'Confirmation email template'
     };
 
     // ─── Save guard (copied from Update Opportunity 1.3.3, D25 — own cache) ───────
@@ -597,24 +607,23 @@ define([
 
     /**
      * 1.2.0: one compact row per quote (~56px): tick · number + description (one line, ellipsis, full text on
-     * hover) · type · created · Units · Commission · [Confirmation email] · total (ex VAT and deposit small
+     * hover) · type · created · Units · Commission · total (1.3.0: no template column) (ex VAT and deposit small
      * beneath). The inputs sit inline; an unticked row greys them out (disabled) at the same height. At phone
      * width the inputs wrap to a second line. Totals sit in data- attributes for the live totals only.
      */
-    function quoteRowHTML(q, page, r, emailOn) {
+    function quoteRowHTML(q, page, r) {
         var sel = (r.sel || []).indexOf(q.id) !== -1;
         var restoring = !!r.sel;
         var units = restoring && r.units[q.id] !== undefined ? r.units[q.id] : q.units;
         var kind = restoring && r.commKind[q.id] === 'amt' ? 'amt' : 'pct';
         var comm = restoring && r.comm[q.id] !== undefined ? r.comm[q.id] : '';
-        var tplSel = restoring && r.tpl && r.tpl[q.id] ? r.tpl[q.id] : '';
         var pt = Object.prototype.hasOwnProperty.call(page.projTypeMap, q.quoteTypeId) ? page.projTypeMap[q.quoteTypeId] : '';
         var link = estimateUrl(q.id);
         var name = q.tranId || ('Quote ' + q.id);
         var text = q.description || q.title;
         var deposit = page.upFront && q.deposit !== null && q.deposit > 0 ? q.deposit : null;
         var id = escapeHtml(q.id);
-        var uid = 'nsq-units-' + q.id, cid = 'nsq-comm-' + q.id, tid = 'nsq-tpl-' + q.id;
+        var uid = 'nsq-units-' + q.id, cid = 'nsq-comm-' + q.id;
         var h = [];
         h.push('<div class="nsq-qrow' + (sel ? ' nsq-qrow-on' : '') + '" data-qid="' + id + '" data-tranid="' + escapeHtml(name) +
             '" data-total="' + escapeHtml(q.total === null ? '' : String(q.total)) + '" data-exvat="' + escapeHtml(q.exVat === null ? '' : String(q.exVat)) +
@@ -637,8 +646,6 @@ define([
             '<label class="nsq-seg"><input type="radio" class="nsq-comm-kind" name="custpage_comm_kind_' + id + '" value="amt"' + (kind === 'amt' ? ' checked' : '') + '><span>£</span></label>' +
             '</span><input type="text" inputmode="decimal" class="nsq-input nsq-comm" id="' + cid + '" name="custpage_comm_' + id +
             '" maxlength="12" autocomplete="off" value="' + escapeHtml(comm) + '"><span class="nsq-comm-calc" aria-live="polite"></span></div>');
-        h.push('<label class="nsq-qf nsq-qf-tpl" for="' + tid + '"' + (emailOn ? '' : ' hidden') + '><span class="nsq-sr">' + escapeHtml(COPY.tplLabel) + '</span>' +
-            '<select class="nsq-input nsq-tpl" id="' + tid + '" name="custpage_tpl_' + id + '">' + optionsHTML(page.templates, tplSel, COPY.tplLabel + '…') + '</select></label>');
         h.push('</div>');
         h.push('<div class="nsq-qprice"><strong>' + escapeHtml(q.total === null ? '—' : orderLib.money(q.total)) + '</strong>' +
             (q.exVat === null ? '' : '<span class="nsq-qsub">' + escapeHtml(orderLib.money(q.exVat)) + ' ex VAT</span>') +
@@ -671,7 +678,7 @@ define([
             h.push('<p class="nsq-help" id="nsq-no-quotes">' + escapeHtml(COPY.noQuotes) + '</p>');
         } else {
             h.push('<p class="nsq-help">Tick each quote to order. One sales order is created per quote.</p>');
-            page.quotes.forEach(function (q) { h.push(quoteRowHTML(q, page, r, emailOn)); });
+            page.quotes.forEach(function (q) { h.push(quoteRowHTML(q, page, r)); });
             // 1.2.0: the live total of the ticked quotes (display only — the server never reads it)
             h.push('<div class="nsq-qtotal" id="nsq-qtotal" aria-live="polite"><div class="nsq-qtotal-line" id="nsq-qtotal-line"></div>' +
                 '<div class="nsq-qtotal-ex" id="nsq-qtotal-ex"></div></div>');
@@ -707,7 +714,9 @@ define([
             '> Send the customer an order confirmation</label><span class="nsq-off" id="nsq-email-off"' + (emailOn ? ' hidden' : '') + '>Off</span></h2>');
         if (page.emailBlocked) h.push('<p class="nsq-help nsq-bad" id="nsq-email-why">' + escapeHtml(page.emailBlocked) + '</p>');
         h.push('<div id="nsq-email-body"' + (emailOn ? '' : ' hidden') + '>');
-        h.push('<p class="nsq-help">One email per order created, using the template chosen on each quote above.</p>');
+        h.push('<p class="nsq-help">One email to the customer for this opportunity, sent once the orders are created and filed on the opportunity.</p>');
+        h.push('<div class="nsq-field"><label class="nsq-label" for="nsq-email-tpl">' + escapeHtml(COPY.tplLabel) + ' <span class="nsq-req" aria-hidden="true">*</span></label>' +
+            '<select id="nsq-email-tpl" name="custpage_email_tpl" class="nsq-input">' + optionsHTML(page.templates, emailFresh ? '' : (r.emailTpl || ''), '') + '</select></div>');
         var defaultFrom = page.senders.some(function (o) { return o.code === 'rep'; }) ? 'rep' : 'me';
         var fromCode = (!emailFresh && page.senders.some(function (o) { return o.code === r.from; })) ? r.from : defaultFrom;
         var fromOpt = page.senders.filter(function (o) { return o.code === fromCode; })[0];
@@ -757,7 +766,7 @@ define([
         '.nsq-email-note{margin-top:12px;}' +
         // 1.2.0: compact rows — one line per quote at desktop (~56px), the inputs on a second line at phone width
         // fixed widths (except the description) so the columns line up from row to row
-        '.nsq-qrow{display:grid;grid-template-columns:24px minmax(120px,1fr) 150px 100px 198px auto 112px;grid-template-areas:"tick main meta units comm tpl price";' +
+        '.nsq-qrow{display:grid;grid-template-columns:24px minmax(120px,1fr) 150px 100px 198px 112px;grid-template-areas:"tick main meta units comm price";' +
             'align-items:center;column-gap:14px;row-gap:6px;min-height:56px;padding:6px 12px;border:1px solid ' + lib.PAGE_COLORS.border + ';border-radius:8px;margin-bottom:6px;background:#fff;}' +
         '.nsq-qrow-on{border-color:' + lib.PAGE_COLORS.accent + ';box-shadow:inset 0 0 0 1px ' + lib.PAGE_COLORS.accent + ';}' +
         '.nsq-qtick{grid-area:tick;display:flex;align-items:center;}' +
@@ -769,13 +778,13 @@ define([
         '.nsq-ql-short{display:none;}' +
         '.nsq-qin{display:contents;}' +
         '.nsq-qf{display:inline-flex;align-items:center;gap:6px;margin:0;}' +
-        '.nsq-qf-units{grid-area:units;}.nsq-qf-comm{grid-area:comm;position:relative;}.nsq-qf-tpl{grid-area:tpl;}' +
+        '.nsq-qf-units{grid-area:units;}.nsq-qf-comm{grid-area:comm;position:relative;}' +
         // 1.2.1: "= £154.39" under the commission input — absolutely placed, so the row keeps its height
         '.nsq-comm-calc{position:absolute;right:0;top:100%;font-size:10px;line-height:12px;color:' + lib.PAGE_COLORS.accent + ';white-space:nowrap;}' +
         '.nsq-qf[hidden]{display:none;}' +
         '.nsq-ql{font-size:12px;color:' + lib.PAGE_COLORS.muted + ';white-space:nowrap;}' +
         '.nsq-qrow .nsq-input{min-height:32px;height:32px;padding:4px 8px;font-size:14px;text-align:right;}' +
-        '.nsq-qrow .nsq-units{width:56px;}.nsq-qrow .nsq-comm{width:72px;}.nsq-qrow .nsq-tpl{width:200px;text-align:left;}' +
+        '.nsq-qrow .nsq-units{width:56px;}.nsq-qrow .nsq-comm{width:72px;}' +
         '.nsq-qrow:not(.nsq-qrow-on) .nsq-qf{opacity:.45;}' +
         '.nsq-qprice{grid-area:price;text-align:right;white-space:nowrap;line-height:1.2;}' +
         '.nsq-qprice strong{display:block;font-size:14px;}' +
@@ -797,7 +806,7 @@ define([
             '.nsq-qin{grid-area:in;display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px;}' +
             '.nsq-ql-long{display:none;}.nsq-ql-short{display:inline;}' +
             '.nsq-qrow .nsq-units{width:44px;}.nsq-qrow .nsq-comm{width:56px;}.nsq-qrow .nsq-seg span{padding:0 7px;}' +
-            '.nsq-qf-tpl{flex:1 1 100%;}.nsq-qrow .nsq-tpl{width:100%;}}' +
+            '}' +
         '</style>';
 
     /**
@@ -831,12 +840,9 @@ define([
         '    sel.value = hasOpt(sel, v) ? v : "";',
         '  }',
         '  function setRow(r) {',
-        '    var on = r.querySelector(".nsq-qsel").checked, em = emailOn();',
+        '    var on = r.querySelector(".nsq-qsel").checked;',
         '    if (on) r.classList.add("nsq-qrow-on"); else r.classList.remove("nsq-qrow-on");',
         '    each(r.querySelectorAll(".nsq-qin input, .nsq-qin select"), function (el) { el.disabled = !on; });',
-        '    var tf = r.querySelector(".nsq-qf-tpl"), ts = r.querySelector(".nsq-tpl");',
-        '    if (tf) tf.hidden = !em;',
-        '    if (ts && !em) ts.disabled = true;',
         '  }',
         '  function money(n) { var neg = n < 0; return (neg ? "-£" : "£") + Math.abs(n).toFixed(2).replace(/\\B(?=(\\d{3})+(?!\\d))/g, ","); }',
         '  function files() { var a = $("nsq-att"); return a && a.files ? Array.prototype.slice.call(a.files) : []; }',
@@ -857,9 +863,9 @@ define([
         '    pt.addEventListener("change", function () { ptTouched = true; update(); });',
         '    each(rows(), function (r) {',
         '      r.querySelector(".nsq-qsel").addEventListener("change", function () { setRow(r); applyInference(); update(); });',
-        '      each(r.querySelectorAll(".nsq-comm-kind, .nsq-tpl"), function (k) { k.addEventListener("change", update); });',
+        '      each(r.querySelectorAll(".nsq-comm-kind"), function (k) { k.addEventListener("change", update); });',
         '    });',
-        '    ["nsq-auth", "nsq-rep", "nsq-substatus", "nsq-valueprop"].forEach(function (id) { $(id).addEventListener("change", update); });',
+        '    ["nsq-auth", "nsq-rep", "nsq-substatus", "nsq-valueprop", "nsq-email-tpl"].forEach(function (id) { $(id).addEventListener("change", update); });',
         '    $("nsq-att").addEventListener("change", update);',
         '    var from = $("nsq-email-from"), note = $("nsq-email-note");',
         '    function setNote() {',
@@ -890,7 +896,6 @@ define([
         '        var k = r.querySelector(".nsq-comm-kind:checked");',
         '        if ((!k || k.value === "pct") && parseFloat(c) > 100) return "Partner commission on " + name + " must be 100% or less.";',
         '      }',
-        '      if (emailOn() && !r.querySelector(".nsq-tpl").value) return "Choose the confirmation email for " + name + ".";',
         '    }',
         '    if (!$("nsq-projtype").value) return "Choose a project type.";',
         '    if (!$("nsq-auth").value) return "Choose the order authority.";',
@@ -898,6 +903,7 @@ define([
         '    if (!$("nsq-substatus").value) return "Choose a sub-status.";',
         '    if (!$("nsq-valueprop").value) return "Choose a value proposition.";',
         '    if (emailOn()) {',
+        '      if (!$("nsq-email-tpl").value) return "Choose the confirmation email template.";',
         '      var rp = recipientsProblem();',
         '      if (rp) return rp;',
         '      var fl = files(), bytes = 0;',
@@ -967,10 +973,9 @@ define([
     /** The page state as posted — restored into the page after a refusal. */
     function readRestore(params) {
         var sel = parseSel(params.custpage_q_sel);
-        var units = {}, commKind = {}, comm = {}, tpl = {};
+        var units = {}, commKind = {}, comm = {};
         sel.ids.forEach(function (id) {
             if (!ID_RE.test(id)) return;
-            tpl[id]      = String(params['custpage_tpl_' + id] || '');   // 1.2.0
             units[id]    = String(params['custpage_units_' + id] || '');
             commKind[id] = params['custpage_comm_kind_' + id] === 'amt' ? 'amt' : 'pct';
             comm[id]     = String(params['custpage_comm_' + id] || '');
@@ -980,7 +985,7 @@ define([
             units:     units,
             commKind:  commKind,
             comm:      comm,
-            tpl:       tpl,
+            emailTpl:  String(params.custpage_email_tpl || ''),   // 1.3.0
             projType:  String(params.custpage_projtype || ''),
             auth:      String(params.custpage_auth || ''),
             rep:       String(params.custpage_rep || ''),
@@ -1028,7 +1033,7 @@ define([
 
     /**
      * Validates everything (no writes), claims the token, guards against duplicates, creates one Sales
-     * Order + order log per ticked quote, sends one template email per order (only if on), writes the Opportunity LAST and
+     * Order + order log per ticked quote, sends ONE template email for the opportunity (only if on), writes the Opportunity LAST and
      * redirects with codes only.
      */
     function handleCreate(context, cfg) {
@@ -1064,13 +1069,16 @@ define([
         if (!sel.ids.length) return invalid('Tick at least one quote.');
         if (sel.ids.length > MAX_QUOTES) return invalid('Create up to ' + MAX_QUOTES + ' orders at a time.');
 
-        // Email first (1.2.0: a template per order; the attachments)
+        // Email first (1.3.0: ONE template for the submission; the attachments)
         var emailOn = params.custpage_email_on === 'T';
-        var rcpt = null, sender = null, fromCode = '', ccMeEmail = '', attach = { files: [], bytes: 0 }, templates = [];
+        var rcpt = null, sender = null, fromCode = '', ccMeEmail = '', attach = { files: [], bytes: 0 }, templates = [], emailTemplateId = '';
         if (emailOn) {
             var tpls = loadTemplates(cfg.emailTemplates);
             templates = tpls.list;
             if (!cfg.emailTemplates.length || !templates.length) return invalid(tpls.error ? COPY.badTemplates : COPY.noTemplates);
+            emailTemplateId = String(params.custpage_email_tpl || '').trim();
+            if (!emailTemplateId) return invalid('Choose the confirmation email template.');
+            if (!hasOption(templates, emailTemplateId)) return invalid('The confirmation email template is not one of the offered templates.');
             attach = readAttachments(context.request);
             if (attach.error) return invalid(attach.error);
             var cust = {};
@@ -1135,13 +1143,7 @@ define([
                 if (!/^\d{1,9}(\.\d{1,2})?$/.test(c)) return invalid('Partner commission on ' + name + ' must be a number with up to 2 decimal places.');
                 if (kind === 'pct' && parseFloat(c) > 100) return invalid('Partner commission on ' + name + ' must be between 0 and 100%.');
             }
-            var tplId = '';
-            if (emailOn) {   // 1.2.0: one of the offered templates, for every ticked quote
-                tplId = String(params['custpage_tpl_' + q.id] || '').trim();
-                if (!tplId) return invalid('Choose the confirmation email for ' + name + '.');
-                if (!hasOption(templates, tplId)) return invalid('The confirmation email chosen for ' + name + ' is not one of the offered templates.');
-            }
-            quotes.push({ q: q, units: u, commission: c ? { kind: kind, value: c } : null, templateId: tplId });
+            quotes.push({ q: q, units: u, commission: c ? { kind: kind, value: c } : null });
         }
 
         // Order details: options read at run time; the server repeats the inference
@@ -1221,7 +1223,7 @@ define([
                 failed.push({ q: x.q, reason: (x.q.tranId || 'Quote ' + x.q.id) + ' already converted to ' + existing[x.q.id].join(', ') });
                 return;
             }
-            if (script.getRemainingUsage() < MIN_USAGE_TO_CONVERT + (emailOn ? EMAIL_UNITS * (created.length + 1) : 0)) {   // room for the emails too
+            if (script.getRemainingUsage() < MIN_USAGE_TO_CONVERT + (emailOn ? EMAIL_UNITS : 0)) {   // 1.3.0: room for the one email
                 failed.push({ q: x.q, reason: (x.q.tranId || 'Quote ' + x.q.id) + ' not attempted (script usage limit) — please create it separately' });
                 return;
             }
@@ -1236,7 +1238,7 @@ define([
                     repId:       repId,
                     cfg:         { soForm: cfg.soForm, recordStatus: cfg.recordStatus, parentOppField: cfg.parentOppField, logKey: 'CreateOrderSL.Convert' }
                 });
-                created.push({ q: x.q, res: res, templateId: x.templateId });
+                created.push({ q: x.q, res: res });
             } catch (e) {
                 var why = reasonFor(x.q, e);
                 log.error('CreateOrderSL.Convert', 'Opportunity ' + opportunityId + ' — ' + why);
@@ -1252,54 +1254,47 @@ define([
             return;
         }
 
-        // ── The emails (1.2.0) — only if switched on; one per order created, each from its template ──
-        var emailState = 'off', emailsSent = [], emailsFailed = [];
+        // ── The email (1.3.0) — only if switched on and at least one order was created: ONE, for the opportunity ──
+        var emailState = 'off';
         if (emailOn) {
+            emailState = 'fail';
             var cc = [];
             var me = ccMeEmail.toLowerCase();
             if (rcpt.ccMe && !rcpt.to.some(function (a) { return a.toLowerCase() === me; })) cc.push(ccMeEmail);
-            created.forEach(function (c) {
-                var label = c.res.tranId || ('SO ' + c.res.soId);
-                if (script.getRemainingUsage() < EMAIL_UNITS + 30) {
-                    emailsFailed.push(c.res.soId);
-                    log.error('CreateOrderSL.Email', label + ' — not sent (script usage limit)');
-                    return;
-                }
-                var merged;
-                try {
-                    merged = render.mergeEmail({
-                        templateId:    parseInt(c.templateId, 10),
-                        entity:        { type: 'customer', id: parseInt(customerId, 10) },
-                        recipient:     { type: 'customer', id: parseInt(customerId, 10) },
-                        transactionId: parseInt(c.res.soId, 10)
-                    });
-                } catch (e) {
-                    emailsFailed.push(c.res.soId);
-                    log.error('CreateOrderSL.Email', label + ' — template ' + c.templateId + ' could not be merged (a legacy CRMSDK template can’t be; it must be FreeMarker); not sent: ' + ((e && e.message) || String(e)));
-                    return;
-                }
-                log.audit('CreateOrderSL.Email', label + ' (SO ' + c.res.soId + ') — template ' + c.templateId + ' merged; from ' + fromCode +
+            var oppLabel = 'Opportunity ' + opportunityId;
+            var merged = null;
+            try {
+                merged = render.mergeEmail({
+                    templateId:    parseInt(emailTemplateId, 10),
+                    entity:        { type: 'customer', id: parseInt(customerId, 10) },
+                    recipient:     { type: 'customer', id: parseInt(customerId, 10) },
+                    transactionId: parseInt(opportunityId, 10)
+                });
+            } catch (e) {
+                log.error('CreateOrderSL.Email', oppLabel + ' — template ' + emailTemplateId + ' could not be merged (a legacy CRMSDK template can’t be; it must be FreeMarker); not sent: ' + ((e && e.message) || String(e)));
+            }
+            if (merged) {
+                log.audit('CreateOrderSL.Email', oppLabel + ' — template ' + emailTemplateId + ' merged; from ' + fromCode +
                     ' (employee ' + sender.id + '), ' + rcpt.to.length + ' recipient' + (rcpt.to.length === 1 ? '' : 's') + (cc.length ? ' + CC me' : '') +
-                    ', ' + attach.files.length + ' attachment' + (attach.files.length === 1 ? '' : 's') + ' (' + attach.bytes + ' bytes)');
+                    ', ' + attach.files.length + ' attachment' + (attach.files.length === 1 ? '' : 's') + ' (' + attach.bytes + ' bytes), ' +
+                    created.length + ' order' + (created.length === 1 ? '' : 's') + ' created');
                 try {
                     var opts = {
                         author:         sender.id,
                         recipients:     rcpt.to,
                         subject:        merged.subject,
                         body:           merged.body,
-                        relatedRecords: { transactionId: parseInt(c.res.soId, 10), entityId: parseInt(customerId, 10) }
+                        relatedRecords: { transactionId: parseInt(opportunityId, 10), entityId: parseInt(customerId, 10) }   // the opportunity's Communication tab
                     };
                     if (cc.length) opts.cc = cc;
                     if (attach.files.length) opts.attachments = attach.files;
                     email.send(opts);
-                    emailsSent.push(c.res.soId);
-                    log.audit('CreateOrderSL.Email', label + ' — sent');
+                    emailState = 'sent';
+                    log.audit('CreateOrderSL.Email', oppLabel + ' — sent');
                 } catch (e) {
-                    emailsFailed.push(c.res.soId);
-                    log.error('CreateOrderSL.Email', label + ' — email FAILED: ' + ((e && e.message) || String(e)));
+                    log.error('CreateOrderSL.Email', oppLabel + ' — email FAILED: ' + ((e && e.message) || String(e)));
                 }
-            });
-            emailState = emailsSent.length ? 'sent' : 'fail';
+            }
         }
 
         // ── The Opportunity — LAST ───────────────────────────────────────────────
@@ -1340,9 +1335,8 @@ define([
         var mismatch = created.filter(function (c) { return c.res.totalMismatch; }).map(function (c) { return c.res.soId; });
         if (logFailed.length) { p.nsq = 'warn'; p.nsqlf = logFailed.join(','); }
         if (mismatch.length) { p.nsq = 'warn'; p.nsqtm = mismatch.join(','); }
-        if (emailState === 'sent') { p.nsqe = 'sent'; p.nsqen = String(emailsSent.length); }   // 1.2.0: nsqen = emails sent
+        if (emailState === 'sent') p.nsqe = 'sent';   // 1.3.0: one email — no nsqen / nsqef
         else if (emailState === 'fail') { p.nsqe = 'fail'; p.nsq = 'warn'; }
-        if (emailsFailed.length) { p.nsq = 'warn'; p.nsqef = emailsFailed.join(','); }   // 1.2.0: the orders whose email failed
 
         log.audit('CreateOrderSL.Summary', 'Opportunity ' + opportunityId + ' — created ' +
             created.map(function (c) { return (c.res.tranId || c.res.soId) + ' from ' + c.q.tranId + (c.res.logId ? ' (log ' + c.res.logId + ')' : ' (NO LOG)'); }).join(', ') +
@@ -1350,7 +1344,7 @@ define([
             '; warnings ' + (created.reduce(function (a, c) { return a.concat(c.res.warnings); }, []).join(' | ') || 'none') +
             '; fields ' + (oppUpdate.error ? 'FAILED' : (oppUpdate.changed.map(function (c) { return c.key; }).join(',') || 'none')) +
             ' + ' + (extraKeys.join(',') || 'none') + (extraError ? ' (FAILED)' : '') +
-            '; email ' + (emailOn ? 'sent for ' + (emailsSent.join(',') || 'none') + ', NOT sent for ' + (emailsFailed.join(',') || 'none') : 'off') +
+            '; email ' + emailState + (emailOn ? ' (template ' + emailTemplateId + ')' : '') +
             '; usage left ' + script.getRemainingUsage());
         log.audit('CreateOrderSL.Redirect', 'Opportunity ' + opportunityId + ' — ' + JSON.stringify(p));
 

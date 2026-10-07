@@ -5,7 +5,7 @@
 
 ---
 
-## Create order, part 1 (Create Order SL 1.2.1 / order library 1.2.1 / Opportunity UE 1.5.2 / CS 1.3.0)
+## Create order, part 1 (Create Order SL 1.3.0 / order library 1.2.1 / Opportunity UE 1.5.3 / CS 1.3.0)
 
 > **Status: 🔶 not yet tested in Sandbox.** Upload `nuheat_order_lib.js`, then `nuheat_create_order_sl.js`,
 > then the CS, then the UE (DEPLOYMENT_CHECKLIST 2f-3). **No script parameters:** add the `ORDER_*` rows to
@@ -16,7 +16,7 @@
 ### Automated (before uploading)
 
 ```bash
-node test/create-order.js            # must end "406 passed, 0 failed" (C1–C64; C52 re-runs the three suites below)
+node test/create-order.js            # must end "413 passed, 0 failed" (C1–C64; C52 re-runs the three suites below)
 node test/update-opp.js              # 684 passed — unchanged
 node test/send-quote-opp-update.js   # 400 passed — assertions unchanged (amendment 1 adds only an N/cache stub)
 node test/opp-lib-customer.js        # 72 passed — unchanged
@@ -38,14 +38,15 @@ for f in nuheat_order_lib.js nuheat_create_order_sl.js nuheat_opportunity_ue.js 
 | S9 | `getSelectOptions` returns the sub-status and value proposition options on the Opportunity | Both selects are populated |
 | S10 | `record.transform` accepts `customform` in `defaultValues` (the form is set first) | The SO opens on NH Sales Order (2026). If the transform throws on `customform`, report it |
 | S11 | `NEEDINFO_SUBSTATUS`'s **first** id is Awaiting Design Info (the dashboard's row is shared) | The sub-status select opens on Awaiting Design Info. If it opens on another, reorder the row's ids — the dashboard reads the list as a set |
-| S12 | `render.mergeEmail` works with each `ORDER_EMAIL_TEMPLATES` template. Legacy CRMSDK templates can't be merged, only FreeMarker ones | One order per template. A failure logs "template … could not be merged (… must be FreeMarker)" under `CreateOrderSL.Email`; that order's email isn't sent and the banner names it |
-| S13 | The merged fields (customer name, SO number, totals) come from the **new** Sales Order | Read the received email against the SO |
+| S12 | `render.mergeEmail` works with each `ORDER_EMAIL_TEMPLATES` template. Legacy CRMSDK templates can't be merged, only FreeMarker ones | One submission per template. A failure logs "template … could not be merged (… must be FreeMarker)" under `CreateOrderSL.Email`; the email isn't sent and the banner says "The confirmation email was not sent." |
+| S13 | The merged fields (customer name, opportunity number) come from the opportunity and the customer | Read the received email (see S20 for Sales Order fields) |
 | S14 | Multipart posting doesn't break the save guard token, the dates or the ticked-quote list | Submit with and without an attachment: next contact / delivery date saved as chosen, the right quotes converted, Back + resubmit → "Already created". (A local Chromium run posted every field and the two files as multipart, 6 Oct) |
 | S15 | The settings search: `name` `contains` filters on `customrecord_cdb_setting` (was S12 in amendment 1) | `CreateOrderSL.Settings` lists every key you added as found |
-| S16 | `request.files` carries the hidden `custpage_att_<n>` inputs, and the uploaded files attach without being saved | Two attachments → both on each email; nothing new in the File Cabinet |
+| S16 | `request.files` carries the hidden `custpage_att_<n>` inputs, and the uploaded files attach without being saved | Two attachments → both on the email; nothing new in the File Cabinet |
 | S17 | Governance: `render.mergeEmail` and `email.send` cost (counted 20 + 20) | `CreateOrderSL.Summary`'s "usage left" after 3 orders with emails |
 | S18 | `taxtotal` (and `total`) are readable on the transformed SO before save — including a 0% VAT heat pump quote (taxtotal 0, not blank) | A % commission on a heat pump quote saves, and `CreateOrderSL.Convert` logs "commission: 5% → £… (base £…)" with base = the quote's ex VAT |
-| S19 | **The mandatory Partner Comm (£) accepts 0** (the 6 Oct failure) | An order with no commission: saves → fine. "Please enter value(s) for: Partner Comm (£)" again → NetSuite treats 0 as empty: Steve decides on the form (DEPLOYMENT_CHECKLIST 2f-3); don't work around it |
+| S19 | With % entered, the SO saves with both % and £ set | `CreateOrderSL.Convert` logs "commission: 5% → £… (base £…)"; the SO shows Partner Comm (%) 5 and Partner Comm (£) the worked-out amount. (£ with 0 already saves — Steve's re-test, 6 Oct) |
+| S20 | Merging against the **opportunity** fills the template's fields. Parts that refer to Sales Order-only fields show blank | Steve judges it from the email he receives. If unacceptable, the alternative (not built) is to merge against the first Sales Order created and still file on the opportunity |
 
 ### Scenarios
 
@@ -58,13 +59,13 @@ for f in nuheat_order_lib.js nuheat_create_order_sl.js nuheat_opportunity_ue.js 
 | O4 | Up-front customer (terms 9) vs a trade customer | Deposit on the rows and in the totals ("2 orders · £… inc VAT · Deposit £…") for the first; none for the second |
 | O5 | Tick a UFH quote, then a heat pump quote | Project type: UFH Only, then UFH & Renewables; tick an unmapped quote → blank. Choose one yourself → ticking no longer changes it |
 | O6 | One quote, units 4, commission 5 %, email off | The row shows "= £…" under the commission. One SO: form NH Sales Order (2026), Record Status Awaiting Design Info, the project type, 5% **and** Partner Comm (£) = 5% of the ex VAT total. One order log (SO, parent opp, 4 units, authority, rep). Opportunity: sub-status Awaiting Design Info, value proposition as chosen. Banner "Order created · Created SO…". No email |
-| O7 | Two quotes, £ commission on one, email on to yourself, a different template on each, one PDF attached | Two SOs, the same project type on both; **two emails**, each from its own template, each with the PDF, each under its SO's Communication › Messages; banner "Orders created … Confirmation email sent for 2 orders" |
+| O7 | Two quotes, £ commission on one, email on to yourself, one template chosen in the email section, one PDF attached | Two SOs, the same project type on both; **one** email, from the chosen template, with the PDF, under the **opportunity's** Communication › Messages; banner "Orders created … Confirmation email sent" |
 | O7b | Many quotes on one opportunity | Each row one line (~56px) on desktop; the totals line and the footer follow the ticks; on a phone the inputs sit on a second line |
 | O7c | An opportunity whose sales rep isn't ticked Sales Rep | That rep is offered first and pre-selected; the order log gets them |
 | O8 | Browser Back and submit again | "Already created"; no second SO |
 | O9 | Units 0 / commission 150 % / no value proposition | The button stays disabled with the reason; forced through, the page re-renders "Not created." with everything kept |
 | O10 | Convert a quote, then open Create order in a second tab opened earlier and submit that quote | Refused: not open / "already converted to SO…"; nothing created → no email, no opportunity change |
-| O11 | Make one quote's SO fail (e.g. a mandatory field blank on the form) with two ticked | The other SO and its log are created; amber banner "Not created: <quote number>"; only the created order is emailed |
+| O11 | Make one quote's SO fail (e.g. a mandatory field blank on the form) with two ticked | The other SO and its log are created; amber banner "Not created: <quote number>"; the one confirmation email is still sent |
 | O12 | **As NH Account Manager (not Administrator)**: O6 again | The button shows, lists populated, SO and order log created. No button and "its settings can’t be read" = the role lacks **View** on Customer Dashboard Settings (`ORDER_SETTINGS_UNAVAILABLE` in the log). Any other Permission Violation → DEPLOYMENT_CHECKLIST › Roles and permissions |
 | O13 | Send Quote and Update opportunity after the release | Both buttons present and unchanged |
 

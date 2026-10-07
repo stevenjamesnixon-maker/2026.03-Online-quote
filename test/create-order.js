@@ -19,6 +19,7 @@
  *   C52      no change to the live pages (amendment 1: the Send Quote suite gains only an N/cache stub)
  *   C53–C61  amendment 1: settings from customrecord_cdb_setting (page, POST, UE cache, the pure parser)
  *   C62–C64  amendment 3: partner commission always written as £ (C22 updated: % now writes both fields)
+ *   amendment 4: C41–C43b rewritten — one template select, one email per submission filed on the opportunity
  *
  *   node test/create-order.js
  */
@@ -474,10 +475,8 @@ function post(overrides) {
     Object.keys(overrides || {}).forEach(function (k) {
         if (overrides[k] === undefined) delete p[k]; else p[k] = overrides[k];
     });
-    // amendment 2: with the email on, every ticked quote gets template 3198 unless the test sets one
-    if (p.custpage_email_on === 'T') {
-        try { JSON.parse(p.custpage_q_sel).forEach(function (id) { if (!Object.prototype.hasOwnProperty.call(overrides, 'custpage_tpl_' + id)) p['custpage_tpl_' + id] = '3198'; }); } catch (e) { /* bad selection tests */ }
-    }
+    // amendment 4: with the email on, the submission's template is 3198 unless the test sets one
+    if (p.custpage_email_on === 'T' && !Object.prototype.hasOwnProperty.call(overrides || {}, 'custpage_email_tpl')) p.custpage_email_tpl = '3198';
     return p;
 }
 function upload(name, size) { return { name: name, size: size, fileType: 'PDF' }; }
@@ -744,7 +743,7 @@ ok(writesOf('create', 'salesorder').length === 1 && writesOf('create', 'salesord
 ok(writesOf('create', 'customrecord_order_log').length === 1, 'and its log');
 var p29 = r29.redirect && r29.redirect.parameters;
 ok(p29 && p29.nsqs === 'ord' && p29.nsq === 'warn' && p29.nsqso === '7000' && p29.nsqqf === '902', 'redirect: both outcomes as codes (nsqso, nsqqf)');
-ok(state.emails.length === 1 && state.emails[0].relatedRecords.transactionId === 7000, 'one email, for the created order only');
+ok(state.emails.length === 1 && state.emails[0].relatedRecords.transactionId === 123, 'one email (amendment 4: filed on the opportunity), sent though only 1 of 2 converted');
 ok(logged('CreateOrderSL.Summary', /failed EST902: Please enter value\(s\) for: Lead Source/), 'the reason is logged');
 console.log('C30. Nothing created: no email, no opportunity write, the token is released');
 resetState(); state.soSaveThrows['901'] = 'boom';
@@ -836,7 +835,7 @@ ok(g40.indexOf('custpage_upd_next_contact') !== -1 && g40.indexOf('custpage_upd_
 
 // ═══ The email ═══════════════════════════════════════════════════════════════════
 
-console.log('C41. Sent only when switched on; one email per SO, each from its own template');
+console.log('C41. One confirmation email per submission, filed on the opportunity (amendment 4)');
 resetState();
 runPost(post());
 ok(state.emails.length === 0 && state.merges.length === 0, 'switch off → nothing merged, nothing sent');
@@ -849,24 +848,26 @@ ok(/<input type="file" id="nsq-att" class="nsq-att" multiple>/.test(g41) && g41.
 ok((g41.match(/<input type="file" name="custpage_att_\d" class="nsq-att-slot" hidden>/g) || []).length === 5, 'five hidden slots custpage_att_1…5');
 ok(g41.indexOf('f.enctype = "multipart/form-data"') !== -1, 'the page sets the form to multipart/form-data');
 resetState();
-var r41 = runPost(post({ custpage_q_sel: '["901","902"]', custpage_units_902: '1', custpage_email_on: 'T', custpage_rcpt_customer: 'T', custpage_email_from: 'rep',
-                         custpage_tpl_901: '3198', custpage_tpl_902: '4186' }));
-ok(state.merges.length === 2 && state.merges[0].templateId === 3198 && state.merges[0].transactionId === 7000 && state.merges[1].templateId === 4186 && state.merges[1].transactionId === 7001,
-   'one merge per SO with its own template and transactionId');
+var r41 = runPost(post({ custpage_q_sel: '["901","902"]', custpage_units_902: '1', custpage_email_on: 'T', custpage_rcpt_customer: 'T', custpage_email_from: 'rep', custpage_email_tpl: '4186' }));
+ok(writesOf('create', 'salesorder').length === 2, 'two orders created');
+ok(state.merges.length === 1 && state.merges[0].templateId === 4186 && state.merges[0].transactionId === 123, 'merged exactly once, with the chosen template and transactionId = the opportunity');
 ok(state.merges[0].entity.type === 'customer' && state.merges[0].entity.id === 55 && state.merges[0].recipient.type === 'customer' && state.merges[0].recipient.id === 55, 'entity and recipient = the customer');
-ok(state.emails.length === 2 && state.emails[0].author === '30' && state.emails[0].recipients.join() === 'cust@example.com', 'two emails, from the rep, to the customer');
-ok(state.emails[0].subject === 'Your order 7000' && state.emails[0].body === '<p>Template 3198 for SO 7000</p>' && state.emails[1].body === '<p>Template 4186 for SO 7001</p>', 'subject and body from the merge');
-ok(state.emails[0].relatedRecords.transactionId === 7000 && state.emails[1].relatedRecords.transactionId === 7001 && state.emails[0].relatedRecords.entityId === 55, 'each filed against its own SO and the customer');
+ok(state.emails.length === 1 && state.emails[0].author === '30' && state.emails[0].recipients.join() === 'cust@example.com', 'sent exactly once, from the rep, to the customer');
+ok(state.emails[0].subject === 'Your order 123' && state.emails[0].body === '<p>Template 4186 for SO 123</p>', 'subject and body from the merge');
+ok(state.emails[0].relatedRecords.transactionId === 123 && state.emails[0].relatedRecords.entityId === 55, 'filed on the opportunity (relatedRecords.transactionId) and the customer');
 ok(!state.emails[0].attachments, 'no attachments chosen → none sent');
-ok(r41.redirect.parameters.nsqe === 'sent' && r41.redirect.parameters.nsqen === '2' && !r41.redirect.parameters.nsqef, 'nsqe=sent, nsqen=2 (emails sent)');
-ok(logged('CreateOrderSL.Email', /SO239950 \(SO 7000\) — template 3198 merged; from rep \(employee 30\), 1 recipient, 0 attachments \(0 bytes\)/), 'each merge logged at audit: SO, template, recipients, attachments');
-ok(!state.logs.some(function (l) { return /Template 3198 for SO/.test(l.details); }), 'the body is never logged');
+ok(r41.redirect.parameters.nsqe === 'sent' && !r41.redirect.parameters.nsqen && !r41.redirect.parameters.nsqef, 'nsqe=sent (no nsqen, no nsqef)');
+ok(logged('CreateOrderSL.Email', /^Opportunity 123 — template 4186 merged; from rep \(employee 30\), 1 recipient, 0 attachments \(0 bytes\), 2 orders created$/), 'log: opportunity, template, recipients, attachments, orders created');
+ok(!state.logs.some(function (l) { return /Template 4186 for SO/.test(l.details); }), 'the body is never logged');
+resetState(); state.soSaveThrows['901'] = 'x'; state.soSaveThrows['902'] = 'y';
+var r41b = runPost(post({ custpage_q_sel: '["901","902"]', custpage_units_902: '1', custpage_email_on: 'T', custpage_rcpt_customer: 'T' }));
+ok(!r41b.redirect && state.merges.length === 0 && state.emails.length === 0, '0 of 2 converted → nothing merged, nothing sent');
 
-console.log('C42. Attachments: passed to every email; the limits');
+console.log('C42. Attachments: on the one email; the limits');
 resetState();
 var files42 = { custpage_att_1: upload('a.pdf', 1000), custpage_att_2: upload('b.pdf', 2000) };
 runPost(post({ custpage_q_sel: '["901","902"]', custpage_units_902: '1', custpage_email_on: 'T', custpage_rcpt_customer: 'T' }), files42);
-ok(state.emails.length === 2 && state.emails.every(function (e) { return e.attachments && e.attachments.length === 2 && e.attachments[0] === files42.custpage_att_1; }), 'the uploaded file objects go to every email, unsaved');
+ok(state.emails.length === 1 && state.emails[0].attachments.length === 2 && state.emails[0].attachments[0] === files42.custpage_att_1, 'the uploaded file objects go on the one email, unsaved');
 ok(!state.calls.some(function (c) { return /save:file|create:file/.test(c); }), 'nothing saved to the File Cabinet');
 ok(logged('CreateOrderSL.Email', /2 attachments \(3000 bytes\)/), 'count and total size logged');
 var six = {};
@@ -879,17 +880,19 @@ var r42 = runPost(post({ custpage_email_on: 'T', custpage_rcpt_customer: 'T' }),
 ok(r42.redirect && state.emails.length === 1 && !state.emails[0].attachments, 'an unused slot (no name, no content) is ignored');
 resetState();
 runPost(post({ custpage_email_on: 'F' }), files42);
-ok(state.emails.length === 0 && state.merges.length === 0, 'email off → files ignored, nothing sent');
+ok(state.emails.length === 0 && state.merges.length === 0, 'email off → files ignored, nothing merged or sent');
 
-console.log('C43. Templates: options, order, and the server check');
+console.log('C43. The template: one select in the email section, none on the rows; the server check');
 resetState();
-var t43 = between(runGet(), 'id="nsq-tpl-901"', '</select>');
-ok(/<option value="">Confirmation email…<\/option><option value="3198">Order confirmation – UFH<\/option><option value="4186">Order confirmation – Heat pump<\/option>$/.test(t43), 'ORDER_EMAIL_TEMPLATES order; inactive 3182 and missing 9999 dropped; no pre-selection (' + t43.substring(t43.length - 140) + ')');
+var g43 = runGet();
+var t43 = between(g43, 'id="nsq-email-tpl"', '</select>');
+ok(/^id="nsq-email-tpl" name="custpage_email_tpl" class="nsq-input"><option value=""><\/option><option value="3198">Order confirmation – UFH<\/option><option value="4186">Order confirmation – Heat pump<\/option>$/.test(t43),
+   'one select: ORDER_EMAIL_TEMPLATES order; inactive 3182 and missing 9999 dropped; no pre-selection (' + t43 + ')');
+ok((g43.match(/name="custpage_email_tpl"/g) || []).length === 1 && g43.indexOf('custpage_tpl_') === -1 && g43.indexOf('nsq-qf-tpl') === -1, 'exactly one template select; none on the rows');
+ok(between(g43, 'id="nsq-email-body"', 'id="nsq-email-tpl"').indexOf('Confirmation email template <span class="nsq-req"') !== -1, 'in the email section, labelled and required');
+ok(g43.indexOf('if (!$("nsq-email-tpl").value) return "Choose the confirmation email template.";') !== -1, 'required on the page while the email is on');
 ok(logged('CreateOrderSL.Config', /template 3182 is inactive; not offered/) && logged('CreateOrderSL.Config', /template 9999 not found; not offered/), 'inactive and missing logged');
 ok(state.calls.some(function (c) { return c === 'search:emailtemplate:internalid,name,isinactive'; }), 'one emailtemplate search: name, isinactive');
-var g43 = runGet();
-ok(/<label class="nsq-qf nsq-qf-tpl" for="nsq-tpl-901" hidden>/.test(g43), 'the per-row select is hidden while the email is off');
-ok(g43.indexOf('if (emailOn() && !r.querySelector(".nsq-tpl").value) return "Choose the confirmation email for " + name + ".";') !== -1, 'required on the page for every ticked row');
 resetState(); setSetting('ORDER_EMAIL_TEMPLATES', '');
 var g43b = runGet();
 ok(/<input type="checkbox" id="nsq-email-on" disabled> Send the customer an order confirmation/.test(g43b) && g43b.indexOf('No confirmation templates are set up (ORDER_EMAIL_TEMPLATES).') !== -1, 'empty setting → switch disabled, with the reason');
@@ -897,32 +900,40 @@ resetState(); setSetting('ORDER_EMAIL_TEMPLATES', '');
 nothingWritten(runPost(post({ custpage_email_on: 'T', custpage_rcpt_customer: 'T' })), 'email posted on with no templates set');
 resetState(); setSetting('ORDER_EMAIL_TEMPLATES', '3182');
 ok(/id="nsq-email-on" disabled/.test(runGet()), 'only inactive templates → disabled too');
-resetState(); nothingWritten(runPost(post({ custpage_email_on: 'T', custpage_rcpt_customer: 'T', custpage_tpl_901: '' })), 'missing template');
-resetState(); nothingWritten(runPost(post({ custpage_email_on: 'T', custpage_rcpt_customer: 'T', custpage_tpl_901: '3182' })), 'inactive (unoffered) template');
-resetState(); nothingWritten(runPost(post({ custpage_email_on: 'T', custpage_rcpt_customer: 'T', custpage_tpl_901: '4185' })), 'a template not in ORDER_EMAIL_TEMPLATES');
+resetState(); nothingWritten(runPost(post({ custpage_email_on: 'T', custpage_rcpt_customer: 'T', custpage_email_tpl: '' })), 'missing template');
+resetState(); nothingWritten(runPost(post({ custpage_email_on: 'T', custpage_rcpt_customer: 'T', custpage_email_tpl: '3182' })), 'inactive (unoffered) template');
+resetState(); nothingWritten(runPost(post({ custpage_email_on: 'T', custpage_rcpt_customer: 'T', custpage_email_tpl: '4185' })), 'a template not in ORDER_EMAIL_TEMPLATES');
 resetState();
-var r43 = runPost(post({ custpage_email_on: 'T', custpage_rcpt_customer: 'T', custpage_tpl_901: '9999' }));
-ok(r43.html.indexOf('is not one of the offered templates') !== -1, 'the refusal names the reason');
+var r43 = runPost(post({ custpage_email_on: 'T', custpage_rcpt_customer: 'T', custpage_email_tpl: '9999' }));
+ok(r43.html.indexOf('The confirmation email template is not one of the offered templates.') !== -1, 'the refusal names the reason');
+resetState();
+var r43r = runPost(post({ custpage_email_on: 'T', custpage_rcpt_customer: 'T', custpage_email_tpl: '4186', custpage_units_901: '0' }));
+ok(/<option value="4186" selected>Order confirmation – Heat pump/.test(r43r.html), 'restored after a refusal');
 
-console.log('C43b. One merge fails: the other emails still go; the banner names the failed order');
-resetState(); state.mergeThrows['4186'] = 'INVALID_TEMPLATE: legacy CRMSDK template';
-var r43b = runPost(post({ custpage_q_sel: '["901","902"]', custpage_units_902: '1', custpage_email_on: 'T', custpage_rcpt_customer: 'T', custpage_tpl_901: '3198', custpage_tpl_902: '4186' }));
-ok(state.emails.length === 1 && state.emails[0].relatedRecords.transactionId === 7000, 'SO 7000’s email sent');
+console.log('C43b. A merge or send failure → nsqe=fail; the orders stand');
+resetState(); state.mergeThrows['3198'] = 'INVALID_TEMPLATE: legacy CRMSDK template';
+var r43b = runPost(post({ custpage_q_sel: '["901","902"]', custpage_units_902: '1', custpage_email_on: 'T', custpage_rcpt_customer: 'T' }));
 var p43b = r43b.redirect.parameters;
-ok(p43b.nsqe === 'sent' && p43b.nsqen === '1' && p43b.nsqef === '7001' && p43b.nsq === 'warn', 'nsqen=1, nsqef=7001, amber');
-ok(logged('CreateOrderSL.Email', /SO239951 — template 4186 could not be merged \(a legacy CRMSDK template can’t be; it must be FreeMarker\); not sent: INVALID_TEMPLATE/), 'the failed merge logged');
-ok(logged('CreateOrderSL.Summary', /email sent for 7000, NOT sent for 7001/), 'the summary says which');
+ok(state.emails.length === 0 && writesOf('create', 'salesorder').length === 2 && writesOf('create', 'customrecord_order_log').length === 2, 'nothing sent; both orders and logs stand');
+ok(p43b.nsqe === 'fail' && p43b.nsq === 'warn' && !p43b.nsqef && p43b.nsqso === '7000,7001', 'nsqe=fail, amber, no nsqef');
+ok(logged('CreateOrderSL.Email', /Opportunity 123 — template 3198 could not be merged \(a legacy CRMSDK template can’t be; it must be FreeMarker\); not sent: INVALID_TEMPLATE/), 'the failed merge logged');
+ok(logged('CreateOrderSL.Summary', /; email fail \(template 3198\)/), 'the summary says so');
+ok(writesOf('submitFields', 'opportunity').length > 0, 'the opportunity is still written last');
 resetState(); state.emailThrows = 'SSS_EMAIL_FAILED';
 var p43c = runPost(post({ custpage_email_on: 'T', custpage_rcpt_customer: 'T' })).redirect.parameters;
-ok(p43c.nsqe === 'fail' && p43c.nsqef === '7000' && !p43c.nsqen && writesOf('create', 'salesorder').length === 1, 'every send fails → nsqe=fail, nsqef; the SO stands');
-var u43 = (function () {
+ok(p43c.nsqe === 'fail' && writesOf('create', 'salesorder').length === 1, 'the send fails → nsqe=fail; the SO stands');
+var NOW43 = String(Math.floor(Date.now() / 1000));
+function ordBanner(extra) {
     resetState();
-    state.salesOrders.push({ id: '7000', tranid: 'SO239950', createdfrom: '901', opportunity: '123', total: 1 },
-                           { id: '7001', tranid: 'SO239951', createdfrom: '902', opportunity: '123', total: 1 },
-                           { id: '7009', tranid: 'SO999999', createdfrom: '950', opportunity: '777', total: 1 });
-    return runUe({ nsqs: 'ord', nsq: 'warn', nsqt: String(Math.floor(Date.now() / 1000)), nsqso: '7000,7001', nsqe: 'sent', nsqen: '1', nsqef: '7001,7009' }, 'ALL').msg;
-})();
-ok(u43 && u43.message === 'Confirmation email not sent for SO239951.<br>Created SO239950, SO239951<br>Confirmation email sent for 1 order', 'banner: "Confirmation email not sent for SO239951" (another opportunity’s SO dropped) (' + (u43 && u43.message) + ')');
+    state.salesOrders.push({ id: '7000', tranid: 'SO239950', createdfrom: '901', opportunity: '123', total: 1 }, { id: '7001', tranid: 'SO239951', createdfrom: '902', opportunity: '123', total: 1 });
+    var prm = { nsqs: 'ord', nsq: 'ok', nsqt: NOW43, nsqso: '7000,7001' };
+    Object.keys(extra).forEach(function (k) { prm[k] = extra[k]; });
+    return runUe(prm, 'ALL').msg;
+}
+var u43a = ordBanner({ nsqe: 'sent', nsqen: '2', nsqef: '7001' });
+ok(u43a && u43a.title === 'Orders created' && u43a.message === 'Created SO239950, SO239951<br>Confirmation email sent', 'banner: "Confirmation email sent" (old nsqen / nsqef ignored) (' + (u43a && u43a.message) + ')');
+var u43b = ordBanner({ nsq: 'warn', nsqe: 'fail' });
+ok(u43b && u43b.type === 'warning' && u43b.message === 'The confirmation email was not sent.<br>Created SO239950, SO239951', 'banner: "The confirmation email was not sent." (' + (u43b && u43b.message) + ')');
 
 console.log('C43c. Live totals (display only)');
 resetState();
@@ -1031,7 +1042,7 @@ resetState();
 state.salesOrders.push({ id: '7000', tranid: 'SO239950', createdfrom: '901', opportunity: '123', total: 1 });
 var b49 = runUe({ nsqs: 'ord', nsq: 'warn', nsqt: NOW, nsqso: '7000', nsqqf: '902,950', nsqlf: '7000', nsqtm: '7000', nsqe: 'sent', nsqen: '2' }, 'ALL').msg;
 ok(b49 && b49.type === 'warning' && b49.title === 'Orders created — but not everything saved', 'WARNING title');
-ok(b49 && b49.message === 'Not created: EST902.<br>Order log not created for SO239950 — please add it.<br>Total differs from the quote on SO239950 — please check.<br>Created SO239950<br>Confirmation email sent for 2 orders',
+ok(b49 && b49.message === 'Not created: EST902.<br>Order log not created for SO239950 — please add it.<br>Total differs from the quote on SO239950 — please check.<br>Created SO239950<br>Confirmation email sent',
    'the outcomes (' + (b49 && b49.message) + ')');
 resetState();
 state.salesOrders.push({ id: '7000', tranid: 'SO239950', createdfrom: '901', opportunity: '123', total: 1 });
@@ -1204,7 +1215,7 @@ ok(g64.indexOf('out.textContent = ok ? "= " + money(Math.round(parseFloat(c) * p
 
 // ═══ Governance ══════════════════════════════════════════════════════════════════
 
-console.log('C51. Governance (mergeEmail and email.send counted at 20 units each)');
+console.log('C51. Governance (mergeEmail and email.send counted at 20 units each; one of each per submission)');
 function addQuotes(n) {
     for (var k = 0; k < n; k++) state.estimates.push({ id: String(910 + k), opp: '123', tranid: 'EST' + (910 + k), title: 'Extra', desc: '', status: 'A', qt: '5', qtText: 'UFH',
         total: 1000, exvat: 833.33, units: '1', deposit: '', due: '', created: '01/10/2026 07:00' });
@@ -1220,14 +1231,14 @@ function scenario(n, emailOn) {
     return { units: state.units, created: writesOf('create', 'salesorder').length, emails: state.emails.length, ok: !!r.redirect, html: r.html };
 }
 var G = {};
-[[1, false], [1, true], [3, false], [3, true], [6, false], [6, true]].forEach(function (c) { G[c[0] + (c[1] ? 'e' : '')] = scenario(c[0], c[1]); });
-console.log('       units: 1 quote ' + G['1'].units + ' (with emails ' + G['1e'].units + '), 3 quotes ' + G['3'].units + ' (with emails ' + G['3e'].units +
-    '), 6 quotes ' + G['6'].units + ' (with emails ' + G['6e'].units + ')');
-ok(G['1'].units < 150 && G['3'].units < 250, '1 quote < 150, 3 quotes < 250 without emails');
-ok(G['6e'].created === 6 && G['6e'].emails === 6 && G['6e'].units < 800, 'MAX_QUOTES (6) with emails: every order and email, under 800 units');
-var s8 = scenario(8, true);
-ok(!s8.ok && s8.html.indexOf('Create up to 6 orders at a time.') !== -1 && s8.created === 0, '8 quotes → refused before any write (MAX_QUOTES 6)');
-console.log('       (8 quotes with emails, if allowed, would cost about ' + (G['6e'].units + 2 * Math.round((G['6e'].units - G['3e'].units) / 3)) + ' units)');
+[[1, false], [1, true], [3, false], [3, true], [6, false], [6, true], [8, false], [8, true]].forEach(function (c) { G[c[0] + (c[1] ? 'e' : '')] = scenario(c[0], c[1]); });
+console.log('       units: 1 quote ' + G['1'].units + ' (email on ' + G['1e'].units + '), 3 quotes ' + G['3'].units + ' (email on ' + G['3e'].units +
+    '), 6 quotes ' + G['6'].units + ' (email on ' + G['6e'].units + '), 8 quotes ' + G['8'].units + ' (email on ' + G['8e'].units + ')');
+ok(G['1'].units < 150 && G['3'].units < 250, '1 quote < 150, 3 quotes < 250 without the email');
+ok(G['1e'].emails === 1 && G['3e'].emails === 1 && G['8e'].emails === 1, 'one email per submission at every size');
+ok(G['8e'].ok && G['8e'].created === 8 && G['8e'].units < 800, 'MAX_QUOTES 8 with the email on: every order, one email, under 800 units');
+var s9 = scenario(9, true);
+ok(!s9.ok && s9.html.indexOf('Create up to 8 orders at a time.') !== -1 && s9.created === 0, '9 quotes → refused before any write (MAX_QUOTES 8)');
 
 // ═══ No change to the live pages ═════════════════════════════════════════════════
 
