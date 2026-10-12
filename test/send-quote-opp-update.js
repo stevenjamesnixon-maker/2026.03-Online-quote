@@ -322,7 +322,9 @@ var modules = {
     'N/format': formatStub,
     'N/email': emailStub,
     'N/ui/message': { Type: { CONFIRMATION: 'confirmation', WARNING: 'warning', ERROR: 'error', INFORMATION: 'information' } },
-    './nuheat_master_proposal': masterProposalStub
+    './nuheat_master_proposal': masterProposalStub,
+    // Opportunity UE 1.5.1 caches its ORDER_MODE setting: an empty cache (the button then stays off)
+    'N/cache': { Scope: { PRIVATE: 'PRIVATE' }, getCache: function () { return { get: function () { return null; }, put: function () {} }; } }
 };
 modules['./nuheat_bus_grant'] = loadModule('nuheat_bus_grant.js', modules);
 modules['./nuheat_vat_rates'] = loadModule('nuheat_vat_rates.js', modules);
